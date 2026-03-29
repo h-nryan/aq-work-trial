@@ -9,19 +9,9 @@ import os
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, os.path.dirname(__file__))
-from config import (
-    EVAL_TRIALS,
-    GENERATOR_MODEL,
-    HAIKU_FILTER_RUNS,
-    OUTPUT_DIR,
-    SONNET_FILTER_MODEL,
-    SONNET_FILTER_RUNS,
-    TASK_CATEGORIES,
-)
+from config import GENERATOR_MODEL, OUTPUT_DIR, SONNET_FILTER_MODEL
 from pipeline import run_pipeline
 from prompts import select_topics
 
@@ -35,13 +25,13 @@ MODEL_COSTS_PER_1K = {
 
 
 def run_batch(
-    topics: Optional[list] = None,
+    topics: list | None = None,
     n_tasks: int = 10,
     skip_eval: bool = False,
     skip_functional: bool = False,
     skip_filters: bool = False,
-    output_dir: Optional[str] = None,
-    seed: Optional[int] = None,
+    output_dir: str | None = None,
+    seed: int | None = None,
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 

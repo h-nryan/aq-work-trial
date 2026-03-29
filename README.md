@@ -149,6 +149,8 @@ In order of importance:
 5. **Code quality** — Clean, readable, well-structured
 
 Include:
+
 - All source code
 - `CHANGELOG.md` describing what you did, why, and any design tradeoffs
 - Your git commit history (we read it)
+

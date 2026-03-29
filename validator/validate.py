@@ -2,6 +2,8 @@
 Basic structural validator — checks that a generated task directory has the right files and format.
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 

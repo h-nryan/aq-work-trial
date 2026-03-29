@@ -9,12 +9,10 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "validator"))
-from config import EVAL_TRIALS, MAX_GENERATION_RETRIES, OUTPUT_DIR
+from config import EVAL_TRIALS, MAX_GENERATION_RETRIES
 from docker_validate import docker_validate
 from evaluate import evaluate_task
 from generate import generate_task, regenerate_task
@@ -81,13 +79,13 @@ def _build_feedback(struct_result: dict | None, func_result: dict | None) -> str
 
 def run_pipeline(
     topic: str,
-    output_dir: Optional[str] = None,
+    output_dir: str | None = None,
     n_eval_trials: int = EVAL_TRIALS,
     skip_filters: bool = False,
     skip_functional: bool = False,
     skip_eval: bool = False,
     max_retries: int = MAX_GENERATION_RETRIES,
-    model: Optional[str] = None,
+    model: str | None = None,
 ) -> dict:
     """Run the full pipeline for a single topic.
 

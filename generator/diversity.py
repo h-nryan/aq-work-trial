@@ -19,7 +19,6 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -57,8 +56,8 @@ def _extract_task_metadata(results: list) -> list[dict]:
                         meta["difficulty"] = data.get("difficulty", "unknown")
                         meta["instruction"] = data.get("instruction", "")
                         meta["tags"] = data.get("tags", [])
-                except Exception:
-                    pass
+                except (yaml.YAMLError, OSError):
+                    pass  # task.yaml unreadable — fall back to topic inference
 
         # Infer language from topic if not in yaml
         if "language" not in meta:

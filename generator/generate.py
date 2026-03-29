@@ -7,10 +7,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 from openai import OpenAI
 
@@ -325,7 +325,6 @@ Return ONLY the corrected JSON object."""
     try:
         files = _parse_response(response_text)
         # Clear old files and write new ones
-        import shutil
         for item in task_path.iterdir():
             if item.name.startswith("_"):
                 continue  # preserve debug files
