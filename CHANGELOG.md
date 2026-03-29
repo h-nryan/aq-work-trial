@@ -76,6 +76,19 @@
 - **Yield metric**: learnable/attempted ratio — the single number that matters for pipeline efficiency.
 - **CLI overhaul**: Replaced manual `sys.argv` parsing with `argparse`. Added `--output-dir` (was in the function signature but not wired to CLI), `--seed` (for reproducible prompt bank selection). All flags have help descriptions.
 
+### Retry with feedback (`generator/generate.py`, `generator/pipeline.py`)
+- When structural or functional validation fails, the pipeline feeds the specific errors back to Sonnet and asks it to fix the task (up to `max_retries` attempts, default 2).
+- **Design decision**: Uses multi-turn conversation rather than regenerating from scratch. The LLM sees its original output + the validation errors, so it only needs to fix the specific issues. This is cheaper and more targeted than a full re-generation.
+- **Design decision**: Lower temperature (0.4) for retries vs. 0.7 for initial generation. Corrections need precision, not creativity.
+- Feedback includes test stdout/stderr excerpts so the LLM can see exactly which tests failed and why.
+- Retry results tracked in `stages` dict (as `retry_1`, `retry_2`) for cost accounting.
+
+### Code quality cleanup
+- Added `from __future__ import annotations` to all modules for Python 3.9 compatibility.
+- Removed unused imports across 6 files (Path, Optional, tempfile, unused config constants).
+- Narrowed broad `except Exception` to specific exception types for debuggability.
+- Consistent use of `X | None` syntax over `Optional[X]` across all modules.
+
 ### Test suites (`tests/`)
 - **95 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, and diversity analysis.
 - All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
