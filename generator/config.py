@@ -16,6 +16,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 EXAMPLES_DIR = os.path.join(BASE_DIR, "examples")
+OPUS_EXAMPLES_DIR = os.path.join(BASE_DIR, "examples-opus")
 
 # --- Generation ---
 MAX_GENERATION_RETRIES = 2

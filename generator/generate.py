@@ -38,6 +38,7 @@ from config import (
     GENERATOR_MODEL,
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
+    OPUS_EXAMPLES_DIR,
     OUTPUT_DIR,
 )
 
@@ -78,35 +79,49 @@ TOO_EASY_EXAMPLES = {
 }
 
 
+def _load_task_dir(task_dir: Path) -> str:
+    """Load all files from a task directory into a formatted string."""
+    parts = [f"### Example: {task_dir.name}\n"]
+    for fpath in sorted(task_dir.rglob("*")):
+        if fpath.is_file() and not fpath.name.startswith("."):
+            rel = fpath.relative_to(task_dir)
+            try:
+                content = fpath.read_text()
+                parts.append(f"**{rel}**\n```\n{content}\n```\n")
+            except UnicodeDecodeError:
+                continue
+    return "\n".join(parts)
+
+
 def _load_examples() -> str:
-    """Load example tasks as few-shot context.
+    """Load example tasks as few-shot context from both hand-crafted and Opus-generated dirs.
 
     Learnable examples are presented as positive examples ("generate tasks like these").
     Too-easy examples are labeled as negative examples ("this is too simple, avoid this").
+    Opus-generated examples (from examples-opus/) are included as positive examples.
     """
     positive_examples = []
     negative_examples = []
+
+    # Load hand-crafted examples
     examples_path = Path(EXAMPLES_DIR)
+    if examples_path.is_dir():
+        for task_dir in sorted(examples_path.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            content = _load_task_dir(task_dir)
+            if task_dir.name in TOO_EASY_EXAMPLES:
+                negative_examples.append(content)
+            else:
+                positive_examples.append(content)
 
-    for task_dir in sorted(examples_path.iterdir()):
-        if not task_dir.is_dir():
-            continue
-
-        example_parts = [f"### Example: {task_dir.name}\n"]
-
-        for fpath in sorted(task_dir.rglob("*")):
-            if fpath.is_file() and not fpath.name.startswith("."):
-                rel = fpath.relative_to(task_dir)
-                try:
-                    content = fpath.read_text()
-                    example_parts.append(f"**{rel}**\n```\n{content}\n```\n")
-                except UnicodeDecodeError:
-                    continue
-
-        if task_dir.name in TOO_EASY_EXAMPLES:
-            negative_examples.append("\n".join(example_parts))
-        else:
-            positive_examples.append("\n".join(example_parts))
+    # Load Opus-generated examples (all assumed learnable — they passed evaluation)
+    opus_path = Path(OPUS_EXAMPLES_DIR)
+    if opus_path.is_dir():
+        for task_dir in sorted(opus_path.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            positive_examples.append(_load_task_dir(task_dir))
 
     sections = []
     if positive_examples:
