@@ -15,11 +15,19 @@ class TestSlugify:
         assert _slugify("Fix a broken Python script") == "fix-a-broken-python-script"
 
     def test_slashes(self):
-        assert _slugify("fix a/b issue") == "fix-a-b-issue"
+        assert _slugify("fix a/b issue") == "fix-ab-issue"
 
     def test_truncates_at_60(self):
         long = "a " * 50
         assert len(_slugify(long)) <= 60
+
+    def test_commas_stripped(self):
+        result = _slugify("fix nested YAML, environment overrides, and defaults")
+        assert "," not in result
+
+    def test_docker_tag_safe(self):
+        result = _slugify("fix a/b, c++ (test) issue!")
+        assert all(c in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in result)
 
 
 class TestPct:

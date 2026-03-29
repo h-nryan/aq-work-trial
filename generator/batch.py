@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -119,8 +120,8 @@ def run_batch(
 
 
 def _slugify(topic: str) -> str:
-    """Convert a topic string to a filesystem-safe slug."""
-    return topic.lower().replace(" ", "-").replace("/", "-")[:60]
+    """Convert a topic string to a filesystem-safe and Docker-tag-safe slug."""
+    return re.sub(r"[^a-z0-9-]", "", topic.lower().replace(" ", "-"))[:60]
 
 
 def _estimate_cost(results: list) -> dict:

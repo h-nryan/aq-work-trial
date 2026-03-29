@@ -201,7 +201,7 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     Returns:
         dict with task_dir, status, usage, and duration.
     """
-    slug = topic.lower().replace(" ", "-").replace("/", "-")[:60]
+    slug = re.sub(r"[^a-z0-9-]", "", topic.lower().replace(" ", "-"))[:60]
 
     if output_dir is None:
         output_dir = os.path.join(OUTPUT_DIR, slug)
