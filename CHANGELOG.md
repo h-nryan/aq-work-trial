@@ -32,14 +32,15 @@
 - Tracks token usage and timing for cost reporting.
 - Python 3.9 compatible (`from __future__ import annotations`).
 
-### Evaluation pipeline (`generator/evaluate.py`)
-- Wraps the `tb` CLI to run terminus-1 agent against generated tasks.
-- Two-stage evaluation: Haiku pre-filter (1 run, cheap) → Opus full evaluation (5 runs).
-- Classifies tasks: learnable (1-3/5), too_easy (4-5/5), too_hard (0/5).
-- Parses trial results from run output directories.
+### Tiered evaluation pipeline (`generator/evaluate.py`)
+- **Tier 1: Haiku x5** (~$0.05-0.25/task) — cheapest filter. Skip if >= 4/5 pass (definitely too easy for Opus).
+- **Tier 2: Sonnet x3** (~$0.30-1.00/task) — closer Opus proxy. Skip if 3/3 pass (probably too easy for Opus).
+- **Tier 3: Opus x5** (~$2-5/task) — final calibration. Classify as learnable (1-3/5), too_easy (4-5/5), or too_hard (0/5).
+- **Design decision**: Model capability ordering (Haiku < Sonnet < Opus) means if a weaker model finds it easy, a stronger one definitely will. We filter from the "too easy" side cheaply, only spending Opus budget on tasks with real uncertainty.
+- **Design decision**: Single-run Haiku was too noisy — a single binary signal can't distinguish "always passes" from "passes 60%". 5 runs gives a distribution. Thresholds are configurable for later tuning once we see empirical correlations.
 
 ### End-to-end pipeline (`generator/pipeline.py`)
-- Orchestrates: generate → structural validate → functional validate → evaluate.
+- Orchestrates: generate → structural validate → functional validate → tiered evaluate.
 - Functional validation: builds Docker image, verifies tests fail before solution and pass after.
 - Early exit at each stage to avoid wasting compute on broken tasks.
 
@@ -47,4 +48,4 @@
 - 15 diverse topic templates spanning debugging, data-processing, build systems, devops.
 - Aggregate metrics: generation rate, validation rate, learnable rate, cost, time.
 - Per-task results table and JSON report output.
-- CLI flags: `--skip-eval`, `--skip-functional`, `--n-tasks N`.
+- CLI flags: `--skip-eval`, `--skip-functional`, `--skip-filters`, `--n-tasks N`.
