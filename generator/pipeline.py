@@ -160,6 +160,7 @@ def run_pipeline(
     skip_functional: bool = False,
     skip_eval: bool = False,
     max_retries: int = MAX_GENERATION_RETRIES,
+    model: Optional[str] = None,
 ) -> dict:
     """Run the full pipeline for a single topic.
 
@@ -185,7 +186,7 @@ def run_pipeline(
     print(f"Pipeline: {topic}")
     print(f"{'='*60}")
 
-    gen_result = generate_task(topic, output_dir=output_dir)
+    gen_result = generate_task(topic, output_dir=output_dir, model=model)
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
 
@@ -260,11 +261,17 @@ if __name__ == "__main__":
     skip_functional = "--skip-functional" in sys.argv
     skip_filters = "--skip-filters" in sys.argv
 
+    gen_model = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--model" and i + 1 < len(sys.argv):
+            gen_model = sys.argv[i + 1]
+
     result = run_pipeline(
         topic=topic,
         skip_eval=skip_eval,
         skip_functional=skip_functional,
         skip_filters=skip_filters,
+        model=gen_model,
     )
 
     print(json.dumps(result, indent=2, default=str))
