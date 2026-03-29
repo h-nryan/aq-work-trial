@@ -114,14 +114,14 @@
 - **docker-compose.yaml for all examples**: The harness uses `docker compose`, not raw `docker build`. Added standardized compose files to all 6 examples with env-var-driven container/image names.
 - **tmux + asciinema in Dockerfiles**: The harness requires both tools inside the container for terminal session management and recording. Added to all 6 example Dockerfiles.
 - **JSON extraction fallback**: Added brace-extraction fallback to `terminus_1.py` for models that return JSON embedded in free text (common via OpenRouter routing).
-- **OpenRouter model routing**: Models must use `openrouter/` prefix (e.g., `openrouter/anthropic/claude-3.5-haiku`) for litellm to route through OpenRouter instead of calling Anthropic directly.
+- **OpenRouter model routing**: Models must use `openrouter/` prefix (e.g., `openrouter/anthropic/claude-3.5-haiku`) for litellm to route through OpenRouter instead of calling Anthropic directly. The prefix is now auto-added in `evaluate.py`'s `_run_tb()` so `config.py` stays provider-agnostic.
 
 ### Bug fixes
 - **Slug generation**: Topic strings with commas (e.g., "nested YAML, environment overrides") produced directory names containing commas, which are invalid Docker tags. Docker build failed with "invalid reference format". Fixed by stripping all non-alphanumeric/hyphen characters from slugs. Discovered during Opus exemplar generation — wasted 2 retry attempts before identifying the root cause was in our tooling, not the generated task.
 - **API retry**: OpenRouter occasionally returns malformed JSON responses (network interruption, server error). Added `_api_call_with_retry()` with exponential backoff (3 attempts, 5s/10s/20s). Does not retry on auth errors (4xx).
 
 ### Test suites (`tests/`)
-- **97 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, and diversity analysis.
+- **122 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, diversity analysis, and harness unit tests (caching, AsciinemaHandler, JSON extraction, file existence).
 - All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
 - **Design decision**: Tests use `tmp_path` fixtures with synthetic task directories rather than the real examples, so they stay fast and don't depend on example task state.
 - Batch tests verify funnel counts, cost math, token aggregation, and edge cases (zero denominators, error statuses, generation failures).
