@@ -436,6 +436,150 @@ Return ONLY the JSON object."""
     return result
 
 
+def adjust_difficulty(
+    topic: str,
+    task_dir: str,
+    classification: str,
+    pass_rate: float,
+    model: str | None = None,
+) -> dict:
+    """Adjust task difficulty based on evaluation results.
+
+    When a task is too_hard (0/5 Opus passes) or too_easy (4-5/5), this
+    modifies the source files and solution to shift difficulty toward the
+    learnable range (1-3/5).
+
+    Strategy:
+    - too_hard: Simplify — remove 1-2 bugs, make remaining bugs more obvious,
+      reduce file count, add hints in error messages
+    - too_easy: Harden — add subtle bugs, introduce interactions between bugs,
+      add edge cases, make error messages less obvious
+
+    Args:
+        topic: The original topic string.
+        task_dir: Path to the task directory.
+        classification: "too_hard" or "too_easy".
+        pass_rate: Opus pass rate (0.0 to 1.0).
+        model: Override the generator model.
+
+    Returns:
+        dict with task_dir, status, usage, and duration.
+    """
+    client = OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
+    )
+    gen_model = model or GENERATOR_MODEL
+
+    # Read current task files
+    previous_files = {}
+    task_path = Path(task_dir)
+    for fpath in sorted(task_path.rglob("*")):
+        if fpath.is_file() and not fpath.name.startswith("_"):
+            rel = str(fpath.relative_to(task_path))
+            try:
+                previous_files[rel] = fpath.read_text()
+            except UnicodeDecodeError:
+                continue
+
+    previous_json = json.dumps({"files": previous_files}, indent=2)
+
+    if classification == "too_hard":
+        adjustment_instruction = (
+            f"This task is TOO HARD. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
+            f"(0 out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
+            "Make the task EASIER by:\n"
+            "- Remove 1-2 of the most subtle/complex bugs\n"
+            "- Make remaining bugs more discoverable (clearer error messages, more obvious symptoms)\n"
+            "- Reduce the number of interacting files if possible\n"
+            "- Keep the core challenge intact — don't make it trivial\n"
+            "- Update solution.sh to match the simplified bugs\n"
+            "- Tests must still FAIL before solution and PASS after\n\n"
+            "Return the complete adjusted task as a JSON object with ALL files."
+        )
+    else:  # too_easy
+        adjustment_instruction = (
+            f"This task is TOO EASY. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
+            f"({int(pass_rate * 5)} out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
+            "Make the task HARDER by:\n"
+            "- Add 1-2 more subtle bugs that interact with existing ones\n"
+            "- Make bug symptoms misleading (error in file A, root cause in file B)\n"
+            "- Add edge cases that only fail with specific inputs\n"
+            "- Require understanding of multiple files to fix\n"
+            "- Update solution.sh to fix the new bugs too\n"
+            "- Tests must still FAIL before solution and PASS after\n\n"
+            "Return the complete adjusted task as a JSON object with ALL files."
+        )
+
+    prompt = f"""The task for "{topic}" needs difficulty adjustment.
+
+{adjustment_instruction}
+
+Here is the current task:
+```json
+{previous_json}
+```
+
+Return ONLY the JSON object with all files."""
+
+    print(f"  Adjusting difficulty ({classification}, pass_rate={pass_rate:.0%})...")
+    print(f"  Model: {gen_model}")
+
+    start = time.time()
+
+    response = _api_call_with_retry(
+        client,
+        model=gen_model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.5,
+        max_tokens=32000,
+    )
+
+    duration = time.time() - start
+    response_text = response.choices[0].message.content
+
+    usage = {}
+    if response.usage:
+        usage = {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+
+    try:
+        files = _parse_response(response_text)
+        # Full replacement — difficulty adjustment changes everything
+        for item in task_path.iterdir():
+            if item.name.startswith("_"):
+                continue
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        _write_task_files(files, task_dir)
+        status = "success"
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        status = f"parse_error: {e}"
+        with open(os.path.join(task_dir, "_adjust_raw_response.txt"), "w") as f:
+            f.write(response_text)
+
+    result = {
+        "task_dir": task_dir,
+        "status": status,
+        "model": gen_model,
+        "usage": usage,
+        "duration_sec": round(duration, 2),
+    }
+
+    print(f"  Adjustment status: {status}")
+    print(f"  Adjustment duration: {duration:.1f}s")
+
+    return result
+
+
 if __name__ == "__main__":
     topic = sys.argv[1] if len(sys.argv) > 1 else "fix a broken Python script"
     result = generate_task(topic)

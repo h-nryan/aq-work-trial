@@ -15,7 +15,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "val
 from config import EVAL_TRIALS, MAX_GENERATION_RETRIES
 from docker_validate import docker_validate
 from evaluate import evaluate_task
-from generate import generate_task, regenerate_task
+from generate import adjust_difficulty, generate_task, regenerate_task
+
+# Max rounds of difficulty adjustment after evaluation
+MAX_DIFFICULTY_ADJUSTMENTS = 2
 
 
 def validate_structural(task_dir: str) -> dict:
@@ -176,18 +179,52 @@ def run_pipeline(
         # Validation passed — break out of retry loop
         break
 
-    # Stage 4+5+6: Tiered evaluation (Haiku x5 → Sonnet x3 → Opus x5)
+    # Stage 4+5+6: Tiered evaluation with difficulty adjustment loop
     if not skip_eval:
-        eval_result = evaluate_task(
-            task_dir=task_dir,
-            n_trials=n_eval_trials,
-            skip_filters=skip_filters,
-        )
-        result["stages"]["evaluation"] = eval_result
-        result["classification"] = eval_result["classification"]
-        result["passes"] = eval_result["passes"]
-        result["total"] = eval_result["total"]
-        result["pass_rate"] = eval_result["pass_rate"]
+        for adj_round in range(1 + MAX_DIFFICULTY_ADJUSTMENTS):
+            eval_result = evaluate_task(
+                task_dir=task_dir,
+                n_trials=n_eval_trials,
+                skip_filters=skip_filters,
+            )
+            result["stages"]["evaluation"] = eval_result
+            result["classification"] = eval_result["classification"]
+            result["passes"] = eval_result["passes"]
+            result["total"] = eval_result["total"]
+            result["pass_rate"] = eval_result["pass_rate"]
+
+            # If learnable, we're done
+            if eval_result["classification"] == "learnable":
+                break
+
+            # If not learnable and we have adjustment budget, adjust difficulty
+            if adj_round < MAX_DIFFICULTY_ADJUSTMENTS:
+                classification = eval_result["classification"]
+                pass_rate = eval_result.get("pass_rate") or 0.0
+                print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
+                      f"Task is {classification} (pass_rate={pass_rate:.0%})")
+
+                adj_result = adjust_difficulty(
+                    topic, task_dir, classification, pass_rate, model=model,
+                )
+                result["stages"][f"difficulty_adj_{adj_round + 1}"] = adj_result
+
+                if adj_result["status"] != "success":
+                    print(f"  Difficulty adjustment failed: {adj_result['status']}")
+                    break
+
+                # Re-validate before re-evaluating
+                print(f"\n[Re-validation after adjustment]")
+                func_result = validate_functional(task_dir)
+                result["stages"]["functional"] = func_result
+                if not func_result["passed"]:
+                    print(f"  Adjusted task failed functional validation")
+                    result["status"] = "functional_validation_failed"
+                    result["duration_sec"] = round(time.time() - start, 2)
+                    return result
+            else:
+                print(f"\n  Task remains {eval_result['classification']} after "
+                      f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
     else:
         print(f"\n[Evaluation] Skipped")
 
