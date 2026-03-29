@@ -1,0 +1,2 @@
+# Missing Flask dependency - this is part of the bug
+requests==2.31.0

@@ -1,0 +1,53 @@
+instruction: |
+  You have been given a broken Python Flask API service that should provide user data endpoints.
+
+  **Files in the project:**
+  - `app.py`: Main Flask application file
+  - `requirements.txt`: Python dependencies configuration
+  - `data/users.json`: User data file
+
+  **Expected API Behavior:**
+  1. Start an HTTP server on port 3000 and bind to 0.0.0.0 (server accessible via localhost)
+  2. Serve GET /users endpoint that returns an array of at least 4 user objects in JSON format
+  3. Serve GET /users/<id> endpoint that returns a specific user by ID or 404 error
+  4. Handle multiple sequential requests successfully
+
+  **User Object Schema:**
+  Each user object must contain these exact fields:
+  ```json
+  {
+    "id": <integer>,
+    "name": <string>,
+    "email": <string>,
+    "role": <string>
+  }
+  ```
+
+  **Current Issues:**
+  - Missing Flask dependency in requirements.txt
+  - Python syntax errors in application files
+  - Data file formatting problems
+  - Logic errors preventing proper user ID matching
+  - Import statement errors
+
+  **Success Criteria:**
+  - Server starts and runs on port 3000
+  - Both API endpoints return proper JSON responses
+  - The /users endpoint returns at least 4 user objects with correct schema
+  - The /users/<id> endpoint returns correct user or 404 with error message
+  - Flask dependency is properly installed (pip install -r requirements.txt works)
+  - Server can handle multiple consecutive requests
+
+  Fix the existing files to meet these requirements.
+difficulty: medium
+category: debugging
+tags: [python, flask, api, dependencies, troubleshooting]
+parser_name: pytest
+max_agent_timeout_sec: 900.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 900
+expert_time_estimate_min: 50
+junior_time_estimate_min: 100
+resource_class: medium

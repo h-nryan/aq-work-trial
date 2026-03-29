@@ -1,0 +1,122 @@
+instruction: |-
+  Fix a Maven-based Java project that builds JAR artifacts but has broken classpath configuration, causing runtime class loading failures. The project contains two JAR libraries (math-lib and calc-lib) and an executable JAR (calculator) that depends on them. Currently, the application fails to run because it cannot find the dependent JARs at runtime due to missing or incorrect manifest classpath settings, improper artifact versioning, and missing assembly rules.
+  
+  Project Layout (provided in the task folder):
+  pom.xml (top-level parent POM)
+  libs/math-lib/pom.xml, src/main/java/com/example/math/Math.java
+  libs/calc-lib/pom.xml, src/main/java/com/example/calc/Calc.java
+  app/pom.xml, src/main/java/com/example/app/Main.java
+  
+  Expected Build Tree Outputs:
+  target/bin/calculator.jar (executable JAR)
+  target/lib/math-lib-1.0.0.jar (library JAR)
+  target/lib/calc-lib-1.0.0.jar (library JAR)
+  target/site/dependencies.html (for verification)
+  
+  Current Issues:
+  Missing Class-Path manifest configuration - executable cannot find library JARs at runtime
+  JAR artifacts not properly versioned with maven coordinates - causes dependency resolution issues
+  Missing Maven assembly rules for libraries - no proper packaging mechanism
+  Incorrect dependency ordering - calc-lib depends on math-lib but order is wrong
+  Missing maven-dependency-plugin reports - cannot verify build configuration
+  Dependencies not exported with compile scope - classes not accessible to dependent modules
+  
+  Requirements:
+  A complete Maven build (mvn clean package) must succeed
+  The calculator application must run successfully and print exactly: "Calculator result: 42"
+  Build must be idempotent: running mvn package again returns success (exit code 0)
+  JAR artifacts must have proper versioning in manifest (1.0.0)
+  Class-Path must be configured so executable can find libraries without -cp flags
+  Build must produce target/site/dependencies.html (enable maven-dependency-plugin)
+  Dependencies must be declared with compile scope so app can access classes
+  Module dependencies must ensure correct build order
+  Assembly rules should be added for proper artifact packaging (recommended but not strictly required)
+  
+  Tests Will Verify:
+  Full build succeeds; calculator runs and prints the expected line
+  Idempotent build (second build returns exit code 0)
+  Class-Path is properly configured in JAR manifest (via jar tf)
+  JAR artifacts have version in manifest (presence verified via jar xf)
+  Dependency order is correct (math-lib before calc-lib)
+  Classes are accessible due to compile scope dependencies
+  No stray artifacts outside target/bin and target/lib
+  Executable can run without classpath manipulation
+  dependencies.html is generated for build verification
+  
+  Constraints:
+  Do not replace Maven; fix the existing pom.xml files
+  No editing tests
+  Keep the fix minimal: correct Class-Path, versioning, dependency order, proper scope and module dependencies
+  Prohibited: vendorizing prebuilt JARs or forcing classpath hacks
+  Prohibited: disabling parallel builds to hide races
+  
+  Program Behavior:
+  java -jar target/bin/calculator.jar prints a single line: "Calculator result: 42"
+  Fix a Maven-based Java project that builds JAR artifacts but has broken classpath configuration, causing runtime class loading failures. The project contains two JAR libraries (math-lib and calc-lib) and an executable JAR (calculator) that depends on them. Currently, the application fails to run because it cannot find the dependent JARs at runtime due to missing or incorrect manifest classpath settings, improper artifact versioning, and missing assembly rules.
+
+  Project Layout (provided in the task folder):
+  pom.xml (top-level parent POM)
+  libs/math-lib/pom.xml, src/main/java/com/example/math/Math.java
+  libs/calc-lib/pom.xml, src/main/java/com/example/calc/Calc.java
+  app/pom.xml, src/main/java/com/example/app/Main.java
+
+  Expected Build Tree Outputs:
+  target/bin/calculator.jar (executable JAR)
+  target/lib/math-lib-1.0.0.jar (library JAR)
+  target/lib/calc-lib-1.0.0.jar (library JAR)
+  target/site/dependencies.html (for verification)
+
+  Current Issues:
+  Missing Class-Path manifest configuration - executable cannot find library JARs at runtime
+  JAR artifacts not properly versioned with maven coordinates - causes dependency resolution issues
+  Missing Maven assembly rules for libraries - no proper packaging mechanism
+  Incorrect dependency ordering - calc-lib depends on math-lib but order is wrong
+  Missing maven-dependency-plugin reports - cannot verify build configuration
+  Dependencies not exported with compile scope - classes not accessible to dependent modules
+
+  Requirements:
+  A complete Maven build (mvn clean package) must succeed
+  The calculator application must run successfully and print exactly: "Calculator result: 42"
+  Build must be idempotent: running mvn package again returns success (exit code 0)
+  JAR artifacts must have proper versioning in manifest (1.0.0)
+  Class-Path must be configured so executable can find libraries without -cp flags
+  Build must produce target/site/dependencies.html (enable maven-dependency-plugin)
+  Dependencies must be declared with compile scope so app can access classes
+  Module dependencies must ensure correct build order
+  Assembly rules should be added for proper artifact packaging (recommended but not strictly required)
+
+  Tests Will Verify:
+  Full build succeeds; calculator runs and prints the expected line
+  Idempotent build (second build returns exit code 0)
+  Class-Path is properly configured in JAR manifest (via jar tf)
+  JAR artifacts have version in manifest (presence verified via jar xf)
+  Dependency order is correct (math-lib before calc-lib)
+  Classes are accessible due to compile scope dependencies
+  No stray artifacts outside target/bin and target/lib
+  Executable can run without classpath manipulation
+  dependencies.html is generated for build verification
+
+  Constraints:
+  Do not replace Maven; fix the existing pom.xml files
+  No editing tests
+  Keep the fix minimal: correct Class-Path, versioning, dependency order, proper scope and module dependencies
+  Prohibited: vendorizing prebuilt JARs or forcing classpath hacks
+  Prohibited: disabling parallel builds to hide races
+
+  Program Behavior:
+  java -jar target/bin/calculator.jar prints a single line: "Calculator result: 42"
+difficulty: medium
+category: software-engineering
+tags:
+  - cmake
+  - cpp
+  - systems
+parser_name: pytest
+max_agent_timeout_sec: 900.0
+max_test_timeout_sec: 60.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 900
+expert_time_estimate_min: 30
+junior_time_estimate_min: 60
+resource_class: large
