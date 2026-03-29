@@ -145,6 +145,7 @@
 - **Two-phase generation**: Phase 1 writes a complete working program with tests (guaranteed correct). Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes solution.sh via heredocs.
 - **Design decision**: The previous single-phase approach asked the LLM to write broken code AND its fix simultaneously. This is cognitively difficult — the LLM often produced solutions that didn't fix all bugs (~20% functional validation pass rate across all attempts). Solution-first inverts this: writing correct code is easy, introducing bugs is easy, but doing both at once is hard.
 - **Phase 1 uses lower temperature (0.5)** for correctness; **Phase 2 uses higher temperature (0.7)** for creative, realistic bugs.
+- **Phase 2 prompt strengthened**: Now requires ALL tests to fail against buggy code (previously allowed 60-80%). The LLM must trace each test function and ensure its bugs break every feature tested. Motivated by a case where `test_permissions_preserved` passed without solution because bugs only affected computation, not file permissions.
 - **Cost**: Two API calls instead of one, but saves the 2 retry calls that were almost always needed with the old approach. Net cost is comparable.
 - Usage: `python pipeline.py "topic" --solution-first`
 
