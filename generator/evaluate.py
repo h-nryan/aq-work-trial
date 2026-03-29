@@ -281,25 +281,60 @@ def evaluate_task(
                 tier_results=tier_results,
             )
 
-    # ── Tier 3: Opus × 5 (ground truth) ──
+    # ── Tier 3: Opus × 5 (ground truth) with early stopping ──
     print(f"\n  [Tier: Opus x{n_trials}] Running on {task_name}...")
 
-    opus_result = _run_tb(
-        task_dir=task_dir,
-        model=EVAL_MODEL,
-        n_attempts=n_trials,
-        output_path=output_path,
-    )
+    opus_passes = 0
+    opus_total = 0
+    opus_trials = []
+
+    for run_idx in range(n_trials):
+        remaining = n_trials - opus_total - 1  # after this run completes
+
+        single_result = _run_tb(
+            task_dir=task_dir,
+            model=EVAL_MODEL,
+            n_attempts=1,
+            output_path=output_path,
+        )
+        opus_total += 1
+        if single_result["passes"] > 0:
+            opus_passes += 1
+        opus_trials.append(single_result)
+
+        remaining = n_trials - opus_total
+
+        # Early stop: guaranteed learnable (min passes met, can't exceed max)
+        if opus_passes >= LEARNABLE_MIN and opus_passes + remaining <= LEARNABLE_MAX:
+            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
+                  f"guaranteed learnable (early stop, saved {remaining} runs)")
+            break
+
+        # Early stop: already too_easy (exceeded max even with runs left)
+        if opus_passes > LEARNABLE_MAX:
+            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
+                  f"already too_easy (early stop, saved {remaining} runs)")
+            break
+
+        # Early stop: guaranteed too_hard (can't reach min even if all remaining pass)
+        if opus_passes + remaining < LEARNABLE_MIN:
+            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
+                  f"guaranteed too_hard (early stop, saved {remaining} runs)")
+            break
+
+        print(f"    Run {opus_total}/{n_trials}: {opus_passes}/{opus_total} passes so far")
+
     tier_results["opus"] = {
         "model": EVAL_MODEL,
         "model_label": "Opus",
-        "passes": opus_result["passes"],
-        "total": opus_result["total"],
-        "result": opus_result,
+        "passes": opus_passes,
+        "total": opus_total,
+        "early_stopped": opus_total < n_trials,
+        "trials": opus_trials,
     }
 
-    passes = opus_result["passes"]
-    total = opus_result["total"]
+    passes = opus_passes
+    total = opus_total
 
     if LEARNABLE_MIN <= passes <= LEARNABLE_MAX:
         classification = "learnable"
