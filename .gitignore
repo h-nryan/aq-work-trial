@@ -62,3 +62,4 @@ output/*
 # Logs
 *.log
 logs/
+.claude/worktrees/
