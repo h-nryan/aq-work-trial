@@ -17,6 +17,22 @@ from openai import OpenAI
 API_MAX_RETRIES = 3
 API_RETRY_DELAY = 5  # seconds, doubles each retry
 
+# Standard docker-compose.yaml — identical for every task.
+# The tb harness uses `docker compose` (not raw docker) to build and run tasks.
+DOCKER_COMPOSE_TEMPLATE = """\
+services:
+  client:
+    container_name: ${T_BENCH_TASK_DOCKER_CLIENT_CONTAINER_NAME}
+    image: ${T_BENCH_TASK_DOCKER_CLIENT_IMAGE_NAME}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - TEST_DIR=${T_BENCH_TEST_DIR:-/tests}
+    stdin_open: true
+    tty: true
+"""
+
 from config import (
     EXAMPLES_DIR,
     GENERATOR_MODEL,
@@ -91,7 +107,7 @@ CRITICAL RULES:
 2. Tasks must include "source files" — the buggy/incomplete code the agent needs to fix or build upon.
 3. solution.sh must be a deterministic bash script that solves the task completely. It uses `cat > filename << 'EOF'` heredocs to write fixed files and runs any setup needed.
 4. Tests MUST FAIL on the unsolved container (before solution.sh runs) and PASS after solution.sh runs.
-5. The Dockerfile must install all dependencies needed for both the task and testing.
+5. The Dockerfile MUST install tmux and asciinema alongside all other dependencies (required by the test harness). Example: `RUN apt-get update && apt-get install -y tmux asciinema curl && rm -rf /var/lib/apt/lists/*`
 6. run-tests.sh installs uv + pytest and runs the tests. Follow the exact boilerplate pattern from examples.
 7. task.yaml must have: instruction (detailed), difficulty, category, tags, parser_name: pytest, and timeout fields.
 
@@ -190,7 +206,15 @@ def _parse_response(response_text: str) -> dict:
 
 
 def _write_task_files(files: dict, output_dir: str) -> None:
-    """Write parsed files to the task directory."""
+    """Write parsed files to the task directory.
+
+    Always injects a standard docker-compose.yaml so the tb harness
+    (which uses `docker compose`) can build and run the task.
+    """
+    # Always write the standard docker-compose.yaml — it's identical for all tasks
+    files = dict(files)  # don't mutate caller's dict
+    files.setdefault("docker-compose.yaml", DOCKER_COMPOSE_TEMPLATE)
+
     for filepath, content in files.items():
         full_path = os.path.join(output_dir, filepath)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
