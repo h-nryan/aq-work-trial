@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Batch resume (`generator/batch.py`, `generator/batch_io.py`)
+- **`--resume`** flag for the batch CLI. Accepts a batch ID (`20240101-120000`), a path to a `*-incremental.jsonl` or `*-meta.json` file, or no argument (`--resume` alone = auto-detect the most recent incomplete batch in the output directory).
+- **`batch-{id}-meta.json`**: Saved at batch start with the full planned topic list and seed. This is the key piece that enables full resume — without it, a crashed batch only knows which topics completed, not which topics were left to run.
+- **`generator/batch_io.py`**: New lightweight module (`save_meta`, `load_meta`, `load_incremental`, `resolve_resume`) extracted from `batch.py`. Has zero external dependencies, so it can be imported by tests without triggering the `openai → pydantic` chain. `batch.py` imports from it rather than duplicating.
+- **Result ordering**: Resumed results are merged back into the original topic order (prior results + new results keyed by topic, then re-sorted by the original list). The final report is consistent regardless of which tasks were completed in which run.
+- **Cleanup**: On successful completion, both the `*-meta.json` and `*-incremental.jsonl` files are removed — only the final `*-report.json` remains.
+- **Design decision**: Saving the topic list to a meta file (rather than re-generating it from `--seed`) is more robust because seeds are optional and the user may have passed explicit `--topic` flags. The meta file is the ground truth for what was planned.
+- **15 new tests** in `tests/test_batch_resume.py` covering save/load meta, incremental loading (including malformed-line tolerance), and resume resolution (by ID, auto-detect, file path, error cases).
+
 ### Slug truncation: word-boundary + hash suffix (`generator/config.py`)
 - **Problem**: The old `[:60]` hard-cut produced names like `debug-a-c-program-with-memory-corruption-in-a-linked-list-im` — mid-word and potentially colliding with any other topic sharing that 60-char prefix.
 - **Fix**: Truncate at the last hyphen (word boundary) within the available prefix budget, then append a 6-char SHA-256 hash of the full slug. The hash guarantees uniqueness: two topics that share a long prefix but differ anywhere produce different slugs.

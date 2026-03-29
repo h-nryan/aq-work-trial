@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
+from batch_io import load_incremental, load_meta, resolve_resume, save_meta
 from config import GENERATOR_MODEL, OUTPUT_DIR, SONNET_FILTER_MODEL, _slugify
 from pipeline import run_pipeline
 from prompts import select_topics
@@ -34,6 +35,7 @@ def run_batch(
     output_dir: str | None = None,
     seed: int | None = None,
     n_concurrent: int = 1,
+    resume_from: str | None = None,
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 
@@ -45,35 +47,69 @@ def run_batch(
         skip_filters: Skip tiered filters.
         output_dir: Base output directory for generated tasks.
         seed: Random seed for prompt bank selection (reproducibility).
+        n_concurrent: Number of tasks to run in parallel.
+        resume_from: Batch ID or path to resume an interrupted batch. Pass
+            "auto" to resume the most recent incomplete batch in output_dir.
 
     Returns:
         dict with per-task results and aggregate metrics.
     """
     batch_start = time.time()
-    batch_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+    batch_output_dir = output_dir or OUTPUT_DIR
+    os.makedirs(batch_output_dir, exist_ok=True)
 
+    # ── Resume path ──────────────────────────────────────────────────────────
+    prior_results: list[dict] = []
+    completed_topics: set[str] = set()
+
+    if resume_from is not None:
+        batch_id, meta_path, incremental_path = resolve_resume(
+            resume_from, batch_output_dir
+        )
+        meta = load_meta(meta_path)
+        if meta is not None:
+            # Restore original topic list from saved metadata
+            topics = meta["topics"]
+            n_tasks = len(topics)
+            if seed is None:
+                seed = meta.get("seed")
+        prior_results, completed_topics = load_incremental(incremental_path)
+        print(f"\n{'#'*60}")
+        print(f"Resuming batch: {batch_id}")
+        print(f"  Already done: {len(completed_topics)}/{len(topics or [])}")
+        print(f"  Remaining:    {len(topics or []) - len(completed_topics)}")
+        print(f"{'#'*60}")
+    else:
+        batch_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        meta_path = os.path.join(batch_output_dir, f"batch-{batch_id}-meta.json")
+        incremental_path = os.path.join(
+            batch_output_dir, f"batch-{batch_id}-incremental.jsonl"
+        )
+
+    # ── Topic selection ───────────────────────────────────────────────────────
     if topics is None:
         topics = select_topics(n=n_tasks, diverse=True, seed=seed)
     else:
         topics = topics[:n_tasks]
 
-    # Ensure output directory exists
-    batch_output_dir = output_dir or OUTPUT_DIR
-    os.makedirs(batch_output_dir, exist_ok=True)
+    # Save metadata on first run (not on resume — it already exists)
+    if resume_from is None:
+        save_meta(meta_path, batch_id, topics, seed)
 
-    # Path for incremental results (survives crashes)
-    incremental_path = os.path.join(batch_output_dir, f"batch-{batch_id}-incremental.jsonl")
+    remaining = [t for t in topics if t not in completed_topics]
 
     print(f"\n{'#'*60}")
     print(f"Batch Generation: {batch_id}")
-    print(f"Tasks to generate: {len(topics)}")
+    print(f"Tasks planned: {len(topics)}  |  Remaining: {len(remaining)}")
     if seed is not None:
         print(f"Seed: {seed}")
     print(f"Output: {batch_output_dir}")
     print(f"{'#'*60}")
 
+    # ── Per-task runner ───────────────────────────────────────────────────────
     def _run_one(i: int, topic: str) -> dict:
-        print(f"\n[{i+1}/{len(topics)}] {topic}")
+        global_idx = topics.index(topic) + 1
+        print(f"\n[{global_idx}/{len(topics)}] {topic}")
         task_output_dir = os.path.join(batch_output_dir, _slugify(topic))
         try:
             result = run_pipeline(
@@ -90,34 +126,38 @@ def run_batch(
                 "status": f"error: {e}",
                 "classification": None,
             }
-        # Save incrementally
+        # Append to incremental file as each task completes
         with open(incremental_path, "a") as f:
             f.write(json.dumps(result, default=str) + "\n")
         return result
 
-    results = []
-    if n_concurrent <= 1:
-        for i, topic in enumerate(topics):
-            results.append(_run_one(i, topic))
-    else:
-        print(f"Running {n_concurrent} tasks concurrently")
-        with ThreadPoolExecutor(max_workers=n_concurrent) as executor:
-            futures = {
-                executor.submit(_run_one, i, topic): i
-                for i, topic in enumerate(topics)
-            }
-            # Collect results in submission order
-            results = [None] * len(topics)
-            for future in as_completed(futures):
-                idx = futures[future]
-                results[idx] = future.result()
+    new_results: list[dict] = []
+    if remaining:
+        if n_concurrent <= 1:
+            for i, topic in enumerate(remaining):
+                new_results.append(_run_one(i, topic))
+        else:
+            print(f"Running {n_concurrent} tasks concurrently")
+            with ThreadPoolExecutor(max_workers=n_concurrent) as executor:
+                futures = {
+                    executor.submit(_run_one, i, topic): i
+                    for i, topic in enumerate(remaining)
+                }
+                new_results = [None] * len(remaining)
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    new_results[idx] = future.result()
+
+    # Merge in original topic order: prior results first, then new, preserving
+    # the order topics were originally planned so the report is consistent.
+    completed_map = {r["topic"]: r for r in prior_results}
+    completed_map.update({r["topic"]: r for r in new_results if r is not None})
+    results = [completed_map[t] for t in topics if t in completed_map]
 
     batch_duration = time.time() - batch_start
 
-    # Aggregate metrics
+    # ── Final report ──────────────────────────────────────────────────────────
     metrics = _compute_metrics(results, batch_duration, batch_id)
-
-    # Save final report (replaces incremental for clean consumption)
     report_path = os.path.join(batch_output_dir, f"batch-{batch_id}-report.json")
     with open(report_path, "w") as f:
         json.dump({"metrics": metrics, "results": results}, f, indent=2, default=str)
@@ -125,12 +165,12 @@ def run_batch(
     _print_report(metrics, results)
     print(f"\nFull report saved to: {report_path}")
 
-    # Clean up incremental file now that final report is written
-    if os.path.exists(incremental_path):
-        os.remove(incremental_path)
+    # Clean up working files now that the final report is written
+    for path in (incremental_path, meta_path):
+        if os.path.exists(path):
+            os.remove(path)
 
     return {"metrics": metrics, "results": results}
-
 
 
 def _estimate_cost(results: list) -> dict:
@@ -348,10 +388,19 @@ if __name__ == "__main__":
         "--skip-filters", action="store_true",
         help="Skip Haiku/Sonnet filter tiers (go straight to Opus)",
     )
+    parser.add_argument(
+        "--resume", metavar="BATCH_ID_OR_PATH", nargs="?", const="auto",
+        help=(
+            "Resume an interrupted batch. Omit the value to auto-detect the most "
+            "recent incomplete batch in --output-dir, or pass a batch ID "
+            "(e.g. 20240101-120000) or path to a *-incremental.jsonl file."
+        ),
+    )
 
     args = parser.parse_args()
 
-    # Resolve topics: explicit --topic flags, or prompt bank with filters
+    # Resolve topics: explicit --topic flags, or prompt bank with filters.
+    # Ignored when resuming (original topics are loaded from the meta file).
     topics = args.topics
     if topics is None and any([args.category, args.difficulty, args.language]):
         topics = select_topics(
@@ -372,4 +421,5 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         seed=args.seed,
         n_concurrent=args.n_concurrent,
+        resume_from=args.resume,
     )
