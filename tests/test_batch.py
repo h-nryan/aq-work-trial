@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
-from batch import _compute_metrics, _estimate_cost, _pct, _slugify
+from batch import _compute_metrics, _estimate_cost, _pct, _slugify, run_batch
 
 
 class TestSlugify:
@@ -156,3 +156,24 @@ class TestComputeMetrics:
         assert "generation_cost_usd" in m
         assert "evaluation_cost_usd" in m
         assert "total_cost_usd" in m
+
+
+class TestRunBatchConcurrency:
+    """Tests for concurrent execution parameter handling."""
+
+    def test_n_concurrent_defaults_to_1(self):
+        import inspect
+        sig = inspect.signature(run_batch)
+        assert sig.parameters["n_concurrent"].default == 1
+
+    def test_slugify_is_deterministic(self):
+        """Concurrent runs need deterministic output dirs."""
+        a = _slugify("fix a Python script")
+        b = _slugify("fix a Python script")
+        assert a == b
+
+    def test_slugify_no_collisions_for_different_topics(self):
+        """Different topics must produce different slugs."""
+        a = _slugify("fix a Python script")
+        b = _slugify("debug a C program")
+        assert a != b
