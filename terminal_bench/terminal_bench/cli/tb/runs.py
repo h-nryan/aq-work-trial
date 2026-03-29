@@ -17,7 +17,12 @@ from terminal_bench import Harness
 from terminal_bench.agents import AgentName
 from terminal_bench.dataset import Dataset
 from terminal_bench.handlers.trial_handler import TrialPaths
-from terminal_bench.harness.models import BenchmarkResults, RunMetadata, TrialResults
+from terminal_bench.harness.models import (
+    BenchmarkResults,
+    RunLock,
+    RunMetadata,
+    TrialResults,
+)
 
 dotenv.load_dotenv()
 

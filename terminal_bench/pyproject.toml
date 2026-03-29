@@ -31,6 +31,15 @@ dependencies = [
     "jinja2>=3.1.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ipykernel>=6.29.5",
+    "ipython-sql>=0.5.0",
+    "prettytable==3.5.0",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+]
+
 [project.scripts]
 terminal-bench = "terminal_bench.cli.tb.main:app"
 tb = "terminal_bench.cli.tb.main:app"

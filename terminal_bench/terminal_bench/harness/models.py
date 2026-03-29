@@ -2,12 +2,14 @@
 
 import uuid
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from pydantic import UUID4, BaseModel, Field, computed_field
 
 from terminal_bench.agents.failure_mode import FailureMode
+from terminal_bench.dataset.dataset import Dataset
 from terminal_bench.parsers.base_parser import UnitTestStatus
 
 
@@ -137,3 +139,66 @@ class BenchmarkResults(BaseModel):
         if not self.results:
             return 0.0
         return self.n_resolved / len(self.results)
+
+
+class DatasetLock(BaseModel):
+    name: str | None = None
+    version: str | None = None
+    local_path: str | None = None
+    registry_url: str | None = None
+    local_registry_path: str | None = None
+    task_ids: list[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_dataset(cls, dataset: Dataset) -> "DatasetLock":
+        cfg = dataset.config
+        local_path_str = str(dataset._path) if dataset._path is not None else None
+        reg_local = cfg.local_registry_path
+        return cls(
+            name=cfg.name,
+            version=cfg.version,
+            local_path=local_path_str,
+            registry_url=cfg.registry_url,
+            local_registry_path=str(reg_local) if reg_local is not None else None,
+            task_ids=list(dataset.task_ids),
+        )
+
+
+class AgentLock(BaseModel):
+    name: str
+    model_name: str | None = None
+    import_path: str
+    extra_kwargs: dict[str, Any] | None = None
+
+
+class RunConfigLock(BaseModel):
+    log_level: str
+    livestream: bool
+    n_concurrent_trials: int
+    n_attempts: int
+    no_rebuild: bool
+    cleanup: bool
+    global_timeout_multiplier: float
+    global_agent_timeout_sec: float | None = None
+    global_test_timeout_sec: float | None = None
+
+
+class LocalConfig(BaseModel):
+    output_path: Path
+    run_id: str
+    upload_results: bool
+
+
+class RunLock(BaseModel):
+    dataset: DatasetLock
+    agent: AgentLock
+    run_config: RunConfigLock
+    local_config: LocalConfig
+
+    def to_json(self, path: Path) -> None:
+        Path(path).write_text(self.model_dump_json(indent=2), encoding="utf-8")
+
+    @classmethod
+    def from_json(cls, path: Path | str) -> "RunLock":
+        p = Path(path)
+        return cls.model_validate_json(p.read_text(encoding="utf-8"))
