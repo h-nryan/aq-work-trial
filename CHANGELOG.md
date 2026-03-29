@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Slug truncation: word-boundary + hash suffix (`generator/config.py`)
+- **Problem**: The old `[:60]` hard-cut produced names like `debug-a-c-program-with-memory-corruption-in-a-linked-list-im` — mid-word and potentially colliding with any other topic sharing that 60-char prefix.
+- **Fix**: Truncate at the last hyphen (word boundary) within the available prefix budget, then append a 6-char SHA-256 hash of the full slug. The hash guarantees uniqueness: two topics that share a long prefix but differ anywhere produce different slugs.
+- **Design decision**: 6 hex chars = ~16M values, enough that collision probability across any realistic batch size is negligible. The hash is derived from the full cleaned slug (not the raw topic), so it's stable across minor input variations like casing and punctuation.
+- **Canonical location**: Moved `_slugify` from `generator/batch.py` to `generator/config.py`, which has no heavy dependencies (no `openai`, no `pydantic`). Both `generate.py` and `batch.py` import it from there. This also fixes a latent test isolation issue: `test_batch.py` could no longer import `_slugify` without pulling in the `openai` → `pydantic` chain.
+- **New `tests/test_config.py`**: 10 tests covering basic slugification, Docker-tag safety, word-boundary truncation, collision resistance, consecutive hyphen collapse, and determinism.
+
 ### Quality comparison tooling (`generator/quality.py`) — Stretch Goal D
 - **New module**: Compares generated tasks against hand-crafted examples using structural metrics — no LLM calls or Docker builds required.
 - **Per-task metrics**: instruction length, solution lines, test lines, test function count, file count, source file count, Dockerfile checks (exists, has tmux, has docker-compose).

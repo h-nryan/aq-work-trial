@@ -1,4 +1,6 @@
+import hashlib
 import os
+import re
 
 # --- Models ---
 # Generator: Sonnet produces task content
@@ -35,6 +37,38 @@ SONNET_FILTER_RUNS = 5
 SONNET_SKIP_THRESHOLD = 4  # skip if Sonnet passes >= 4/5 (very likely too easy for Opus)
 # Sonnet as middle filter model (same as generator, but used for evaluation here)
 SONNET_FILTER_MODEL = GENERATOR_MODEL
+
+# --- Slug generation ---
+_SLUG_MAX_LEN = 60  # Max slug length (Docker tag limit is 128; 60 keeps dirs readable)
+_SLUG_HASH_LEN = 6  # Hex chars appended when truncation is needed
+
+
+def _slugify(topic: str) -> str:
+    """Convert a topic string to a filesystem-safe, Docker-tag-safe slug.
+
+    If the cleaned slug fits within _SLUG_MAX_LEN, it is returned as-is.
+    Otherwise, truncate at the last word boundary (hyphen) within the
+    available prefix budget and append a 6-char hex hash of the full slug.
+    The hash guarantees uniqueness: two topics that share a long prefix but
+    differ anywhere in their text will always produce different slugs.
+    """
+    full = re.sub(r"[^a-z0-9-]", "", topic.lower().replace(" ", "-"))
+    full = re.sub(r"-+", "-", full).strip("-")  # collapse consecutive hyphens
+
+    if len(full) <= _SLUG_MAX_LEN:
+        return full
+
+    # Budget: prefix + "-" + hash chars must fit in _SLUG_MAX_LEN
+    prefix_budget = _SLUG_MAX_LEN - _SLUG_HASH_LEN - 1
+    truncated = full[:prefix_budget]
+    last_hyphen = truncated.rfind("-")
+    # Only snap to word boundary if it leaves at least half the budget
+    if last_hyphen >= prefix_budget // 2:
+        truncated = truncated[:last_hyphen]
+
+    suffix = hashlib.sha256(full.encode()).hexdigest()[:_SLUG_HASH_LEN]
+    return f"{truncated}-{suffix}"
+
 
 # --- Task categories for diverse generation ---
 TASK_CATEGORIES = [

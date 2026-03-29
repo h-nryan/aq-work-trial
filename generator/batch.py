@@ -6,14 +6,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
-from config import GENERATOR_MODEL, OUTPUT_DIR, SONNET_FILTER_MODEL
+from config import GENERATOR_MODEL, OUTPUT_DIR, SONNET_FILTER_MODEL, _slugify
 from pipeline import run_pipeline
 from prompts import select_topics
 
@@ -132,10 +131,6 @@ def run_batch(
 
     return {"metrics": metrics, "results": results}
 
-
-def _slugify(topic: str) -> str:
-    """Convert a topic string to a filesystem-safe and Docker-tag-safe slug."""
-    return re.sub(r"[^a-z0-9-]", "", topic.lower().replace(" ", "-"))[:60]
 
 
 def _estimate_cost(results: list) -> dict:

@@ -40,6 +40,7 @@ from config import (
     OPENROUTER_BASE_URL,
     OPUS_EXAMPLES_DIR,
     OUTPUT_DIR,
+    _slugify,
 )
 
 
@@ -280,7 +281,7 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     Returns:
         dict with task_dir, status, usage, and duration.
     """
-    slug = re.sub(r"[^a-z0-9-]", "", topic.lower().replace(" ", "-"))[:60]
+    slug = _slugify(topic)
 
     if output_dir is None:
         output_dir = os.path.join(OUTPUT_DIR, slug)

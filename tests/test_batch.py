@@ -7,55 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
-from batch import _compute_metrics, _estimate_cost, _pct, _slugify, run_batch
-
-
-class TestSlugify:
-    def test_basic(self):
-        assert _slugify("Fix a broken Python script") == "fix-a-broken-python-script"
-
-    def test_slashes(self):
-        assert _slugify("fix a/b issue") == "fix-ab-issue"
-
-    def test_truncates_at_60(self):
-        long = "a " * 50
-        assert len(_slugify(long)) <= 60
-
-    def test_truncation_at_word_boundary(self):
-        # Should not cut mid-word — the prefix before the hash ends at a hyphen
-        topic = "debug a c program with memory corruption in a linked list implementation"
-        result = _slugify(topic)
-        assert len(result) <= 60
-        # Hash suffix is the last 6 chars (preceded by hyphen)
-        assert len(result) <= 60  # should fit within limit
-        # The char before the hash suffix should be a hyphen
-        assert result[-7] == "-"
-
-    def test_truncation_no_collisions(self):
-        # Two topics that share a long prefix but differ at the end must get different slugs
-        a = _slugify("debug a c program with memory corruption in a linked list implementation")
-        b = _slugify("debug a c program with memory corruption in a linked list insertion sort")
-        assert a != b
-
-    def test_short_topic_unchanged(self):
-        # Topics under 60 chars must not get a hash suffix
-        topic = "fix a broken python script"
-        result = _slugify(topic)
-        assert result == "fix-a-broken-python-script"
-        # No hash suffix present
-        assert len(result) < 60
-
-    def test_commas_stripped(self):
-        result = _slugify("fix nested YAML, environment overrides, and defaults")
-        assert "," not in result
-
-    def test_consecutive_hyphens_collapsed(self):
-        result = _slugify("fix  a--broken  script")
-        assert "--" not in result
-
-    def test_docker_tag_safe(self):
-        result = _slugify("fix a/b, c++ (test) issue!")
-        assert all(c in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in result)
+from batch import _compute_metrics, _estimate_cost, _pct, run_batch
 
 
 class TestPct:
@@ -193,15 +145,3 @@ class TestRunBatchConcurrency:
         import inspect
         sig = inspect.signature(run_batch)
         assert sig.parameters["n_concurrent"].default == 1
-
-    def test_slugify_is_deterministic(self):
-        """Concurrent runs need deterministic output dirs."""
-        a = _slugify("fix a Python script")
-        b = _slugify("fix a Python script")
-        assert a == b
-
-    def test_slugify_no_collisions_for_different_topics(self):
-        """Different topics must produce different slugs."""
-        a = _slugify("fix a Python script")
-        b = _slugify("debug a C program")
-        assert a != b
