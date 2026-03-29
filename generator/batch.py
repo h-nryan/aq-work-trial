@@ -15,12 +15,11 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(__file__))
 from config import EVAL_TRIALS, OUTPUT_DIR, TASK_CATEGORIES
 from pipeline import run_pipeline
-from prompts import TopicEntry, select_entries, select_topics
+from prompts import select_topics
 
 
 def run_batch(
     topics: Optional[list] = None,
-    entries: Optional[list] = None,
     n_tasks: int = 10,
     skip_eval: bool = False,
     skip_functional: bool = False,
@@ -30,10 +29,8 @@ def run_batch(
     """Generate and evaluate a batch of tasks.
 
     Args:
-        topics: List of topic strings (difficulty defaults to "medium").
-        entries: List of TopicEntry objects (includes difficulty metadata).
-            Takes precedence over topics if both are provided.
-        n_tasks: Number of tasks to generate (caps topics/entries list).
+        topics: List of topic strings. If None, selects from prompt bank.
+        n_tasks: Number of tasks to generate (caps topics list).
         skip_eval: Skip agent evaluation (useful for testing generation only).
         skip_functional: Skip Docker functional validation.
         skip_filters: Skip tiered filters.
@@ -45,23 +42,19 @@ def run_batch(
     batch_start = time.time()
     batch_id = datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    # Normalize to list of (topic, difficulty) tuples
-    if entries is not None:
-        task_items = [(e.topic, e.difficulty) for e in entries[:n_tasks]]
-    elif topics is not None:
-        task_items = [(t, "medium") for t in topics[:n_tasks]]
+    if topics is None:
+        topics = select_topics(n=n_tasks, diverse=True)
     else:
-        selected = select_entries(n=n_tasks, diverse=True)
-        task_items = [(e.topic, e.difficulty) for e in selected]
+        topics = topics[:n_tasks]
 
     print(f"\n{'#'*60}")
     print(f"Batch Generation: {batch_id}")
-    print(f"Tasks to generate: {len(task_items)}")
+    print(f"Tasks to generate: {len(topics)}")
     print(f"{'#'*60}")
 
     results = []
-    for i, (topic, difficulty) in enumerate(task_items):
-        print(f"\n[{i+1}/{len(task_items)}] [{difficulty}] {topic}")
+    for i, topic in enumerate(topics):
+        print(f"\n[{i+1}/{len(topics)}] {topic}")
 
         task_output_dir = None
         if output_dir:
@@ -75,7 +68,6 @@ def run_batch(
                 skip_eval=skip_eval,
                 skip_functional=skip_functional,
                 skip_filters=skip_filters,
-                difficulty=difficulty,
             )
             results.append(result)
         except Exception as e:
@@ -219,16 +211,13 @@ if __name__ == "__main__":
         elif arg == "--language" and i + 1 < len(sys.argv):
             language = sys.argv[i + 1]
 
-    # Use entries (with difficulty metadata) when selecting from prompt bank
-    filtered_entries = None
     if custom_topics is None and any([category, difficulty, language]):
-        filtered_entries = select_entries(
+        custom_topics = select_topics(
             n=n_tasks, category=category, difficulty=difficulty, language=language, diverse=True,
         )
 
     run_batch(
         topics=custom_topics,
-        entries=filtered_entries,
         n_tasks=n_tasks,
         skip_eval=skip_eval,
         skip_functional=skip_functional,

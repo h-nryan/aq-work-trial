@@ -1,4 +1,4 @@
-"""Tests for the generator's difficulty calibration and prompt construction."""
+"""Tests for the generator's prompt construction."""
 
 from __future__ import annotations
 
@@ -7,70 +7,46 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
-from generate import DIFFICULTY_GUIDANCE, _build_system_prompt, _build_user_prompt
+from generate import SYSTEM_PROMPT, _build_user_prompt
 
 
-class TestDifficultyGuidance:
-    """Tests for difficulty-calibrated prompt generation."""
-
-    def test_all_difficulties_have_guidance(self):
-        assert "easy" in DIFFICULTY_GUIDANCE
-        assert "medium" in DIFFICULTY_GUIDANCE
-        assert "hard" in DIFFICULTY_GUIDANCE
-
-    def test_easy_guidance_mentions_high_solve_rate(self):
-        assert "80-90%" in DIFFICULTY_GUIDANCE["easy"]
-
-    def test_medium_guidance_mentions_moderate_solve_rate(self):
-        assert "40-60%" in DIFFICULTY_GUIDANCE["medium"]
-
-    def test_hard_guidance_mentions_low_solve_rate(self):
-        assert "10-30%" in DIFFICULTY_GUIDANCE["hard"]
-
-    def test_easy_fewer_bugs(self):
-        assert "1-2" in DIFFICULTY_GUIDANCE["easy"]
-
-    def test_hard_more_bugs(self):
-        assert "5-7" in DIFFICULTY_GUIDANCE["hard"]
-
-
-class TestBuildSystemPrompt:
-    """Tests for _build_system_prompt."""
+class TestSystemPrompt:
+    """Tests for the system prompt."""
 
     def test_contains_critical_rules(self):
-        prompt = _build_system_prompt("medium")
-        assert "CRITICAL RULES" in prompt
+        assert "CRITICAL RULES" in SYSTEM_PROMPT
 
     def test_contains_output_format(self):
-        prompt = _build_system_prompt("medium")
-        assert "OUTPUT FORMAT" in prompt
+        assert "OUTPUT FORMAT" in SYSTEM_PROMPT
 
-    def test_easy_prompt_uses_easy_guidance(self):
-        prompt = _build_system_prompt("easy")
-        assert "80-90%" in prompt
-        assert "1-2 clear bugs" in prompt
+    def test_targets_learnable_range(self):
+        assert "1-3 out of 5" in SYSTEM_PROMPT
 
-    def test_hard_prompt_uses_hard_guidance(self):
-        prompt = _build_system_prompt("hard")
-        assert "10-30%" in prompt
-        assert "dependency chain" in prompt
+    def test_mentions_solve_rate(self):
+        assert "40-60%" in SYSTEM_PROMPT
 
-    def test_unknown_difficulty_falls_back_to_medium(self):
-        prompt = _build_system_prompt("unknown")
-        assert "40-60%" in prompt
+    def test_mentions_interacting_bugs(self):
+        assert "3-5 distinct bugs" in SYSTEM_PROMPT
+
+    def test_requires_all_files(self):
+        assert "task.yaml" in SYSTEM_PROMPT
+        assert "Dockerfile" in SYSTEM_PROMPT
+        assert "run-tests.sh" in SYSTEM_PROMPT
+        assert "solution.sh" in SYSTEM_PROMPT
+        assert "test_outputs.py" in SYSTEM_PROMPT
 
 
 class TestBuildUserPrompt:
     """Tests for _build_user_prompt."""
 
     def test_contains_topic(self):
-        prompt = _build_user_prompt("fix a broken script", "medium")
+        prompt = _build_user_prompt("fix a broken script")
         assert "fix a broken script" in prompt
 
-    def test_contains_difficulty_level(self):
-        prompt = _build_user_prompt("fix a bug", "hard")
-        assert "DIFFICULTY LEVEL: HARD" in prompt
+    def test_contains_examples_section(self):
+        prompt = _build_user_prompt("fix a bug")
+        assert "reference examples" in prompt
 
-    def test_instructs_yaml_difficulty(self):
-        prompt = _build_user_prompt("fix a bug", "easy")
-        assert 'difficulty: "easy"' in prompt
+    def test_reminds_about_tests(self):
+        prompt = _build_user_prompt("fix a bug")
+        assert "Tests must fail before solution and pass after" in prompt
