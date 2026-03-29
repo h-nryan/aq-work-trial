@@ -44,8 +44,17 @@
 - Functional validation: builds Docker image, verifies tests fail before solution and pass after.
 - Early exit at each stage to avoid wasting compute on broken tasks.
 
+### Topic/prompt bank (`generator/prompts.py`)
+- **52 structured topics** with metadata: category, difficulty, language.
+- Covers all 6 task categories evenly (8-10 topics each).
+- Difficulty distribution: 27% easy, 50% medium, 23% hard — the easy/hard tails matter for calibrating where the learnable boundary sits.
+- 11 languages/technologies: Python, Bash, C, C++, Node.js, Go, Java, Make, CMake, Docker, Nginx.
+- **Design decision**: Each topic is a `TopicEntry` dataclass rather than a plain string. Structured metadata enables filtering by category/difficulty/language without parsing topic text.
+- **Design decision**: `select_topics(diverse=True)` uses round-robin across categories to maximize coverage per batch, preventing the generator from clustering in one domain.
+- `get_bank_stats()` for inspecting bank composition.
+
 ### Batch generation (`generator/batch.py`)
-- 15 diverse topic templates spanning debugging, data-processing, build systems, devops.
+- Now uses prompt bank (`select_topics()`) instead of hardcoded DEFAULT_TOPICS list.
 - Aggregate metrics: generation rate, validation rate, learnable rate, cost, time.
 - Per-task results table and JSON report output.
-- CLI flags: `--skip-eval`, `--skip-functional`, `--skip-filters`, `--n-tasks N`.
+- CLI flags: `--skip-eval`, `--skip-functional`, `--skip-filters`, `--n-tasks N`, `--category`, `--difficulty`, `--language`.
