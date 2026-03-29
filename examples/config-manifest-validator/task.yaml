@@ -1,16 +1,6 @@
 instruction: |-
-  Our deployment pipeline needs a manifest file for the build system. Create a file called manifest.txt in the current directory with the deployment signature "Hello, world!" as the first line.
+  Our deployment pipeline needs a manifest file for the build system. Create a file called hello.txt in the current directory with the deployment signature "Hello, world!" as the first line.
   
-  The manifest file should:
-  - Be a regular file (not a directory or special file)
-  - Have read permissions for the pipeline scanner
-  - Be UTF-8 decodable for cross-platform compatibility
-  - Start with the exact signature string "Hello, world!"
-  - Be created in the current directory where the build runs
-  - Contain content (non-empty) for validation
-  - Include the signature "Hello, world!" somewhere in the file content
-  Our deployment pipeline needs a manifest file for the build system. Create a file called manifest.txt in the current directory with the deployment signature "Hello, world!" as the first line.
-
   The manifest file should:
   - Be a regular file (not a directory or special file)
   - Have read permissions for the pipeline scanner
