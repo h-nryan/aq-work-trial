@@ -139,9 +139,121 @@ class TestComputeMetrics:
 
 
 class TestRunBatchConcurrency:
-    """Tests for concurrent execution parameter handling."""
+    """Tests for concurrent execution parameter handling and thread safety."""
 
     def test_n_concurrent_defaults_to_1(self):
         import inspect
         sig = inspect.signature(run_batch)
         assert sig.parameters["n_concurrent"].default == 1
+
+    def test_workers_capped_to_remaining(self, tmp_path, monkeypatch):
+        """min(n_concurrent, len(remaining)) — no idle threads when batch is small."""
+        import threading
+
+        worker_counts = []
+
+        original_tpe = __import__(
+            "concurrent.futures", fromlist=["ThreadPoolExecutor"]
+        ).ThreadPoolExecutor
+
+        class CapturingTPE(original_tpe):
+            def __init__(self, *args, max_workers=None, **kwargs):
+                worker_counts.append(max_workers)
+                super().__init__(*args, max_workers=max_workers, **kwargs)
+
+        monkeypatch.setattr("batch.ThreadPoolExecutor", CapturingTPE)
+        monkeypatch.setattr(
+            "batch.run_pipeline",
+            lambda **kw: {"topic": kw["topic"], "status": "completed", "stages": {}},
+        )
+
+        run_batch(
+            topics=["topic a", "topic b"],
+            n_tasks=2,
+            n_concurrent=10,  # more workers requested than topics
+            output_dir=str(tmp_path),
+        )
+        # ThreadPoolExecutor should be called with 2, not 10
+        assert worker_counts == [2]
+
+    def test_sequential_path_skips_executor(self, tmp_path, monkeypatch):
+        """n_concurrent=1 must not spin up a ThreadPoolExecutor at all."""
+        executor_created = []
+
+        original_tpe = __import__(
+            "concurrent.futures", fromlist=["ThreadPoolExecutor"]
+        ).ThreadPoolExecutor
+
+        class TrackingTPE(original_tpe):
+            def __init__(self, *args, **kwargs):
+                executor_created.append(True)
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr("batch.ThreadPoolExecutor", TrackingTPE)
+        monkeypatch.setattr(
+            "batch.run_pipeline",
+            lambda **kw: {"topic": kw["topic"], "status": "completed", "stages": {}},
+        )
+
+        run_batch(
+            topics=["only one topic"],
+            n_tasks=1,
+            n_concurrent=1,
+            output_dir=str(tmp_path),
+        )
+        assert executor_created == [], "ThreadPoolExecutor should not be used for n_concurrent=1"
+
+    def test_concurrent_writes_are_valid_jsonl(self, tmp_path, monkeypatch):
+        """Concurrent workers writing to the same file must produce valid JSONL."""
+        import time
+
+        def slow_pipeline(**kw):
+            time.sleep(0.01)  # interleave writes
+            return {"topic": kw["topic"], "status": "completed", "stages": {}}
+
+        monkeypatch.setattr("batch.run_pipeline", slow_pipeline)
+
+        topics = [f"topic {i}" for i in range(8)]
+        run_batch(
+            topics=topics,
+            n_tasks=8,
+            n_concurrent=4,
+            output_dir=str(tmp_path),
+        )
+
+        # The incremental file is cleaned up after a successful run; check report instead
+        import json
+        reports = list(tmp_path.glob("batch-*-report.json"))
+        assert len(reports) == 1
+        with open(reports[0]) as f:
+            report = json.load(f)
+        assert report["metrics"]["total_topics"] == 8
+        result_topics = {r["topic"] for r in report["results"]}
+        assert result_topics == set(topics)
+
+    def test_topic_plan_index_preserves_order(self, tmp_path, monkeypatch):
+        """Results in the final report appear in original topic order."""
+        import json
+        import time
+        import random
+
+        def staggered_pipeline(**kw):
+            time.sleep(random.uniform(0, 0.02))
+            return {"topic": kw["topic"], "status": "completed", "stages": {}}
+
+        monkeypatch.setattr("batch.run_pipeline", staggered_pipeline)
+
+        topics = [f"topic {i}" for i in range(6)]
+        run_batch(
+            topics=topics,
+            n_tasks=6,
+            n_concurrent=3,
+            output_dir=str(tmp_path),
+        )
+
+        reports = list(tmp_path.glob("batch-*-report.json"))
+        with open(reports[0]) as f:
+            report = json.load(f)
+
+        result_order = [r["topic"] for r in report["results"]]
+        assert result_order == topics

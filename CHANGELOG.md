@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Batch parallelism fixes (`generator/batch.py`) + test infrastructure
+- **Thread-safe incremental writes**: Added `threading.Lock` (`write_lock`) around all `open(incremental_path, "a")` calls in the concurrent worker. Without this, two threads finishing at the same time could interleave bytes mid-JSON-line, producing a corrupt JSONL file that blocks any future resume.
+- **O(1) topic index lookup**: Replaced `_run_one(i, topic)` (index passed in from enumerate) with `_run_one(topic)` that does a dict lookup (`topic_plan_index = {t: i for i, t in enumerate(topics)}`). The old approach was fragile — the `enumerate` index over `remaining` diverged from the original plan index when some topics had already been completed via resume.
+- **Worker cap**: Changed `workers = n_concurrent` to `workers = min(n_concurrent, len(remaining))`. Previously, passing `--n-concurrent 8` for a 2-topic batch would spin up 8 idle threads.
+- **Sequential short-circuit**: When `workers <= 1` (either `n_concurrent=1` or only one topic left), the code takes the plain `for` loop path and never creates a `ThreadPoolExecutor`. This avoids threading overhead for the common single-task case.
+- **`tests/conftest.py`**: New pytest configuration that stubs `openai` and `pydantic` in `sys.modules` before any test file is collected. The system Python 3.9 has an arm64/x86_64 architecture mismatch for `pydantic_core`, so any transitive import through `generate.py → openai → pydantic` would fail at collection time. The stub lets tests that only need pure-logic functions (like `_compute_metrics`, `_estimate_cost`, and `run_batch` with a mocked pipeline) collect and run without a working OpenAI install.
+- **4 new concurrency tests** in `tests/test_batch.py::TestRunBatchConcurrency`: workers-capped-to-remaining, sequential-path-skips-executor, concurrent-writes-produce-valid-JSONL, and topic-plan-index-preserves-original-order.
+
 ### Batch resume (`generator/batch.py`, `generator/batch_io.py`)
 - **`--resume`** flag for the batch CLI. Accepts a batch ID (`20240101-120000`), a path to a `*-incremental.jsonl` or `*-meta.json` file, or no argument (`--resume` alone = auto-detect the most recent incomplete batch in the output directory).
 - **`batch-{id}-meta.json`**: Saved at batch start with the full planned topic list and seed. This is the key piece that enables full resume — without it, a crashed batch only knows which topics completed, not which topics were left to run.

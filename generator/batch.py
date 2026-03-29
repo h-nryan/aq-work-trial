@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -107,8 +108,12 @@ def run_batch(
     print(f"{'#'*60}")
 
     # ── Per-task runner ───────────────────────────────────────────────────────
-    def _run_one(i: int, topic: str) -> dict:
-        global_idx = topics.index(topic) + 1
+    # Build a lookup of topic → original plan index for progress display.
+    topic_plan_index = {t: i for i, t in enumerate(topics)}
+    write_lock = threading.Lock()
+
+    def _run_one(topic: str) -> dict:
+        global_idx = topic_plan_index.get(topic, 0) + 1
         print(f"\n[{global_idx}/{len(topics)}] {topic}")
         task_output_dir = os.path.join(batch_output_dir, _slugify(topic))
         try:
@@ -126,21 +131,24 @@ def run_batch(
                 "status": f"error: {e}",
                 "classification": None,
             }
-        # Append to incremental file as each task completes
-        with open(incremental_path, "a") as f:
-            f.write(json.dumps(result, default=str) + "\n")
+        # Lock around file append — concurrent threads writing to the same file
+        # without synchronisation can interleave bytes and corrupt the JSONL.
+        with write_lock:
+            with open(incremental_path, "a") as f:
+                f.write(json.dumps(result, default=str) + "\n")
         return result
 
     new_results: list[dict] = []
     if remaining:
-        if n_concurrent <= 1:
-            for i, topic in enumerate(remaining):
-                new_results.append(_run_one(i, topic))
+        workers = min(n_concurrent, len(remaining))
+        if workers <= 1:
+            for topic in remaining:
+                new_results.append(_run_one(topic))
         else:
-            print(f"Running {n_concurrent} tasks concurrently")
-            with ThreadPoolExecutor(max_workers=n_concurrent) as executor:
+            print(f"Running {workers} tasks concurrently ({len(remaining)} remaining)")
+            with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
-                    executor.submit(_run_one, i, topic): i
+                    executor.submit(_run_one, topic): i
                     for i, topic in enumerate(remaining)
                 }
                 new_results = [None] * len(remaining)

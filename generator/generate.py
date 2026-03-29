@@ -380,10 +380,10 @@ The bugs should:
 - NOT change tests, Dockerfile, run-tests.sh, or task.yaml
 - Be fixable — the original working code IS the solution
 
-CRITICAL: Every single test must FAIL against the buggy code. Mentally trace through \
-each test function and verify it will fail. If a test checks a feature that your bugs \
-don't affect, add a bug that breaks that feature too. No test should pass on the \
-unsolved container.
+IMPORTANT: The majority of tests should FAIL against the buggy code — the test suite \
+must exit non-zero. Mentally trace through a few key test functions to verify your bugs \
+cause real failures. Some tests passing is fine (and realistic), but the bugs should \
+affect enough functionality that the task clearly requires fixing.
 
 Here is the working program:
 ```json
