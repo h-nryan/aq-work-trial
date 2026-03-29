@@ -58,7 +58,7 @@ def _run_tb(
     Returns:
         dict with passes, total, results_dir, and raw trial data.
     """
-    dataset_path = str(Path(task_dir).parent)
+    dataset_path = str(Path(task_dir).resolve().parent)
     task_id = Path(task_dir).name
 
     # Ensure model uses openrouter/ prefix for litellm routing via OpenRouter
