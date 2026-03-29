@@ -160,11 +160,12 @@ def run_pipeline(
     skip_functional: bool = False,
     skip_eval: bool = False,
     max_retries: int = MAX_GENERATION_RETRIES,
+    difficulty: str = "medium",
 ) -> dict:
     """Run the full pipeline for a single topic.
 
     Stages:
-    1. Generate task (Sonnet)
+    1. Generate task (Sonnet) — with difficulty-calibrated prompts
     2. Structural validation
     3. Functional validation (Docker)
     4. Tiered evaluation: Haiku x5 → Sonnet x3 → Opus x5
@@ -185,7 +186,7 @@ def run_pipeline(
     print(f"Pipeline: {topic}")
     print(f"{'='*60}")
 
-    gen_result = generate_task(topic, output_dir=output_dir)
+    gen_result = generate_task(topic, output_dir=output_dir, difficulty=difficulty)
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
 

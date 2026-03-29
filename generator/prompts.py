@@ -299,18 +299,18 @@ PROMPT_BANK: list[TopicEntry] = [
 ]
 
 
-def select_topics(
+def select_entries(
     n: int = 10,
     category: str | None = None,
     difficulty: str | None = None,
     language: str | None = None,
     diverse: bool = True,
     seed: int | None = None,
-) -> list[str]:
-    """Select topics from the prompt bank.
+) -> list[TopicEntry]:
+    """Select topic entries from the prompt bank (with full metadata).
 
     Args:
-        n: Number of topics to return.
+        n: Number of entries to return.
         category: Filter to a specific category.
         difficulty: Filter to a specific difficulty level.
         language: Filter to a specific language.
@@ -318,7 +318,7 @@ def select_topics(
         seed: Random seed for reproducibility.
 
     Returns:
-        List of topic strings.
+        List of TopicEntry objects.
     """
     rng = random.Random(seed)
 
@@ -336,7 +336,7 @@ def select_topics(
 
     if not diverse or n >= len(pool):
         rng.shuffle(pool)
-        return [t.topic for t in pool[:n]]
+        return pool[:n]
 
     # Round-robin across categories for diversity
     by_category: dict[str, list[TopicEntry]] = {}
@@ -345,7 +345,7 @@ def select_topics(
     for entries in by_category.values():
         rng.shuffle(entries)
 
-    selected: list[str] = []
+    selected: list[TopicEntry] = []
     categories = list(by_category.keys())
     rng.shuffle(categories)
     idx = {cat: 0 for cat in categories}
@@ -357,13 +357,32 @@ def select_topics(
                 break
             entries = by_category[cat]
             if idx[cat] < len(entries):
-                selected.append(entries[idx[cat]].topic)
+                selected.append(entries[idx[cat]])
                 idx[cat] += 1
                 added = True
         if not added:
             break
 
     return selected
+
+
+def select_topics(
+    n: int = 10,
+    category: str | None = None,
+    difficulty: str | None = None,
+    language: str | None = None,
+    diverse: bool = True,
+    seed: int | None = None,
+) -> list[str]:
+    """Select topic strings from the prompt bank.
+
+    Convenience wrapper around select_entries() that returns just the topic strings.
+    """
+    entries = select_entries(
+        n=n, category=category, difficulty=difficulty,
+        language=language, diverse=diverse, seed=seed,
+    )
+    return [e.topic for e in entries]
 
 
 def get_bank_stats() -> dict:

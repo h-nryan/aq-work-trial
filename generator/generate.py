@@ -49,7 +49,36 @@ def _load_examples() -> str:
     return "\n---\n\n".join(examples)
 
 
-SYSTEM_PROMPT = """\
+DIFFICULTY_GUIDANCE = {
+    "easy": """\
+EASY difficulty — the agent should solve this ~80-90% of the time:
+- Include 1-2 clear bugs that are relatively independent
+- Bugs should be findable by reading the error messages or obvious code inspection
+- Single-file tasks are fine; keep the codebase small
+- The task should take a skilled human 5-15 minutes
+- Examples: missing import, wrong function name, off-by-one in a loop, bad config value""",
+
+    "medium": """\
+MEDIUM difficulty — the agent should solve this ~40-60% of the time:
+- Include 3-5 distinct bugs or issues that interact with each other
+- Use subtle bugs: off-by-one errors, type mismatches, missing edge cases, wrong variable references
+- Require understanding of the FULL codebase to fix (not just one file)
+- Include environment/dependency issues alongside code bugs
+- Make some bugs only visible through specific test cases (edge cases)
+- The task should take a skilled human 20-60 minutes""",
+
+    "hard": """\
+HARD difficulty — the agent should solve this ~10-30% of the time:
+- Include 5-7 bugs that form a dependency chain (fixing bug A reveals bug B)
+- Require deep understanding of the system: concurrency, protocol details, or algorithmic subtlety
+- Include at least one bug that requires multi-step reasoning (not just pattern matching)
+- Some bugs should have misleading symptoms (the error appears in module X but the root cause is in module Y)
+- Use multiple interacting files with non-obvious data flow
+- The task should take a skilled human 45-90 minutes
+- Do NOT make it impossible — there must be a clear, deterministic solution""",
+}
+
+_SYSTEM_PROMPT_TEMPLATE = """\
 You are an expert at creating coding tasks for evaluating AI agents. You generate \
 Terminal Bench tasks — self-contained coding challenges that run in Docker containers \
 and are verified by pytest.
@@ -64,19 +93,15 @@ CRITICAL RULES:
 7. task.yaml must have: instruction (detailed), difficulty, category, tags, parser_name: pytest, and timeout fields.
 
 DIFFICULTY CALIBRATION (CRITICAL):
-These tasks will be solved by a very capable AI agent (Claude Opus). To be in the right difficulty band:
-- Include 3-5 distinct bugs or issues that interact with each other
-- Use subtle bugs: off-by-one errors, type mismatches, missing edge cases, wrong variable references
-- Require understanding of the FULL codebase to fix (not just one file)
-- Include environment/dependency issues alongside code bugs
-- Make some bugs only visible through specific test cases (edge cases)
-- The task should take a skilled human 20-60 minutes
-- Do NOT make it impossible — a capable agent should solve it ~40-60% of the time
+These tasks will be solved by a very capable AI agent (Claude Opus). Adjust the difficulty \
+based on the DIFFICULTY LEVEL specified in the user prompt. If no level is specified, default to "medium".
+
+{difficulty_guidance}
 
 OUTPUT FORMAT:
 Return your response as a JSON object with this structure:
-{
-  "files": {
+{{
+  "files": {{
     "task.yaml": "content...",
     "Dockerfile": "content...",
     "run-tests.sh": "content...",
@@ -84,29 +109,37 @@ Return your response as a JSON object with this structure:
     "tests/test_outputs.py": "content...",
     "source_file.ext": "content...",
     ...additional source files...
-  }
-}
+  }}
+}}
 
 Return ONLY the JSON object. No markdown fences, no explanation, just the JSON."""
 
 
-def _build_user_prompt(topic: str) -> str:
-    """Build the user prompt with topic and examples."""
-    examples = _load_examples()
-    return f"""Generate a Terminal Bench task for this topic: "{topic}"
+def _build_system_prompt(difficulty: str = "medium") -> str:
+    """Build the system prompt with difficulty-specific calibration guidance."""
+    guidance = DIFFICULTY_GUIDANCE.get(difficulty, DIFFICULTY_GUIDANCE["medium"])
+    return _SYSTEM_PROMPT_TEMPLATE.format(difficulty_guidance=guidance)
 
+
+def _build_user_prompt(topic: str, difficulty: str = "medium") -> str:
+    """Build the user prompt with topic, difficulty, and examples."""
+    examples = _load_examples()
+    difficulty_line = f"\nDIFFICULTY LEVEL: {difficulty.upper()}\n"
+    return f"""Generate a Terminal Bench task for this topic: "{topic}"
+{difficulty_line}
 Study these reference examples carefully and match their format exactly:
 
 {examples}
 
 Now generate a complete, high-quality task for: "{topic}"
+Target difficulty: {difficulty.upper()}
 
 Remember:
-- Include realistic source files with subtle, interacting bugs
+- Include realistic source files with bugs calibrated to {difficulty.upper()} difficulty
 - Tests must fail before solution and pass after
 - Dockerfile should set up a proper environment
 - solution.sh must deterministically fix everything
-- Difficulty should challenge a very capable AI agent (Claude Opus level)
+- Set difficulty: "{difficulty}" in task.yaml
 - Return ONLY the JSON object with all files"""
 
 
@@ -149,13 +182,19 @@ def _write_task_files(files: dict, output_dir: str) -> None:
             os.chmod(full_path, 0o755)
 
 
-def generate_task(topic: str, output_dir: str | None = None, model: str | None = None) -> dict:
+def generate_task(
+    topic: str,
+    output_dir: str | None = None,
+    model: str | None = None,
+    difficulty: str = "medium",
+) -> dict:
     """Generate a Terminal Bench task for the given topic.
 
     Args:
         topic: A short description of the task to generate.
         output_dir: Where to write the generated task files.
         model: Override the generator model.
+        difficulty: Target difficulty level (easy, medium, hard).
 
     Returns:
         dict with task_dir, status, usage, and duration.
@@ -173,7 +212,8 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     )
 
     gen_model = model or GENERATOR_MODEL
-    user_prompt = _build_user_prompt(topic)
+    system_prompt = _build_system_prompt(difficulty)
+    user_prompt = _build_user_prompt(topic, difficulty)
 
     print(f"Generating task for: {topic}")
     print(f"  Model: {gen_model}")
@@ -184,7 +224,7 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     response = client.chat.completions.create(
         model=gen_model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.7,
