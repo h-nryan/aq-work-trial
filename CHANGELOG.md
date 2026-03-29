@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Harness compatibility: docker-compose.yaml and tmux/asciinema (`generator/generate.py`)
+- **Root cause identified**: all 0/5 evaluation results were infrastructure failures, not task difficulty — the tb harness requires `docker compose` (not raw docker) and needs `tmux` + `asciinema` installed in containers.
+- **`DOCKER_COMPOSE_TEMPLATE`**: standard `docker-compose.yaml` constant matching the format used by all example tasks. Injected automatically by `_write_task_files()` so every generated task is harness-compatible even if the LLM forgets.
+- **SYSTEM_PROMPT updated**: CRITICAL RULE 5 now explicitly requires `tmux asciinema` in every Dockerfile's `apt-get install`.
+- **Backfilled**: added `docker-compose.yaml` and patched `tmux asciinema` into all 10 existing `output/` tasks.
+
 ### Config: model and pipeline constants (`generator/config.py`)
 - **Generator model**: Switched from Haiku to **Sonnet** (`claude-sonnet-4.5`) for higher-quality task generation.
 - **Evaluation model**: Added **Opus** (`claude-opus-4`) as the target agent model. Tasks are calibrated so Opus passes 1-3 out of 5 runs.
