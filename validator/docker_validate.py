@@ -12,6 +12,8 @@ Also performs sanity checks on instruction length, file sizes,
 and Docker image size, and tracks execution timing per phase.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
@@ -20,6 +22,11 @@ import time
 from pathlib import Path
 
 import yaml
+
+
+def _log(msg: str) -> None:
+    """Print progress messages to stderr so they don't corrupt --json output."""
+    print(msg, file=sys.stderr)
 
 
 def _docker_available() -> bool:
@@ -329,7 +336,7 @@ def docker_validate(
 
     try:
         # Phase 1: Build the Docker image
-        print(f"[1/{total_phases}] Building Docker image for '{task_name}'...")
+        _log(f"[1/{total_phases}] Building Docker image for '{task_name}'...")
         t0 = time.monotonic()
         build_result = _build_image(task_path, tag, timeout=build_timeout)
         execution_times["build"] = round(time.monotonic() - t0, 2)
@@ -341,7 +348,7 @@ def docker_validate(
 
         image_builds = True
         result_template["image_builds"] = True
-        print(f"    Image built successfully. ({execution_times['build']}s)")
+        _log(f"    Image built successfully. ({execution_times['build']}s)")
 
         # Dockerfile hygiene: check image size
         image_size = _get_image_size_mb(tag)
@@ -358,7 +365,7 @@ def docker_validate(
                 )
 
         # Phase 2: Tests must FAIL without solution
-        print(f"[2/{total_phases}] Running tests WITHOUT solution (expecting failure)...")
+        _log(f"[2/{total_phases}] Running tests WITHOUT solution (expecting failure)...")
         t0 = time.monotonic()
         no_solution = _run_tests_in_container(
             tag, task_path, apply_solution=False, timeout=test_timeout,
@@ -380,10 +387,10 @@ def docker_validate(
         else:
             tests_fail_without_solution = True
             result_template["tests_fail_without_solution"] = True
-            print(f"    Tests correctly fail without solution. ({execution_times['test_without_solution']}s)")
+            _log(f"    Tests correctly fail without solution. ({execution_times['test_without_solution']}s)")
 
         # Phase 3: Tests must PASS with solution
-        print(f"[3/{total_phases}] Running tests WITH solution (expecting pass)...")
+        _log(f"[3/{total_phases}] Running tests WITH solution (expecting pass)...")
         t0 = time.monotonic()
         with_solution = _run_tests_in_container(
             tag, task_path, apply_solution=True, timeout=test_timeout,
@@ -406,7 +413,7 @@ def docker_validate(
         else:
             tests_pass_with_solution = True
             result_template["tests_pass_with_solution"] = True
-            print(f"    Tests correctly pass with solution. ({execution_times['test_with_solution']}s)")
+            _log(f"    Tests correctly pass with solution. ({execution_times['test_with_solution']}s)")
 
             if execution_times["test_with_solution"] > 60:
                 warnings.append(
@@ -417,7 +424,7 @@ def docker_validate(
         # Extended checks (only if basic checks passed and not skipped)
         if not skip_extended and tests_pass_with_solution:
             # Phase 4: Solution idempotency
-            print(f"[4/{total_phases}] Checking solution idempotency (re-running solution + tests)...")
+            _log(f"[4/{total_phases}] Checking solution idempotency (re-running solution + tests)...")
             t0 = time.monotonic()
             idempotency_result = _run_solution_and_tests_in_container(
                 tag, task_path, timeout=test_timeout,
@@ -440,12 +447,12 @@ def docker_validate(
                 solution_idempotent = False
             else:
                 solution_idempotent = True
-                print(f"    Solution is idempotent. ({execution_times['idempotency']}s)")
+                _log(f"    Solution is idempotent. ({execution_times['idempotency']}s)")
 
             result_template["solution_idempotent"] = solution_idempotent
 
             # Phase 5: Test determinism (2 additional runs, 3 total with phase 3)
-            print(f"[5/{total_phases}] Checking test determinism (2 additional runs)...")
+            _log(f"[5/{total_phases}] Checking test determinism (2 additional runs)...")
             determinism_pass_count = 0
             t0 = time.monotonic()
             for i in range(2):
@@ -459,7 +466,7 @@ def docker_validate(
 
             if determinism_pass_count == 2:
                 tests_deterministic = True
-                print(f"    Tests are deterministic (3/3 runs passed). ({execution_times['determinism']}s)")
+                _log(f"    Tests are deterministic (3/3 runs passed). ({execution_times['determinism']}s)")
             else:
                 tests_deterministic = False
                 total_passed = 1 + determinism_pass_count  # 1 from phase 3
