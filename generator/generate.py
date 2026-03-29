@@ -14,6 +14,9 @@ from pathlib import Path
 
 from openai import OpenAI
 
+API_MAX_RETRIES = 3
+API_RETRY_DELAY = 5  # seconds, doubles each retry
+
 from config import (
     EXAMPLES_DIR,
     GENERATOR_MODEL,
@@ -21,6 +24,35 @@ from config import (
     OPENROUTER_BASE_URL,
     OUTPUT_DIR,
 )
+
+
+def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
+    """Call the OpenAI chat completions API with retry on transient failures.
+
+    Retries on network errors, malformed responses, and server errors.
+    Does NOT retry on auth errors or invalid requests (4xx).
+    """
+    last_error = None
+    for attempt in range(API_MAX_RETRIES):
+        try:
+            return client.chat.completions.create(**kwargs)
+        except (json.JSONDecodeError, ConnectionError, TimeoutError) as e:
+            last_error = e
+            delay = API_RETRY_DELAY * (2 ** attempt)
+            print(f"  API error (attempt {attempt + 1}/{API_MAX_RETRIES}): {e}")
+            print(f"  Retrying in {delay}s...")
+            time.sleep(delay)
+        except Exception as e:
+            # Don't retry on auth errors, bad requests, etc.
+            err_str = str(e).lower()
+            if any(code in err_str for code in ("401", "403", "422", "invalid")):
+                raise
+            last_error = e
+            delay = API_RETRY_DELAY * (2 ** attempt)
+            print(f"  API error (attempt {attempt + 1}/{API_MAX_RETRIES}): {e}")
+            print(f"  Retrying in {delay}s...")
+            time.sleep(delay)
+    raise last_error
 
 
 def _load_examples() -> str:
@@ -190,7 +222,8 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
 
     start = time.time()
 
-    response = client.chat.completions.create(
+    response = _api_call_with_retry(
+        client,
         model=gen_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -299,7 +332,8 @@ Return ONLY the corrected JSON object."""
 
     start = time.time()
 
-    response = client.chat.completions.create(
+    response = _api_call_with_retry(
+        client,
         model=gen_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
