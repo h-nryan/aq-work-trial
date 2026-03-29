@@ -91,6 +91,14 @@
 - Fixed markdown fence stripping: the regex used non-greedy `.*?` matching, which broke when JSON content contained triple backticks (e.g. code blocks in task.yaml instructions). Replaced with line-based fence stripping.
 - Strengthened "no fences" instruction in the system prompt, but the robust parser is the real fix since models don't always comply.
 
+### Difficulty adjustment loop (`generator/generate.py`, `generator/pipeline.py`) — Stretch Goal B
+- After evaluation classifies a task as `too_hard` (0/5 Opus passes) or `too_easy` (4-5/5), the pipeline adjusts difficulty and re-evaluates (up to 2 rounds).
+- **too_hard**: Instructs the LLM to remove 1-2 bugs, make remaining bugs more discoverable, reduce file interactions — while keeping the core challenge.
+- **too_easy**: Instructs the LLM to add subtle interacting bugs, misleading symptoms, edge cases — without making it impossible.
+- **Design decision**: Full file replacement on difficulty adjustment (not targeted repair). Unlike solution fixes where only solution.sh is broken, difficulty changes affect the relationship between source files, tests, and solution — all three need to stay consistent.
+- **Design decision**: Re-validates functionally after each adjustment before re-evaluating. An adjustment that breaks tests wastes expensive Opus eval budget. Validation is cheap (one Docker run) vs. evaluation (5+ agent runs).
+- Motivated by exemplar generation results: 2/2 tasks that passed functional validation were classified as too_hard (Opus 0/5). The generator consistently overshoots difficulty when targeting "3-5 interacting bugs."
+
 ### Code quality cleanup
 - Added `from __future__ import annotations` to all modules for Python 3.9 compatibility.
 - Removed unused imports across 6 files (Path, Optional, tempfile, unused config constants).
