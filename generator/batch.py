@@ -15,25 +15,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(__file__))
 from config import EVAL_TRIALS, OUTPUT_DIR, TASK_CATEGORIES
 from pipeline import run_pipeline
-
-# Diverse topics that should produce Opus-challenging tasks
-DEFAULT_TOPICS = [
-    "fix a broken Python async web scraper with rate limiting bugs",
-    "debug a C program with memory corruption in a linked list implementation",
-    "fix a broken Bash deployment script with race conditions and path issues",
-    "repair a Python data pipeline that silently drops records during CSV transformation",
-    "fix a broken Node.js REST API with authentication and database connection bugs",
-    "debug a broken Makefile for a multi-target C project with linking errors",
-    "fix a Python logging system with broken rotation, formatting, and handler issues",
-    "repair a broken shell script that manages systemd services with incorrect status parsing",
-    "fix a broken Python SQLite database migration script with schema and data bugs",
-    "debug a broken Docker Compose setup for a multi-service application",
-    "fix a Python config parser that mishandles nested YAML, environment overrides, and defaults",
-    "repair a broken Git hooks setup with pre-commit validation and commit message formatting",
-    "fix a broken Python test framework with fixture scoping and assertion bugs",
-    "debug a broken Nginx reverse proxy configuration with routing and SSL issues",
-    "fix a Python CLI tool with broken argument parsing, subcommands, and output formatting",
-]
+from prompts import select_topics
 
 
 def run_batch(
@@ -61,9 +43,9 @@ def run_batch(
     batch_id = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     if topics is None:
-        topics = DEFAULT_TOPICS
-
-    topics = topics[:n_tasks]
+        topics = select_topics(n=n_tasks, diverse=True)
+    else:
+        topics = topics[:n_tasks]
 
     print(f"\n{'#'*60}")
     print(f"Batch Generation: {batch_id}")
@@ -216,6 +198,23 @@ if __name__ == "__main__":
                 custom_topics = []
             if i + 1 < len(sys.argv):
                 custom_topics.append(sys.argv[i + 1])
+
+    # Prompt bank filters (only used when custom_topics is None)
+    category = None
+    difficulty = None
+    language = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--category" and i + 1 < len(sys.argv):
+            category = sys.argv[i + 1]
+        elif arg == "--difficulty" and i + 1 < len(sys.argv):
+            difficulty = sys.argv[i + 1]
+        elif arg == "--language" and i + 1 < len(sys.argv):
+            language = sys.argv[i + 1]
+
+    if custom_topics is None and any([category, difficulty, language]):
+        custom_topics = select_topics(
+            n=n_tasks, category=category, difficulty=difficulty, language=language, diverse=True,
+        )
 
     run_batch(
         topics=custom_topics,
