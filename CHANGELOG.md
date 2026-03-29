@@ -105,6 +105,17 @@
 - Narrowed broad `except Exception` to specific exception types for debuggability.
 - Consistent use of `X | None` syntax over `Optional[X]` across all modules.
 
+### Terminal Bench harness fixes
+- **Critical**: The `tb` harness was completely non-functional — all previous evaluation results (0/5 across all tasks) were caused by infrastructure failures, not task difficulty. Every fix below was necessary to get the first successful agent run.
+- **Missing prompt templates**: Created `terminus.txt` (agent system prompt), `timeout.txt` (command timeout notification), and `formatted-response.txt` (JSON schema fallback for models without native `response_format`). Reconstructed from source code context — the templates reference `{instruction}`, `{response_schema}`, `{terminal_state}`, `{history}` placeholders used in `terminus_1.py`.
+- **Missing `add_anthropic_caching()`**: Function was called in `lite_llm.py` but never defined. Added implementation that injects `cache_control` headers on system/user messages for Anthropic models.
+- **Missing `AsciinemaHandler`**: Class was used in `harness.py` but never defined. Added implementation that merges agent markers into asciinema v2 recordings.
+- **Missing `get-asciinema-timestamp.sh`**: Script expected by `tmux_session.py` to extract timestamps from recordings. Created with Python-based JSON parser.
+- **docker-compose.yaml for all examples**: The harness uses `docker compose`, not raw `docker build`. Added standardized compose files to all 6 examples with env-var-driven container/image names.
+- **tmux + asciinema in Dockerfiles**: The harness requires both tools inside the container for terminal session management and recording. Added to all 6 example Dockerfiles.
+- **JSON extraction fallback**: Added brace-extraction fallback to `terminus_1.py` for models that return JSON embedded in free text (common via OpenRouter routing).
+- **OpenRouter model routing**: Models must use `openrouter/` prefix (e.g., `openrouter/anthropic/claude-3.5-haiku`) for litellm to route through OpenRouter instead of calling Anthropic directly.
+
 ### Bug fixes
 - **Slug generation**: Topic strings with commas (e.g., "nested YAML, environment overrides") produced directory names containing commas, which are invalid Docker tags. Docker build failed with "invalid reference format". Fixed by stripping all non-alphanumeric/hyphen characters from slugs. Discovered during Opus exemplar generation — wasted 2 retry attempts before identifying the root cause was in our tooling, not the generated task.
 - **API retry**: OpenRouter occasionally returns malformed JSON responses (network interruption, server error). Added `_api_call_with_retry()` with exponential backoff (3 attempts, 5s/10s/20s). Does not retry on auth errors (4xx).
