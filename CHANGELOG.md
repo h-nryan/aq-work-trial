@@ -18,6 +18,12 @@
 - Supports `--json` output for programmatic consumption by the pipeline.
 - Configurable timeouts for both build (default 300s) and test execution (default 120s).
 - Shell wrapper at `scripts/docker-validate.sh` for CLI usage.
+- **Solution idempotency check**: After tests pass with solution, re-runs solution.sh a second time and re-runs tests. This catches fragile solutions that modify state irreversibly (e.g., appending duplicate config lines, creating files that already exist without guards). Idempotency is critical because during evaluation the agent environment may apply partial fixes before finding the full solution.
+- **Test determinism check**: Runs tests with solution applied 3 times total. All 3 must pass. This catches flaky tests (race conditions, timing-dependent assertions, random port allocation) that would produce unreliable difficulty scores and waste expensive Opus evaluation runs.
+- **Pre-Docker sanity checks**: Validates task.yaml instruction is at least 50 characters, solution.sh is at least 10 bytes, and run-tests.sh is at least 10 bytes. These catch degenerate tasks early before spending time on Docker builds. Runs before any Docker operations for fast feedback.
+- **Dockerfile hygiene**: After build, inspects image size via `docker image inspect`. Fails if over 2 GB (would make batch eval infeasible), warns if over 1 GB. Large images slow down container startup and waste disk across hundreds of evaluation runs.
+- **Execution time tracking**: Records wall-clock time for each phase (build, test-without-solution, test-with-solution, idempotency, determinism). Warns if test execution with solution exceeds 60 seconds, since this cost multiplies by 5 Opus trials per task. Times are included in the result dict and CLI output.
+- **`--skip-extended` flag**: Skips idempotency and determinism checks for quick validation during development. The full 5-phase check runs by default and is recommended before submitting tasks to the evaluation pipeline.
 
 ### Core generator (`generator/generate.py`)
 - Loads all 6 example tasks as few-shot context for Sonnet.
