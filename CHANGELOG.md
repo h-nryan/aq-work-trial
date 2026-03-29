@@ -41,8 +41,17 @@
 
 ### End-to-end pipeline (`generator/pipeline.py`)
 - Orchestrates: generate → structural validate → functional validate → tiered evaluate.
-- Functional validation: builds Docker image, verifies tests fail before solution and pass after.
+- **Integrated with `docker_validate.py`**: Pipeline's functional validation now delegates to the standalone Docker validator instead of maintaining its own 100-line inline implementation. Gets sanity checks, image size limits, and timing data for free. Uses `--skip-extended` for speed in the pipeline; full idempotency/determinism checks available via `scripts/docker-validate.sh`.
+- **Design decision**: Single source of truth for Docker validation logic. The pipeline was duplicating bind-mount logic, WORKDIR detection, and build/test commands. Centralizing in `docker_validate.py` means bug fixes and enhancements (like the sanity checks) apply everywhere.
 - Early exit at each stage to avoid wasting compute on broken tasks.
+
+### Diversity analysis (`generator/diversity.py`) — Stretch Goal C
+- Analyzes batch reports for category coverage, language distribution, difficulty spread, instruction complexity, and topic uniqueness.
+- **Coverage score**: Fraction of TASK_CATEGORIES present in the batch. Measures breadth.
+- **Evenness score**: Normalized Shannon entropy of category distribution. 1.0 = perfectly uniform, low values indicate clustering in a few categories.
+- **Near-duplicate detection**: Jaccard similarity on word sets between topic strings. Configurable threshold (default 0.7). Catches the generator producing semantically identical tasks with slightly different phrasing.
+- **Design decision**: Language is inferred from topic strings rather than requiring it in task.yaml. The generator doesn't always set a language field, so pattern matching on the topic ("Python", "Bash", "C++") is more reliable than depending on generated metadata.
+- CLI: `python generator/diversity.py <batch-report.json>` or pass a directory to auto-find the latest report. Saves a companion `-diversity.json` file.
 
 ### Topic/prompt bank (`generator/prompts.py`)
 - **52 structured topics** with metadata: category, difficulty, language.
@@ -68,7 +77,7 @@
 - **CLI overhaul**: Replaced manual `sys.argv` parsing with `argparse`. Added `--output-dir` (was in the function signature but not wired to CLI), `--seed` (for reproducible prompt bank selection). All flags have help descriptions.
 
 ### Test suites (`tests/`)
-- **73 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, and batch metrics/cost estimation.
+- **95 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, and diversity analysis.
 - All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
 - **Design decision**: Tests use `tmp_path` fixtures with synthetic task directories rather than the real examples, so they stay fast and don't depend on example task state.
 - Batch tests verify funnel counts, cost math, token aggregation, and edge cases (zero denominators, error statuses, generation failures).
