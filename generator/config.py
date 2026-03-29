@@ -2,11 +2,11 @@ import os
 
 # --- Models ---
 # Generator: Sonnet produces task content
-GENERATOR_MODEL = "anthropic/claude-sonnet-4-5-20241022"
+GENERATOR_MODEL = "anthropic/claude-sonnet-4.5"
 # Pre-filter: Haiku screens out trivially easy tasks (cheap)
-PREFILTER_MODEL = "anthropic/claude-haiku-4-5-20251001"
+PREFILTER_MODEL = "anthropic/claude-3.5-haiku"
 # Evaluation target: tasks must be learnable for Opus (1-3/5 passes)
-EVAL_MODEL = "anthropic/claude-opus-4-0-20250115"
+EVAL_MODEL = "anthropic/claude-opus-4"
 
 # --- API ---
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
