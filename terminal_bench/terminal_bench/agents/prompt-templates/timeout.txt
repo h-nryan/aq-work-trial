@@ -1,0 +1,12 @@
+TIMEOUT: Your command timed out after {timeout_sec} seconds.
+
+Command that timed out:
+{command}
+
+Current terminal state:
+{terminal_state}
+
+The command may still be running in the background. Consider:
+- Sending Ctrl+C (C-c) to cancel it
+- Checking if the process is still running
+- Trying a different approach that completes faster

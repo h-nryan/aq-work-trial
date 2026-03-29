@@ -151,8 +151,15 @@ class Terminus(BaseAgent):
 
             try:
                 return CommandBatchResponse.model_validate_json(response)
-            except (json.JSONDecodeError, ValidationError) as e:
-                raise ParseError(f"Failed to parse LLM response: {e}")
+            except (json.JSONDecodeError, ValidationError):
+                # Fallback: extract JSON from free-text response
+                try:
+                    brace_start = response.index("{")
+                    brace_end = response.rindex("}") + 1
+                    json_str = response[brace_start:brace_end]
+                    return CommandBatchResponse.model_validate_json(json_str)
+                except (ValueError, json.JSONDecodeError, ValidationError) as e:
+                    raise ParseError(f"Failed to parse LLM response: {e}")
 
         except Exception as e:
             self._logger.error(f"Error in LLM interaction: {e}")

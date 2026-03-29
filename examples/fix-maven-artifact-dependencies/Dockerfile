@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN mkdir -p /logs && chmod 777 /logs
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y tmux asciinema --no-install-recommends \
     build-essential cmake pkg-config && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 

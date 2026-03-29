@@ -21,6 +21,52 @@ from rich.progress import (
 from tenacity import RetryError
 
 from terminal_bench.agents.agent_factory import AgentFactory
+
+
+class AsciinemaHandler:
+    """Merges agent markers into an asciinema recording file.
+
+    Markers are (timestamp, text) tuples recorded during agent execution.
+    This handler inserts them as comment events into the asciinema v2 recording.
+    """
+
+    def __init__(self, markers: list[tuple[float, str]], recording_path: Path):
+        self._markers = markers
+        self._recording_path = recording_path
+
+    def merge_markers(self) -> None:
+        """Insert markers into the asciinema recording as comment events."""
+        if not self._recording_path.exists() or not self._markers:
+            return
+
+        try:
+            lines = self._recording_path.read_text().splitlines()
+            if not lines:
+                return
+
+            # First line is the header, rest are events [timestamp, type, data]
+            header = lines[0]
+            events = lines[1:]
+
+            # Add markers as "m" (marker) events
+            for timestamp, text in self._markers:
+                marker_event = json.dumps([timestamp, "m", text])
+                events.append(marker_event)
+
+            # Sort events by timestamp
+            def get_timestamp(line: str) -> float:
+                try:
+                    return json.loads(line)[0]
+                except (json.JSONDecodeError, IndexError, TypeError):
+                    return 0.0
+
+            events.sort(key=get_timestamp)
+
+            self._recording_path.write_text(
+                header + "\n" + "\n".join(events) + "\n"
+            )
+        except Exception:
+            pass  # Recording is optional — don't break the pipeline
 from terminal_bench.agents.agent_name import AgentName
 from terminal_bench.agents.base_agent import AgentResult, BaseAgent
 from terminal_bench.config import config as terminal_bench_config

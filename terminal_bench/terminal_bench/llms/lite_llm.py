@@ -31,6 +31,33 @@ from terminal_bench.llms.base_llm import (
 from terminal_bench.utils.logger import logger
 
 
+def add_anthropic_caching(messages: list[dict], model_name: str) -> list[dict]:
+    """Add cache_control headers to messages for Anthropic models.
+
+    Anthropic's prompt caching reduces costs by caching the system/early messages.
+    For non-Anthropic models, returns messages unchanged.
+    """
+    if "anthropic" not in model_name and "claude" not in model_name:
+        return messages
+
+    # Add cache_control to the system message and first user message
+    cached = []
+    for i, msg in enumerate(messages):
+        msg = dict(msg)  # don't mutate the original
+        if i == 0 or (i == len(messages) - 1 and msg.get("role") == "user"):
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                msg["content"] = [
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+        cached.append(msg)
+    return cached
+
+
 class LiteLLM(BaseLLM):
     PROMPT_TEMPLATE_PATH = (
         Path(__file__).parent / "prompt-templates/formatted-response.txt"

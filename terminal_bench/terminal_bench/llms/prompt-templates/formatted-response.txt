@@ -1,0 +1,11 @@
+{prompt}
+
+CRITICAL: You MUST respond with ONLY a valid JSON object conforming to this schema:
+
+{schema}
+
+Rules:
+- Start your response with {{ and end with }}
+- Do NOT include any text before or after the JSON
+- Do NOT wrap the JSON in markdown code fences
+- Do NOT include explanations — ONLY the raw JSON object
