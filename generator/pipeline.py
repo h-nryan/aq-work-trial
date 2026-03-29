@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "val
 from config import EVAL_TRIALS, MAX_GENERATION_RETRIES, OUTPUT_DIR
 from docker_validate import docker_validate
 from evaluate import evaluate_task
-from generate import generate_task
+from generate import generate_task, regenerate_task
 
 
 def validate_structural(task_dir: str) -> dict:
@@ -54,6 +54,31 @@ def validate_functional(task_dir: str) -> dict:
     )
 
 
+def _build_feedback(struct_result: dict | None, func_result: dict | None) -> str:
+    """Build a feedback string from validation results for the retry prompt."""
+    parts = []
+
+    if struct_result and not struct_result.get("passed"):
+        output = struct_result.get("output", "")
+        parts.append(f"STRUCTURAL VALIDATION FAILED:\n{output}")
+
+    if func_result and not func_result.get("passed"):
+        issues = func_result.get("issues", [])
+        if issues:
+            parts.append("FUNCTIONAL VALIDATION FAILED:\n" + "\n".join(f"- {i}" for i in issues))
+
+        # Include test output excerpts for debugging context
+        details = func_result.get("details", {})
+        for phase in ("without_solution", "with_solution"):
+            phase_detail = details.get(phase, {})
+            stdout = phase_detail.get("stdout_tail", "")
+            stderr = phase_detail.get("stderr_tail", "")
+            if stdout or stderr:
+                parts.append(f"\n{phase.upper()} output:\nstdout: {stdout[-500:]}\nstderr: {stderr[-500:]}")
+
+    return "\n\n".join(parts) if parts else "Validation failed (no details available)."
+
+
 def run_pipeline(
     topic: str,
     output_dir: Optional[str] = None,
@@ -70,7 +95,8 @@ def run_pipeline(
     1. Generate task (Sonnet)
     2. Structural validation
     3. Functional validation (Docker)
-    4. Tiered evaluation: Haiku x5 → Sonnet x3 → Opus x5
+    4. If validation fails, retry with feedback (up to max_retries)
+    5. Tiered evaluation: Haiku x5 → Sonnet x3 → Opus x5
 
     Returns:
         dict with all stage results and final classification.
@@ -79,6 +105,7 @@ def run_pipeline(
     result = {
         "topic": topic,
         "stages": {},
+        "retries": 0,
         "classification": None,
         "status": "incomplete",
     }
@@ -99,29 +126,57 @@ def run_pipeline(
 
     task_dir = gen_result["task_dir"]
 
-    # Stage 2: Structural validation
-    print(f"\n[Structural Validation]")
-    struct_result = validate_structural(task_dir)
-    result["stages"]["structural"] = struct_result
-    print(f"  {'PASSED' if struct_result['passed'] else 'FAILED'}")
+    # Stages 2-3: Validate with retry loop
+    for attempt in range(1 + max_retries):
+        is_retry = attempt > 0
+        if is_retry:
+            result["retries"] = attempt
+            print(f"\n[Retry {attempt}/{max_retries}]")
 
-    if not struct_result["passed"]:
-        result["status"] = "structural_validation_failed"
-        result["duration_sec"] = round(time.time() - start, 2)
-        return result
+        # Stage 2: Structural validation
+        print(f"\n[Structural Validation]")
+        struct_result = validate_structural(task_dir)
+        result["stages"]["structural"] = struct_result
+        print(f"  {'PASSED' if struct_result['passed'] else 'FAILED'}")
 
-    # Stage 3: Functional validation
-    if not skip_functional:
-        print(f"\n[Functional Validation]")
-        func_result = validate_functional(task_dir)
-        result["stages"]["functional"] = func_result
-
-        if not func_result["passed"]:
-            result["status"] = "functional_validation_failed"
+        if not struct_result["passed"]:
+            if attempt < max_retries:
+                feedback = _build_feedback(struct_result, None)
+                retry_result = regenerate_task(topic, task_dir, feedback, model=model)
+                result["stages"][f"retry_{attempt + 1}"] = retry_result
+                if retry_result["status"] != "success":
+                    result["status"] = "retry_generation_failed"
+                    result["duration_sec"] = round(time.time() - start, 2)
+                    return result
+                continue  # re-validate
+            result["status"] = "structural_validation_failed"
             result["duration_sec"] = round(time.time() - start, 2)
             return result
-    else:
-        print(f"\n[Functional Validation] Skipped")
+
+        # Stage 3: Functional validation
+        if not skip_functional:
+            print(f"\n[Functional Validation]")
+            func_result = validate_functional(task_dir)
+            result["stages"]["functional"] = func_result
+
+            if not func_result["passed"]:
+                if attempt < max_retries:
+                    feedback = _build_feedback(None, func_result)
+                    retry_result = regenerate_task(topic, task_dir, feedback, model=model)
+                    result["stages"][f"retry_{attempt + 1}"] = retry_result
+                    if retry_result["status"] != "success":
+                        result["status"] = "retry_generation_failed"
+                        result["duration_sec"] = round(time.time() - start, 2)
+                        return result
+                    continue  # re-validate from structural
+                result["status"] = "functional_validation_failed"
+                result["duration_sec"] = round(time.time() - start, 2)
+                return result
+        else:
+            print(f"\n[Functional Validation] Skipped")
+
+        # Validation passed — break out of retry loop
+        break
 
     # Stage 4+5+6: Tiered evaluation (Haiku x5 → Sonnet x3 → Opus x5)
     if not skip_eval:

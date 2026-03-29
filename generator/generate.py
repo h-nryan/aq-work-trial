@@ -237,6 +237,123 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     return result
 
 
+def regenerate_task(
+    topic: str,
+    task_dir: str,
+    feedback: str,
+    model: str | None = None,
+) -> dict:
+    """Regenerate a task using validation feedback.
+
+    Reads the previously generated files, sends them back to the LLM along
+    with the validation failure details, and asks for a corrected version.
+    This is much cheaper than generating from scratch because the LLM only
+    needs to fix the specific issues rather than re-derive the entire task.
+
+    Args:
+        topic: The original topic string.
+        task_dir: Path to the previously generated (broken) task.
+        feedback: Validation error description (from structural or functional validator).
+        model: Override the generator model.
+
+    Returns:
+        dict with task_dir, status, usage, and duration.
+    """
+    client = OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
+    )
+    gen_model = model or GENERATOR_MODEL
+
+    # Read the previously generated files to include in the conversation
+    previous_files = {}
+    task_path = Path(task_dir)
+    for fpath in sorted(task_path.rglob("*")):
+        if fpath.is_file() and not fpath.name.startswith("_"):
+            rel = str(fpath.relative_to(task_path))
+            try:
+                previous_files[rel] = fpath.read_text()
+            except UnicodeDecodeError:
+                continue
+
+    previous_json = json.dumps({"files": previous_files}, indent=2)
+
+    feedback_prompt = f"""The task you generated for "{topic}" failed validation. Here are the specific issues:
+
+{feedback}
+
+Here is the task you previously generated:
+```json
+{previous_json}
+```
+
+Please fix ALL the issues listed above and return the complete corrected task as a JSON object with the same structure. Make sure:
+1. Tests FAIL on the unsolved container (the source files must have real bugs)
+2. solution.sh PASSES all tests (trace through every test mentally)
+3. All file paths are consistent between Dockerfile, source files, tests, and solution.sh
+
+Return ONLY the corrected JSON object."""
+
+    print(f"  Regenerating with feedback ({len(feedback)} chars)...")
+    print(f"  Model: {gen_model}")
+
+    start = time.time()
+
+    response = client.chat.completions.create(
+        model=gen_model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": _build_user_prompt(topic)},
+            {"role": "assistant", "content": previous_json},
+            {"role": "user", "content": feedback_prompt},
+        ],
+        temperature=0.4,  # Lower temp for corrections — we want precision, not creativity
+        max_tokens=32000,
+    )
+
+    duration = time.time() - start
+    response_text = response.choices[0].message.content
+
+    usage = {}
+    if response.usage:
+        usage = {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+
+    try:
+        files = _parse_response(response_text)
+        # Clear old files and write new ones
+        import shutil
+        for item in task_path.iterdir():
+            if item.name.startswith("_"):
+                continue  # preserve debug files
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        _write_task_files(files, task_dir)
+        status = "success"
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        status = f"parse_error: {e}"
+        with open(os.path.join(task_dir, "_retry_raw_response.txt"), "w") as f:
+            f.write(response_text)
+
+    result = {
+        "task_dir": task_dir,
+        "status": status,
+        "model": gen_model,
+        "usage": usage,
+        "duration_sec": round(duration, 2),
+    }
+
+    print(f"  Retry status: {status}")
+    print(f"  Retry duration: {duration:.1f}s")
+
+    return result
+
+
 if __name__ == "__main__":
     topic = sys.argv[1] if len(sys.argv) > 1 else "fix a broken Python script"
     result = generate_task(topic)
