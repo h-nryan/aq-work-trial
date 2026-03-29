@@ -125,8 +125,9 @@
 - Consistent use of `X | None` syntax over `Optional[X]` across all modules.
 
 ### Few-shot example curation (`generator/generate.py`)
-- **Excluded too-easy examples** from few-shot context via `EXCLUDED_EXAMPLES` set. config-manifest-validator (Sonnet 3/3, Opus 4/4) was trivially easy and was teaching Sonnet the wrong difficulty calibration. Examples confirmed too-easy by evaluation are excluded so the generator only learns from learnable-range tasks.
-- **Design decision**: Exclude rather than delete — the examples still exist for functional validation testing and as reference. The exclusion set is easy to update as more evaluation data comes in.
+- **Negative few-shot examples**: Instead of excluding too-easy examples, they're now presented as labeled negative examples: "these are too simple, avoid this difficulty." The generator sees both positive examples (learnable range, labeled "GOOD EXAMPLES") and negative examples (too easy, labeled "TOO-EASY EXAMPLES").
+- **Design decision**: Negative examples are more informative than exclusion. Showing the generator what "too easy" looks like (single-file, single-command, no interacting bugs) helps it calibrate difficulty better than simply hiding those examples. The generator now has explicit contrast between target and avoid difficulty levels.
+- `TOO_EASY_EXAMPLES` set tracks which examples are confirmed too easy by evaluation. Currently: config-manifest-validator (Sonnet 3/3, Opus 4/4).
 
 ### Example task fixes
 - **config-manifest-validator**: Instruction said "manifest.txt" but tests and solution.sh both checked for "hello.txt". The agent correctly created manifest.txt as instructed, causing 7/7 test failures — making the task appear impossibly hard when it was actually a bug in the example. Fixed instruction to say "hello.txt". Also removed duplicated instruction text.
