@@ -132,6 +132,13 @@
 - Narrowed broad `except Exception` to specific exception types for debuggability.
 - Consistent use of `X | None` syntax over `Optional[X]` across all modules.
 
+### Solution-first generation strategy (`generator/generate.py`)
+- **Two-phase generation**: Phase 1 writes a complete working program with tests (guaranteed correct). Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes solution.sh via heredocs.
+- **Design decision**: The previous single-phase approach asked the LLM to write broken code AND its fix simultaneously. This is cognitively difficult — the LLM often produced solutions that didn't fix all bugs (~20% functional validation pass rate across all attempts). Solution-first inverts this: writing correct code is easy, introducing bugs is easy, but doing both at once is hard.
+- **Phase 1 uses lower temperature (0.5)** for correctness; **Phase 2 uses higher temperature (0.7)** for creative, realistic bugs.
+- **Cost**: Two API calls instead of one, but saves the 2 retry calls that were almost always needed with the old approach. Net cost is comparable.
+- Usage: `python pipeline.py "topic" --solution-first`
+
 ### Few-shot example curation (`generator/generate.py`)
 - **Negative few-shot examples**: Instead of excluding too-easy examples, they're now presented as labeled negative examples: "these are too simple, avoid this difficulty." The generator sees both positive examples (learnable range, labeled "GOOD EXAMPLES") and negative examples (too easy, labeled "TOO-EASY EXAMPLES").
 - **Design decision**: Negative examples are more informative than exclusion. Showing the generator what "too easy" looks like (single-file, single-command, no interacting bugs) helps it calibrate difficulty better than simply hiding those examples. The generator now has explicit contrast between target and avoid difficulty levels.
