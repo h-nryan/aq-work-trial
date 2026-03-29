@@ -111,6 +111,10 @@
 - Narrowed broad `except Exception` to specific exception types for debuggability.
 - Consistent use of `X | None` syntax over `Optional[X]` across all modules.
 
+### Example task fixes
+- **config-manifest-validator**: Instruction said "manifest.txt" but tests and solution.sh both checked for "hello.txt". The agent correctly created manifest.txt as instructed, causing 7/7 test failures — making the task appear impossibly hard when it was actually a bug in the example. Fixed instruction to say "hello.txt". Also removed duplicated instruction text.
+- **Evaluation path resolution**: `evaluate.py` resolved dataset paths relative to the Python process cwd instead of the repo root, causing `_parse_run_results` to find empty directories. Fixed with `Path.resolve()`.
+
 ### Terminal Bench harness fixes
 - **Critical**: The `tb` harness was completely non-functional — all previous evaluation results (0/5 across all tasks) were caused by infrastructure failures, not task difficulty. Every fix below was necessary to get the first successful agent run.
 - **Missing prompt templates**: Created `terminus.txt` (agent system prompt), `timeout.txt` (command timeout notification), and `formatted-response.txt` (JSON schema fallback for models without native `response_format`). Reconstructed from source code context — the templates reference `{instruction}`, `{response_schema}`, `{terminal_state}`, `{history}` placeholders used in `terminus_1.py`.
