@@ -71,27 +71,29 @@ def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
     raise last_error
 
 
-# Examples confirmed too easy (Sonnet solves 3/3, Opus solves trivially).
-# Excluded from few-shot context to avoid teaching wrong difficulty calibration.
-EXCLUDED_EXAMPLES = {
-    "config-manifest-validator",  # Sonnet 3/3, Opus 4/4 — trivially easy
+# Examples confirmed too easy by evaluation (Sonnet/Opus solve trivially).
+# Included in few-shot context as NEGATIVE examples — "don't generate tasks this simple."
+TOO_EASY_EXAMPLES = {
+    "config-manifest-validator",  # Sonnet 3/3, Opus 4/4 — single-command solution
 }
 
 
 def _load_examples() -> str:
-    """Load example tasks as few-shot context, excluding confirmed too-easy ones."""
-    examples = []
+    """Load example tasks as few-shot context.
+
+    Learnable examples are presented as positive examples ("generate tasks like these").
+    Too-easy examples are labeled as negative examples ("this is too simple, avoid this").
+    """
+    positive_examples = []
+    negative_examples = []
     examples_path = Path(EXAMPLES_DIR)
 
     for task_dir in sorted(examples_path.iterdir()):
         if not task_dir.is_dir():
             continue
-        if task_dir.name in EXCLUDED_EXAMPLES:
-            continue
 
         example_parts = [f"### Example: {task_dir.name}\n"]
 
-        # Read all files in the task directory
         for fpath in sorted(task_dir.rglob("*")):
             if fpath.is_file() and not fpath.name.startswith("."):
                 rel = fpath.relative_to(task_dir)
@@ -99,11 +101,28 @@ def _load_examples() -> str:
                     content = fpath.read_text()
                     example_parts.append(f"**{rel}**\n```\n{content}\n```\n")
                 except UnicodeDecodeError:
-                    continue  # skip binary files
+                    continue
 
-        examples.append("\n".join(example_parts))
+        if task_dir.name in TOO_EASY_EXAMPLES:
+            negative_examples.append("\n".join(example_parts))
+        else:
+            positive_examples.append("\n".join(example_parts))
 
-    return "\n---\n\n".join(examples)
+    sections = []
+    if positive_examples:
+        sections.append(
+            "## GOOD EXAMPLES (target this difficulty level)\n"
+            "These tasks are in the learnable range — generate tasks similar to these.\n\n"
+            + "\n---\n\n".join(positive_examples)
+        )
+    if negative_examples:
+        sections.append(
+            "## TOO-EASY EXAMPLES (avoid this difficulty level)\n"
+            "These tasks are too simple — an AI agent solves them trivially every time. "
+            "Your generated tasks must be significantly harder than these.\n\n"
+            + "\n---\n\n".join(negative_examples)
+        )
+    return "\n\n".join(sections)
 
 
 SYSTEM_PROMPT = """\
