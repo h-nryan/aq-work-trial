@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
-from batch import _compute_metrics, _estimate_cost, _pct, run_batch
+from batch import _compute_metrics, _estimate_cost, _pct, preflight_checks, run_batch
 
 
 class TestPct:
@@ -146,10 +148,15 @@ class TestRunBatchConcurrency:
         sig = inspect.signature(run_batch)
         assert sig.parameters["n_concurrent"].default == 1
 
+    def _skip_preflight(self, monkeypatch):
+        """Disable preflight checks for tests that mock the pipeline."""
+        monkeypatch.setattr("batch.preflight_checks", lambda **kw: [])
+
     def test_workers_capped_to_remaining(self, tmp_path, monkeypatch):
         """min(n_concurrent, len(remaining)) — no idle threads when batch is small."""
         import threading
 
+        self._skip_preflight(monkeypatch)
         worker_counts = []
 
         original_tpe = __import__(
@@ -178,6 +185,7 @@ class TestRunBatchConcurrency:
 
     def test_sequential_path_skips_executor(self, tmp_path, monkeypatch):
         """n_concurrent=1 must not spin up a ThreadPoolExecutor at all."""
+        self._skip_preflight(monkeypatch)
         executor_created = []
 
         original_tpe = __import__(
@@ -205,6 +213,7 @@ class TestRunBatchConcurrency:
 
     def test_concurrent_writes_are_valid_jsonl(self, tmp_path, monkeypatch):
         """Concurrent workers writing to the same file must produce valid JSONL."""
+        self._skip_preflight(monkeypatch)
         import time
 
         def slow_pipeline(**kw):
@@ -233,6 +242,7 @@ class TestRunBatchConcurrency:
 
     def test_topic_plan_index_preserves_order(self, tmp_path, monkeypatch):
         """Results in the final report appear in original topic order."""
+        self._skip_preflight(monkeypatch)
         import json
         import time
         import random
@@ -257,3 +267,88 @@ class TestRunBatchConcurrency:
 
         result_order = [r["topic"] for r in report["results"]]
         assert result_order == topics
+
+
+class TestPreflightChecks:
+    """Tests for pre-batch sanity checks."""
+
+    def test_missing_api_key_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("batch.OPENROUTER_API_KEY", "")
+        with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+            preflight_checks(str(tmp_path))
+
+    def test_missing_docker_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("batch.OPENROUTER_API_KEY", "sk-test")
+        monkeypatch.setattr("batch.shutil.which", lambda cmd: None if cmd == "docker" else "/usr/bin/" + cmd)
+        with pytest.raises(RuntimeError, match="Docker CLI not found"):
+            preflight_checks(str(tmp_path))
+
+    def test_missing_tb_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("batch.OPENROUTER_API_KEY", "sk-test")
+        monkeypatch.setattr("batch.shutil.which", lambda cmd: None if cmd == "tb" else "/usr/bin/" + cmd)
+        # Docker info must succeed too
+        monkeypatch.setattr("batch.subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0})())
+        with pytest.raises(RuntimeError, match="tb CLI not found"):
+            preflight_checks(str(tmp_path))
+
+    def test_skip_docker_and_eval(self, tmp_path, monkeypatch):
+        """No Docker or tb check when both are skipped."""
+        monkeypatch.setattr("batch.OPENROUTER_API_KEY", "sk-test")
+        # Even with no docker/tb, this should pass
+        monkeypatch.setattr("batch.shutil.which", lambda cmd: None)
+        warnings = preflight_checks(str(tmp_path), skip_functional=True, skip_eval=True)
+        assert isinstance(warnings, list)
+
+    def test_output_dir_created(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("batch.OPENROUTER_API_KEY", "sk-test")
+        monkeypatch.setattr("batch.shutil.which", lambda cmd: "/usr/bin/" + cmd)
+        monkeypatch.setattr("batch.subprocess.run", lambda *a, **kw: type("R", (), {"returncode": 0})())
+        new_dir = str(tmp_path / "new" / "output")
+        preflight_checks(new_dir)
+        assert os.path.isdir(new_dir)
+
+
+class TestErrorCategories:
+    """Tests for error categorization in _compute_metrics."""
+
+    def _make_result(self, status="completed", failed_stage=None, **kwargs):
+        r = {"topic": "test", "status": status, "stages": {}, "classification": None}
+        if failed_stage:
+            r["failed_stage"] = failed_stage
+        r.update(kwargs)
+        return r
+
+    def test_no_errors(self):
+        results = [self._make_result()]
+        m = _compute_metrics(results, 10.0, "test")
+        assert m["error_categories"] == {}
+
+    def test_failed_stage_field_used(self):
+        results = [
+            self._make_result(status="generation_failed", failed_stage="generation"),
+            self._make_result(status="functional_validation_failed", failed_stage="functional"),
+            self._make_result(status="structural_validation_failed", failed_stage="structural"),
+        ]
+        m = _compute_metrics(results, 10.0, "test")
+        assert m["error_categories"] == {
+            "generation": 1, "functional": 1, "structural": 1,
+        }
+
+    def test_fallback_to_status_parsing(self):
+        """Results without failed_stage (e.g. from older runs) are still categorized."""
+        results = [
+            self._make_result(status="error: timeout"),
+            self._make_result(status="generation_failed"),
+        ]
+        m = _compute_metrics(results, 10.0, "test")
+        assert m["error_categories"]["exception"] == 1
+        assert m["error_categories"]["generation"] == 1
+
+    def test_mixed_successes_and_failures(self):
+        results = [
+            self._make_result(status="completed"),
+            self._make_result(status="completed"),
+            self._make_result(status="functional_validation_failed", failed_stage="functional"),
+        ]
+        m = _compute_metrics(results, 10.0, "test")
+        assert m["error_categories"] == {"functional": 1}

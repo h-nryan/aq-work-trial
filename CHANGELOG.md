@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Pre-flight checks + error categorization (`generator/batch.py`, `generator/pipeline.py`)
+- **`preflight_checks()`**: Validates infrastructure before a batch burns API tokens. Checks: (1) `OPENROUTER_API_KEY` is set, (2) Docker daemon is running (skipped with `--skip-functional --skip-eval`), (3) `tb` CLI is on PATH (skipped with `--skip-eval`), (4) output directory is writable, (5) disk space warning if < 5 GB free. Called at the top of `run_batch()`.
+- **Infrastructure error detection in pipeline**: Functional validation failures are now classified as either content errors (tests pass without solution, solution doesn't fix) or infrastructure errors (Docker build failure, timeout, image size). Infrastructure errors skip regeneration retries — re-generating code won't fix a broken Docker build. Content errors still trigger targeted repair as before.
+- **`failed_stage` field**: Pipeline results now include `failed_stage` (one of: `generation`, `structural`, `functional`, `evaluation`, or `None` for success). This lets batch reporting categorize failures structurally instead of parsing status strings.
+- **Error breakdown in batch report**: `_compute_metrics` aggregates `error_categories` (count of failures per stage). `_print_report` displays an "Errors by Stage" section when failures exist.
+- **Example reclassification infrastructure**: Added `TOO_HARD_EXAMPLES` set in `generate.py` alongside existing `TOO_EASY_EXAMPLES`. Too-hard examples are excluded from few-shot context entirely (they waste tokens and miscalibrate difficulty upward). Set is empty pending Opus ×5 eval results on the remaining 4 hand-crafted examples; `csv-to-json-cli-fix` confirmed learnable (Opus 2-3/5).
+- **9 new tests** in `tests/test_batch.py`: 5 for `preflight_checks` (missing API key, missing Docker, missing tb, skip flags, output dir creation) and 4 for error categorization (`failed_stage` routing, status string fallback, mixed results).
+
 ### Batch parallelism fixes (`generator/batch.py`) + test infrastructure
 - **Thread-safe incremental writes**: Added `threading.Lock` (`write_lock`) around all `open(incremental_path, "a")` calls in the concurrent worker. Without this, two threads finishing at the same time could interleave bytes mid-JSON-line, producing a corrupt JSONL file that blocks any future resume.
 - **O(1) topic index lookup**: Replaced `_run_one(i, topic)` (index passed in from enumerate) with `_run_one(topic)` that does a dict lookup (`topic_plan_index = {t: i for i, t in enumerate(topics)}`). The old approach was fragile — the `enumerate` index over `remaining` diverged from the original plan index when some topics had already been completed via resume.

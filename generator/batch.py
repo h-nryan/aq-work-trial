@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -14,9 +16,78 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
 from batch_io import load_incremental, load_meta, resolve_resume, save_meta
-from config import GENERATOR_MODEL, OUTPUT_DIR, SONNET_FILTER_MODEL, _slugify
+from config import GENERATOR_MODEL, OPENROUTER_API_KEY, OUTPUT_DIR, SONNET_FILTER_MODEL, _slugify
 from pipeline import run_pipeline
 from prompts import select_topics
+
+
+def preflight_checks(
+    output_dir: str,
+    skip_functional: bool = False,
+    skip_eval: bool = False,
+) -> list[str]:
+    """Run pre-batch sanity checks. Returns a list of warnings (empty = all clear).
+
+    Raises RuntimeError for fatal issues that would waste money/time.
+    """
+    warnings: list[str] = []
+
+    # 1. API key
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. Export it before running a batch."
+        )
+
+    # 2. Docker (only needed for functional validation / eval)
+    if not skip_functional or not skip_eval:
+        docker_path = shutil.which("docker")
+        if not docker_path:
+            raise RuntimeError(
+                "Docker CLI not found on PATH. Install Docker Desktop or "
+                "pass --skip-functional --skip-eval to skip Docker steps."
+            )
+        try:
+            result = subprocess.run(
+                ["docker", "info"],
+                capture_output=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "Docker daemon is not running. Start Docker Desktop or "
+                    "pass --skip-functional --skip-eval to skip Docker steps."
+                )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Docker daemon did not respond within 10s.")
+
+    # 3. tb CLI (needed for evaluation)
+    if not skip_eval:
+        if not shutil.which("tb"):
+            raise RuntimeError(
+                "tb CLI not found on PATH. Install terminal_bench or "
+                "pass --skip-eval to skip evaluation."
+            )
+
+    # 4. Output directory writable
+    os.makedirs(output_dir, exist_ok=True)
+    test_file = os.path.join(output_dir, ".preflight-test")
+    try:
+        with open(test_file, "w") as f:
+            f.write("ok")
+        os.remove(test_file)
+    except OSError as e:
+        raise RuntimeError(f"Output directory not writable: {output_dir} ({e})")
+
+    # 5. Disk space (warn if < 5 GB free)
+    try:
+        stat = os.statvfs(output_dir)
+        free_gb = (stat.f_frsize * stat.f_bavail) / (1024 ** 3)
+        if free_gb < 5:
+            warnings.append(f"Low disk space: {free_gb:.1f} GB free in {output_dir}")
+    except (OSError, AttributeError):
+        pass  # statvfs not available on all platforms
+
+    return warnings
 
 # Approximate per-token costs (USD) for OpenRouter models.
 # Used for cost estimation only — actual costs may vary.
@@ -57,7 +128,15 @@ def run_batch(
     """
     batch_start = time.time()
     batch_output_dir = output_dir or OUTPUT_DIR
-    os.makedirs(batch_output_dir, exist_ok=True)
+
+    # ── Pre-flight checks ─────────────────────────────────────────────────────
+    warnings = preflight_checks(
+        output_dir=batch_output_dir,
+        skip_functional=skip_functional,
+        skip_eval=skip_eval,
+    )
+    for w in warnings:
+        print(f"  WARNING: {w}")
 
     # ── Resume path ──────────────────────────────────────────────────────────
     prior_results: list[dict] = []
@@ -250,6 +329,28 @@ def _compute_metrics(results: list, duration: float, batch_id: str) -> dict:
     too_easy = sum(1 for r in evaluated if r.get("classification") == "too_easy")
     too_hard = sum(1 for r in evaluated if r.get("classification") == "too_hard")
 
+    # Error categorization — group failures by the stage where they stopped.
+    # Prefers the structured failed_stage field (set by pipeline.py); falls back
+    # to parsing the status string for results from older runs or bare exceptions.
+    error_categories: dict[str, int] = {}
+    for r in results:
+        status = str(r.get("status", ""))
+        if status == "completed":
+            continue
+        stage = r.get("failed_stage")
+        if stage:
+            error_categories[stage] = error_categories.get(stage, 0) + 1
+        elif status == "generation_failed" or status.startswith("phase"):
+            error_categories["generation"] = error_categories.get("generation", 0) + 1
+        elif "structural" in status:
+            error_categories["structural"] = error_categories.get("structural", 0) + 1
+        elif "functional" in status or "infrastructure" in status:
+            error_categories["functional"] = error_categories.get("functional", 0) + 1
+        elif status.startswith("error"):
+            error_categories["exception"] = error_categories.get("exception", 0) + 1
+        else:
+            error_categories["other"] = error_categories.get("other", 0) + 1
+
     # Token counts
     total_gen_tokens = sum(
         r.get("stages", {}).get("generate", {}).get("usage", {}).get("total_tokens", 0)
@@ -272,6 +373,8 @@ def _compute_metrics(results: list, duration: float, batch_id: str) -> dict:
         "too_easy": too_easy,
         "too_hard": too_hard,
         "learnable_rate": round(learnable / len(evaluated), 4) if evaluated else 0,
+        # Errors
+        "error_categories": error_categories,
         # Tokens & cost
         "total_gen_tokens": total_gen_tokens,
         **costs,
@@ -311,6 +414,13 @@ def _print_report(metrics: dict, results: list) -> None:
     # Yield: what fraction of attempted topics produced a learnable task
     if total > 0 and lr > 0:
         print(f"\n  Yield (learnable/attempted): {_pct(lr, total)}")
+
+    # Error breakdown
+    errors = metrics.get("error_categories", {})
+    if errors:
+        print(f"\n--- Errors by Stage ---")
+        for stage, count in sorted(errors.items(), key=lambda x: -x[1]):
+            print(f"  {stage:<20} {count:>3}")
 
     print(f"\n--- Cost & Time ---")
     print(f"  Generation tokens: {metrics['total_gen_tokens']:,}")

@@ -118,6 +118,7 @@ def run_pipeline(
         "retries": 0,
         "classification": None,
         "status": "incomplete",
+        "failed_stage": None,  # set on failure: generation, structural, functional, evaluation
     }
 
     # Stage 1: Generate
@@ -136,6 +137,7 @@ def run_pipeline(
 
     if gen_result["status"] != "success":
         result["status"] = "generation_failed"
+        result["failed_stage"] = "generation"
         result["duration_sec"] = round(time.time() - start, 2)
         return result
 
@@ -161,10 +163,12 @@ def run_pipeline(
                 result["stages"][f"retry_{attempt + 1}"] = retry_result
                 if retry_result["status"] != "success":
                     result["status"] = "retry_generation_failed"
+                    result["failed_stage"] = "structural"
                     result["duration_sec"] = round(time.time() - start, 2)
                     return result
                 continue  # re-validate
             result["status"] = "structural_validation_failed"
+            result["failed_stage"] = "structural"
             result["duration_sec"] = round(time.time() - start, 2)
             return result
 
@@ -175,16 +179,33 @@ def run_pipeline(
             result["stages"]["functional"] = func_result
 
             if not func_result["passed"]:
-                if attempt < effective_retries:
+                # Distinguish infrastructure errors (Docker build failure, timeout)
+                # from content errors (tests pass without solution, solution doesn't fix).
+                # Infrastructure errors won't be fixed by regeneration.
+                issues = func_result.get("issues", [])
+                is_infra_error = any(
+                    kw in issue.lower()
+                    for issue in issues
+                    for kw in ("docker build", "timed out", "image size")
+                )
+
+                if attempt < effective_retries and not is_infra_error:
                     feedback = _build_feedback(None, func_result)
                     retry_result = regenerate_task(topic, task_dir, feedback, model=model)
                     result["stages"][f"retry_{attempt + 1}"] = retry_result
                     if retry_result["status"] != "success":
                         result["status"] = "retry_generation_failed"
+                        result["failed_stage"] = "functional"
                         result["duration_sec"] = round(time.time() - start, 2)
                         return result
                     continue  # re-validate from structural
-                result["status"] = "functional_validation_failed"
+                if is_infra_error:
+                    result["status"] = "infrastructure_error"
+                    result["failed_stage"] = "functional"
+                    print(f"  Infrastructure error — skipping retries")
+                else:
+                    result["status"] = "functional_validation_failed"
+                    result["failed_stage"] = "functional"
                 result["duration_sec"] = round(time.time() - start, 2)
                 return result
         else:
@@ -234,6 +255,7 @@ def run_pipeline(
                 if not func_result["passed"]:
                     print(f"  Adjusted task failed functional validation")
                     result["status"] = "functional_validation_failed"
+                    result["failed_stage"] = "functional"
                     result["duration_sec"] = round(time.time() - start, 2)
                     return result
             else:

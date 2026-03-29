@@ -79,6 +79,15 @@ TOO_EASY_EXAMPLES = {
     "config-manifest-validator",  # Sonnet 3/3, Opus 4/4 — single-command solution
 }
 
+# Examples confirmed too hard by evaluation (Opus 0/5).
+# Excluded from few-shot context — showing impossible tasks as "good examples"
+# miscalibrates difficulty upward and wastes prompt tokens.
+TOO_HARD_EXAMPLES: set[str] = set()
+# Will be populated once Opus ×5 evals complete for the remaining examples.
+# Confirmed learnable: csv-to-json-cli-fix (Opus 2-3/5)
+# Pending: broken-coordinate-transform, broken-flask-api,
+#          fix-maven-artifact-dependencies, log-rotation-analyzer
+
 
 def _load_task_dir(task_dir: Path) -> str:
     """Load all files from a task directory into a formatted string."""
@@ -104,12 +113,14 @@ def _load_examples() -> str:
     positive_examples = []
     negative_examples = []
 
-    # Load hand-crafted examples
+    # Load hand-crafted examples — three-way classification
     examples_path = Path(EXAMPLES_DIR)
     if examples_path.is_dir():
         for task_dir in sorted(examples_path.iterdir()):
             if not task_dir.is_dir():
                 continue
+            if task_dir.name in TOO_HARD_EXAMPLES:
+                continue  # exclude — miscalibrates difficulty upward
             content = _load_task_dir(task_dir)
             if task_dir.name in TOO_EASY_EXAMPLES:
                 negative_examples.append(content)
