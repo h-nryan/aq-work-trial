@@ -1,200 +1,128 @@
 # Changelog
 
+## Overview
+
+A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus to solve 1-3 out of 5 attempts (the "learnable" range).
+
+**Architecture**: Three-model design — **Sonnet generates** tasks, **Haiku + Sonnet pre-filter** cheaply catches too-easy tasks, **Opus evaluates** ground truth difficulty. A solution-first two-phase generation strategy ensures functional correctness (write working code first, then introduce bugs). The pipeline validates structurally and functionally in Docker before spending on expensive Opus evaluation.
+
+**Stretch goals implemented**: A (cost-efficient evaluation), B (difficulty tuning), C (diversity analysis), D (human-likeness comparison).
+
+**Current state**: 175 tests across 10 test modules, ~3,400 lines of generator code across 9 modules. Evaluating hand-crafted examples against Opus to calibrate few-shot prompts before running production batches.
+
+---
+
 ## [Unreleased]
 
-### Pre-flight checks + error categorization (`generator/batch.py`, `generator/pipeline.py`)
-- **`preflight_checks()`**: Validates infrastructure before a batch burns API tokens. Checks: (1) `OPENROUTER_API_KEY` is set, (2) Docker daemon is running (skipped with `--skip-functional --skip-eval`), (3) `tb` CLI is on PATH (skipped with `--skip-eval`), (4) output directory is writable, (5) disk space warning if < 5 GB free. Called at the top of `run_batch()`.
-- **Infrastructure error detection in pipeline**: Functional validation failures are now classified as either content errors (tests pass without solution, solution doesn't fix) or infrastructure errors (Docker build failure, timeout, image size). Infrastructure errors skip regeneration retries — re-generating code won't fix a broken Docker build. Content errors still trigger targeted repair as before.
-- **`failed_stage` field**: Pipeline results now include `failed_stage` (one of: `generation`, `structural`, `functional`, `evaluation`, or `None` for success). This lets batch reporting categorize failures structurally instead of parsing status strings.
-- **Error breakdown in batch report**: `_compute_metrics` aggregates `error_categories` (count of failures per stage). `_print_report` displays an "Errors by Stage" section when failures exist.
-- **Example reclassification infrastructure**: Added `TOO_HARD_EXAMPLES` set in `generate.py` alongside existing `TOO_EASY_EXAMPLES`. Too-hard examples are excluded from few-shot context entirely (they waste tokens and miscalibrate difficulty upward). Set is empty pending Opus ×5 eval results on the remaining 4 hand-crafted examples; `csv-to-json-cli-fix` confirmed learnable (Opus 2-3/5).
-- **9 new tests** in `tests/test_batch.py`: 5 for `preflight_checks` (missing API key, missing Docker, missing tb, skip flags, output dir creation) and 4 for error categorization (`failed_stage` routing, status string fallback, mixed results).
+### Generation
 
-### Batch parallelism fixes (`generator/batch.py`) + test infrastructure
-- **Thread-safe incremental writes**: Added `threading.Lock` (`write_lock`) around all `open(incremental_path, "a")` calls in the concurrent worker. Without this, two threads finishing at the same time could interleave bytes mid-JSON-line, producing a corrupt JSONL file that blocks any future resume.
-- **O(1) topic index lookup**: Replaced `_run_one(i, topic)` (index passed in from enumerate) with `_run_one(topic)` that does a dict lookup (`topic_plan_index = {t: i for i, t in enumerate(topics)}`). The old approach was fragile — the `enumerate` index over `remaining` diverged from the original plan index when some topics had already been completed via resume.
-- **Worker cap**: Changed `workers = n_concurrent` to `workers = min(n_concurrent, len(remaining))`. Previously, passing `--n-concurrent 8` for a 2-topic batch would spin up 8 idle threads.
-- **Sequential short-circuit**: When `workers <= 1` (either `n_concurrent=1` or only one topic left), the code takes the plain `for` loop path and never creates a `ThreadPoolExecutor`. This avoids threading overhead for the common single-task case.
-- **`tests/conftest.py`**: New pytest configuration that stubs `openai` and `pydantic` in `sys.modules` before any test file is collected. The system Python 3.9 has an arm64/x86_64 architecture mismatch for `pydantic_core`, so any transitive import through `generate.py → openai → pydantic` would fail at collection time. The stub lets tests that only need pure-logic functions (like `_compute_metrics`, `_estimate_cost`, and `run_batch` with a mocked pipeline) collect and run without a working OpenAI install.
-- **4 new concurrency tests** in `tests/test_batch.py::TestRunBatchConcurrency`: workers-capped-to-remaining, sequential-path-skips-executor, concurrent-writes-produce-valid-JSONL, and topic-plan-index-preserves-original-order.
+**Solution-first strategy** (`generate.py`) — Phase 1 writes a complete working program with passing tests; Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes `solution.sh`. This inverts the original single-phase approach which asked the LLM to write broken code AND its fix simultaneously — that had ~20% functional validation pass rate. Solution-first separates two easy tasks (write correct code; introduce bugs) instead of one hard task.
+- Phase 1 uses temperature 0.5 (correctness); Phase 2 uses 0.7 (creative bugs)
+- Phase 2 requires majority of tests to fail, not all — some passing tests give the agent useful debugging signal
+- Higher retry budget (`MAX_SOLUTION_FIRST_RETRIES=4` vs default 2) since each targeted repair gets closer to passing
+- Usage: `python3.12 pipeline.py "topic" --solution-first`
 
-### Batch resume (`generator/batch.py`, `generator/batch_io.py`)
-- **`--resume`** flag for the batch CLI. Accepts a batch ID (`20240101-120000`), a path to a `*-incremental.jsonl` or `*-meta.json` file, or no argument (`--resume` alone = auto-detect the most recent incomplete batch in the output directory).
-- **`batch-{id}-meta.json`**: Saved at batch start with the full planned topic list and seed. This is the key piece that enables full resume — without it, a crashed batch only knows which topics completed, not which topics were left to run.
-- **`generator/batch_io.py`**: New lightweight module (`save_meta`, `load_meta`, `load_incremental`, `resolve_resume`) extracted from `batch.py`. Has zero external dependencies, so it can be imported by tests without triggering the `openai → pydantic` chain. `batch.py` imports from it rather than duplicating.
-- **Result ordering**: Resumed results are merged back into the original topic order (prior results + new results keyed by topic, then re-sorted by the original list). The final report is consistent regardless of which tasks were completed in which run.
-- **Cleanup**: On successful completion, both the `*-meta.json` and `*-incremental.jsonl` files are removed — only the final `*-report.json` remains.
-- **Design decision**: Saving the topic list to a meta file (rather than re-generating it from `--seed`) is more robust because seeds are optional and the user may have passed explicit `--topic` flags. The meta file is the ground truth for what was planned.
-- **15 new tests** in `tests/test_batch_resume.py` covering save/load meta, incremental loading (including malformed-line tolerance), and resume resolution (by ID, auto-detect, file path, error cases).
+**Few-shot example curation** (`generate.py`) — Three-way classification of reference examples:
+- **Positive** (learnable): shown as "GOOD EXAMPLES — target this difficulty"
+- **Negative** (too easy): shown as "TOO-EASY EXAMPLES — avoid this difficulty" (currently: `config-manifest-validator`)
+- **Too hard**: excluded entirely — showing impossible tasks miscalibrates difficulty upward and wastes tokens
+- `examples-opus/` directory for Opus-generated exemplars that Sonnet can replicate cheaply at scale
+- *Design decision*: Negative examples are more informative than exclusion. Showing what "too easy" looks like helps calibrate the other boundary.
 
-### Slug truncation: word-boundary + hash suffix (`generator/config.py`)
-- **Problem**: The old `[:60]` hard-cut produced names like `debug-a-c-program-with-memory-corruption-in-a-linked-list-im` — mid-word and potentially colliding with any other topic sharing that 60-char prefix.
-- **Fix**: Truncate at the last hyphen (word boundary) within the available prefix budget, then append a 6-char SHA-256 hash of the full slug. The hash guarantees uniqueness: two topics that share a long prefix but differ anywhere produce different slugs.
-- **Design decision**: 6 hex chars = ~16M values, enough that collision probability across any realistic batch size is negligible. The hash is derived from the full cleaned slug (not the raw topic), so it's stable across minor input variations like casing and punctuation.
-- **Canonical location**: Moved `_slugify` from `generator/batch.py` to `generator/config.py`, which has no heavy dependencies (no `openai`, no `pydantic`). Both `generate.py` and `batch.py` import it from there. This also fixes a latent test isolation issue: `test_batch.py` could no longer import `_slugify` without pulling in the `openai` → `pydantic` chain.
-- **New `tests/test_config.py`**: 10 tests covering basic slugification, Docker-tag safety, word-boundary truncation, collision resistance, consecutive hyphen collapse, and determinism.
+**Prompt calibration** (`generate.py`) — Single fixed system prompt targeting 3-5 interacting bugs, ~40-60% Opus solve rate. Per-difficulty hints (easy/medium/hard) were reverted — they worked against the pipeline's goal since every task should land in the learnable band regardless of topic.
 
-### Quality comparison tooling (`generator/quality.py`) — Stretch Goal D
-- **New module**: Compares generated tasks against hand-crafted examples using structural metrics — no LLM calls or Docker builds required.
-- **Per-task metrics**: instruction length, solution lines, test lines, test function count, file count, source file count, Dockerfile checks (exists, has tmux, has docker-compose).
-- **Comparison output**: Per-metric min/mean/median/max for both example and generated sets, delta between means, and outlier detection (generated tasks that fall far outside the example range).
-- **Design decision**: Metrics are intentionally simple and file-derived. The goal is to flag structural anomalies (e.g., a generated task with 2 test functions vs. the example average of 12) rather than assess semantic quality. Semantic quality requires running the task against agents, which the evaluation pipeline already handles.
-- **Design decision**: Outlier threshold is 50% beyond the example range. This catches tasks that are structurally degenerate (too few tests, trivially short instructions) while allowing natural variation in task complexity.
-- **CLI**: `python generator/quality.py <task_dir_or_output_dir>`. Saves a `quality-report.json` alongside the console output.
-- **19 new tests** in `tests/test_quality.py` covering line counting, test function detection, stats computation, task analysis, comparison logic, outlier detection, and boolean checks.
+**Targeted repair** (`generate.py`, `pipeline.py`) — On validation failure, analyzes feedback to repair only broken files:
+- "Tests FAILED with solution" → regenerate only `solution.sh`
+- "Tests PASSED without solution" → regenerate only source files
+- Structural issues → full rebuild (rare)
+- *Design decision*: Full-rebuild retries caused "whack-a-mole" — fixing one file broke others. Targeted repair cut retry cost ~80%.
 
-### Code quality cleanup (continued)
-- **`evaluate.py`**: Removed `from typing import Optional` import and replaced all `Optional[X]` annotations with `X | None` for consistency with the rest of the codebase (which already uses `from __future__ import annotations`).
+**JSON parse robustness** (`generate.py`) — Handles markdown fences, embedded JSON, and triple-backtick content within JSON values.
 
-### Harness compatibility: docker-compose.yaml and tmux/asciinema (`generator/generate.py`)
-- **Root cause identified**: all 0/5 evaluation results were infrastructure failures, not task difficulty — the tb harness requires `docker compose` (not raw docker) and needs `tmux` + `asciinema` installed in containers.
-- **`DOCKER_COMPOSE_TEMPLATE`**: standard `docker-compose.yaml` constant matching the format used by all example tasks. Injected automatically by `_write_task_files()` so every generated task is harness-compatible even if the LLM forgets.
-- **SYSTEM_PROMPT updated**: CRITICAL RULE 5 now explicitly requires `tmux asciinema` in every Dockerfile's `apt-get install`.
-- **Backfilled**: added `docker-compose.yaml` and patched `tmux asciinema` into all 10 existing `output/` tasks.
+### Validation
 
-### Config: model and pipeline constants (`generator/config.py`)
-- **Generator model**: Switched from Haiku to **Sonnet** (`claude-sonnet-4.5`) for higher-quality task generation.
-- **Evaluation model**: Added **Opus** (`claude-opus-4`) as the target agent model. Tasks are calibrated so Opus passes 1-3 out of 5 runs.
-- **Pre-filter model**: Kept **Haiku** (`claude-3.5-haiku`) as a cheap pre-filter to screen out trivially easy tasks before expensive Opus evaluation.
-- Added pipeline constants: learnable range (1-3/5), eval trials (5), task categories for diversity.
-- **Design decision**: Three-model architecture (Sonnet generates, Haiku filters, Opus evaluates) balances quality and cost. Haiku pre-filter saves ~$2-10 per batch by catching easy tasks before running 5 Opus trials.
+**Docker-based functional validator** (`validator/docker_validate.py`) — End-to-end correctness verification:
+1. Pre-Docker sanity checks (instruction length, file sizes)
+2. Docker image build + size check (fail > 2 GB, warn > 1 GB)
+3. Tests FAIL without solution
+4. Tests PASS with solution
+5. Solution idempotency (re-run solution, re-run tests — catches irreversible state changes)
+6. Test determinism (3x pass — catches flaky tests that waste Opus budget)
+- `--skip-extended` for fast dev iteration; full 5-phase for production
+- Execution time tracking per phase; warns if tests > 60s (multiplied by 5 Opus trials)
+- *Design decision*: Bind-mount tests/solution read-only instead of baking into image — test same image in both states without rebuilding.
 
-### Docker-based functional validator (`validator/docker_validate.py`)
-- **New module**: Standalone Docker-based validator that verifies task correctness end-to-end.
-- Three-phase validation: (1) build Docker image, (2) run tests without solution — must fail, (3) run solution.sh then tests — must pass.
-- **Design decision**: Uses `subprocess` + Docker CLI rather than the `docker` Python SDK for simplicity and fewer failure modes. The SDK is listed as a dependency for downstream consumers but the validator itself shells out to `docker build` and `docker run`.
-- **Design decision**: Tests and solution.sh are bind-mounted read-only into the container rather than baked into the image. This lets us test the same image in both solved/unsolved states without rebuilding.
-- **Design decision**: Automatic image cleanup after validation to avoid disk bloat. `--no-cleanup` flag available for debugging.
-- Supports `--json` output for programmatic consumption by the pipeline.
-- Configurable timeouts for both build (default 300s) and test execution (default 120s).
-- Shell wrapper at `scripts/docker-validate.sh` for CLI usage.
-- **Solution idempotency check**: After tests pass with solution, re-runs solution.sh a second time and re-runs tests. This catches fragile solutions that modify state irreversibly (e.g., appending duplicate config lines, creating files that already exist without guards). Idempotency is critical because during evaluation the agent environment may apply partial fixes before finding the full solution.
-- **Test determinism check**: Runs tests with solution applied 3 times total. All 3 must pass. This catches flaky tests (race conditions, timing-dependent assertions, random port allocation) that would produce unreliable difficulty scores and waste expensive Opus evaluation runs.
-- **Pre-Docker sanity checks**: Validates task.yaml instruction is at least 50 characters, solution.sh is at least 10 bytes, and run-tests.sh is at least 10 bytes. These catch degenerate tasks early before spending time on Docker builds. Runs before any Docker operations for fast feedback.
-- **Dockerfile hygiene**: After build, inspects image size via `docker image inspect`. Fails if over 2 GB (would make batch eval infeasible), warns if over 1 GB. Large images slow down container startup and waste disk across hundreds of evaluation runs.
-- **Execution time tracking**: Records wall-clock time for each phase (build, test-without-solution, test-with-solution, idempotency, determinism). Warns if test execution with solution exceeds 60 seconds, since this cost multiplies by 5 Opus trials per task. Times are included in the result dict and CLI output.
-- **`--skip-extended` flag**: Skips idempotency and determinism checks for quick validation during development. The full 5-phase check runs by default and is recommended before submitting tasks to the evaluation pipeline.
+**Infrastructure error detection** (`pipeline.py`) — Distinguishes Docker build failures / timeouts (infrastructure) from content errors (tests pass without solution, solution doesn't fix). Infrastructure errors skip regeneration retries — re-generating code won't fix a broken Docker build.
 
-### Core generator (`generator/generate.py`)
-- Loads all 6 example tasks as few-shot context for Sonnet.
-- Structured JSON output format with fallback extraction for robustness.
-- Difficulty calibration in system prompt: targets 3-5 interacting bugs, subtle issues, multi-file understanding — designed so Opus solves ~40-60% of the time.
-- Tracks token usage and timing for cost reporting.
-- Python 3.9 compatible (`from __future__ import annotations`).
+**Harness compatibility** (`generate.py`) — Auto-injects `docker-compose.yaml` and requires `tmux asciinema` in every Dockerfile. Root cause of all early 0/5 results was infrastructure, not difficulty.
 
-### Tiered evaluation pipeline (`generator/evaluate.py`)
-- **Tier 1: Haiku x5** (~$0.05-0.25/task) — cheapest filter. Skip if >= 4/5 pass (definitely too easy for Opus).
-- **Tier 2: Sonnet x3** (~$0.30-1.00/task) — closer Opus proxy. Skip if 3/3 pass (probably too easy for Opus).
-- **Tier 3: Opus x5** (~$2-5/task) — final calibration. Classify as learnable (1-3/5), too_easy (4-5/5), or too_hard (0/5).
-- **Design decision**: Model capability ordering (Haiku < Sonnet < Opus) means if a weaker model finds it easy, a stronger one definitely will. We filter from the "too easy" side cheaply, only spending Opus budget on tasks with real uncertainty.
-- **Design decision**: Single-run Haiku was too noisy — a single binary signal can't distinguish "always passes" from "passes 60%". 5 runs gives a distribution. Thresholds are configurable for later tuning once we see empirical correlations.
-- **Opus early stopping** (Stretch Goal A): Runs Opus attempts sequentially and stops as soon as classification is certain. Three conditions: guaranteed learnable (passes ≥ 1 and passes + remaining ≤ 3), already too_easy (passes > 3), guaranteed too_hard (can't reach 1 even if all remaining pass). Saves ~$0.40-1.00 per skipped run. Most tasks are too_hard (0/3 → stop, save 2 runs) or too_easy (4/4 → stop, save 1 run).
-- **Hybrid strategy**: First 3 Opus runs execute in parallel (fast), then check if classification is determined. Only runs 4-5 are sequential with early-stop checks. Most tasks classify after 3 parallel runs (0/3 → too_hard, 1/3 → learnable), so the common case is as fast as the old approach but cheaper.
-- **Sonnet filter tuned**: Increased from 3 runs/threshold 3 to 5 runs/threshold 4. Sonnet 3/3 was too noisy — a 70% solve rate has 34% chance of triggering 3/3, but only 17% chance of 4+/5. This reduces false positives (tasks incorrectly classified as too easy) without significant cost increase (Sonnet is ~3x cheaper than Opus).
+### Evaluation — Stretch Goal A
 
-### End-to-end pipeline (`generator/pipeline.py`)
-- Orchestrates: generate → structural validate → functional validate → tiered evaluate.
-- **Integrated with `docker_validate.py`**: Pipeline's functional validation now delegates to the standalone Docker validator instead of maintaining its own 100-line inline implementation. Gets sanity checks, image size limits, and timing data for free. Uses `--skip-extended` for speed in the pipeline; full idempotency/determinism checks available via `scripts/docker-validate.sh`.
-- **Design decision**: Single source of truth for Docker validation logic. The pipeline was duplicating bind-mount logic, WORKDIR detection, and build/test commands. Centralizing in `docker_validate.py` means bug fixes and enhancements (like the sanity checks) apply everywhere.
-- Early exit at each stage to avoid wasting compute on broken tasks.
+**Tiered evaluation** (`evaluate.py`) — Progressive filtering through cheaper models:
+- **Tier 1: Haiku ×5** (~$0.05-0.25) — skip if ≥ 4/5 pass (definitely too easy for Opus)
+- **Tier 2: Sonnet ×5** (~$0.30-1.00) — skip if ≥ 4/5 pass (very likely too easy for Opus)
+- **Tier 3: Opus ×5** (~$2-5.00) — final classification: learnable (1-3/5), too_easy (4-5/5), too_hard (0/5)
+- *Design decision*: Model capability ordering (Haiku < Sonnet < Opus) means if a weaker model finds it easy, a stronger one definitely will. Filter from the "too easy" side cheaply.
 
-### Diversity analysis (`generator/diversity.py`) — Stretch Goal C
-- Analyzes batch reports for category coverage, language distribution, difficulty spread, instruction complexity, and topic uniqueness.
-- **Coverage score**: Fraction of TASK_CATEGORIES present in the batch. Measures breadth.
-- **Evenness score**: Normalized Shannon entropy of category distribution. 1.0 = perfectly uniform, low values indicate clustering in a few categories.
-- **Near-duplicate detection**: Jaccard similarity on word sets between topic strings. Configurable threshold (default 0.7). Catches the generator producing semantically identical tasks with slightly different phrasing.
-- **Design decision**: Language is inferred from topic strings rather than requiring it in task.yaml. The generator doesn't always set a language field, so pattern matching on the topic ("Python", "Bash", "C++") is more reliable than depending on generated metadata.
-- CLI: `python generator/diversity.py <batch-report.json>` or pass a directory to auto-find the latest report. Saves a companion `-diversity.json` file.
+**Opus early stopping with hybrid parallelism** — First 3 Opus runs execute in parallel for speed. If classification is determined (e.g., 0/3 → too_hard, 3/3 → too_easy), stop. Otherwise run attempts 4-5 sequentially with early-stop checks. Saves ~$0.40-1.00 per skipped run; most tasks classify after 3 parallel runs.
 
-### Topic/prompt bank (`generator/prompts.py`)
-- **52 structured topics** with metadata: category, difficulty, language.
-- Covers all 6 task categories evenly (8-10 topics each).
-- Difficulty distribution: 27% easy, 50% medium, 23% hard — the easy/hard tails matter for calibrating where the learnable boundary sits.
-- 11 languages/technologies: Python, Bash, C, C++, Node.js, Go, Java, Make, CMake, Docker, Nginx.
-- **Design decision**: Each topic is a `TopicEntry` dataclass rather than a plain string. Structured metadata enables filtering by category/difficulty/language without parsing topic text.
-- **Design decision**: `select_topics(diverse=True)` uses round-robin across categories to maximize coverage per batch, preventing the generator from clustering in one domain.
-- `get_bank_stats()` for inspecting bank composition.
+**Sonnet filter tuning** — Increased from 3 runs / threshold 3 to 5 runs / threshold 4. A 70% true solve rate has 34% chance of 3/3 but only 17% chance of 4+/5, reducing false positives.
 
-### Generation prompt (`generator/generate.py`)
-- **Reverted per-difficulty prompt hints** — all tasks now use a single fixed system prompt targeting the 1-3/5 learnable range. Per-difficulty hints (easy/medium/hard) were counterproductive because they worked against the pipeline's goal: every task should land in the learnable band regardless of topic. The tiered evaluation (Haiku→Sonnet→Opus) handles difficulty calibration, not the generation prompt.
-- **Design decision**: Prompt bank difficulty metadata is retained for topic selection and diversity reporting, but is NOT passed to the generator. The generator always targets "3-5 interacting bugs, ~40-60% solve rate."
+### Difficulty Tuning — Stretch Goal B
 
-### Batch runner + metrics (`generator/batch.py`)
-- Now uses prompt bank (`select_topics()`) instead of hardcoded DEFAULT_TOPICS list.
-- **Incremental saves**: Each task result is appended to a JSONL file as it completes. If the batch crashes mid-run (network error, Docker timeout, OOM), completed results are preserved. The incremental file is cleaned up after the final JSON report is written.
-- **Design decision**: JSONL (one JSON object per line) for incremental saves rather than repeatedly rewriting a full JSON array. Append-only is crash-safe — a partial write only loses the last line, not the whole file.
-- **Concurrent execution**: `--n-concurrent N` flag runs N tasks in parallel using ThreadPoolExecutor. Default is 1 (sequential). Tiered evaluation within a single task stays sequential (Haiku must filter before Sonnet/Opus), but independent tasks run concurrently. Motivated by sequential batch runs taking 30+ minutes when parallelization could cut that to ~5-10 minutes.
-- **Cost estimation**: Computes approximate USD costs from token counts using per-model rates (Sonnet input/output, Haiku input/output, Opus input/output). Reports generation cost, evaluation cost, total, and cost-per-learnable-task. Rates are hardcoded from OpenRouter pricing — not perfectly accurate but good enough for budget planning.
-- **Design decision**: Cost estimation is best-effort from token counts rather than from OpenRouter billing APIs. Token counts are already in the pipeline results, so no additional API calls needed. Rates may drift over time but the relative cost structure (Haiku << Sonnet << Opus) is stable.
-- **Pipeline funnel report**: Shows drop-off at each stage with percentages (attempted → generated → structural pass → functional pass → evaluated → learnable). Makes bottlenecks immediately visible — e.g., if 80% fail functional validation, focus on improving the generator's Dockerfile/solution quality rather than tuning evaluation.
-- **Yield metric**: learnable/attempted ratio — the single number that matters for pipeline efficiency.
-- **CLI overhaul**: Replaced manual `sys.argv` parsing with `argparse`. Added `--output-dir` (was in the function signature but not wired to CLI), `--seed` (for reproducible prompt bank selection). All flags have help descriptions.
+**Difficulty adjustment loop** (`generate.py`, `pipeline.py`) — After evaluation, if task is too_hard or too_easy, adjusts and re-evaluates (up to 2 rounds):
+- **too_hard**: Remove 1-2 bugs, make remaining more discoverable
+- **too_easy**: Add subtle interacting bugs, misleading symptoms
+- Re-validates functionally after each adjustment before re-evaluating (validation is one Docker run vs. 5+ Opus agent runs)
+- *Design decision*: Full file replacement, not targeted repair — difficulty changes affect the relationship between source, tests, and solution.
 
-### Retry with feedback (`generator/generate.py`, `generator/pipeline.py`)
-- When structural or functional validation fails, the pipeline feeds the specific errors back to Sonnet and asks it to fix the task (up to `max_retries` attempts, default 2).
-- **Targeted repair** (improved): Instead of regenerating all files on retry, the system now analyzes the feedback to repair only the broken files:
-  - "Tests FAILED with solution" → only regenerate `solution.sh` (~10k tokens vs 50k for full rebuild)
-  - "Tests PASSED without solution" → only regenerate source files (keep tests/solution intact)
-  - Structural issues → full rebuild (rare)
-- **Design decision**: The original full-rebuild approach caused "whack-a-mole" — fixing solution.sh would introduce new bugs in other files. Targeted repair preserves working files and only touches what's broken. Cut retry cost by ~80% and improved fix success rate.
-- **Design decision**: Lower temperature (0.3) for targeted repairs vs. 0.7 for initial generation. Corrections need precision.
-- Feedback includes test stdout/stderr excerpts so the LLM can see exactly which tests failed and why.
-- Retry results tracked in `stages` dict (as `retry_1`, `retry_2`) for cost accounting.
+### Diversity Analysis — Stretch Goal C
 
-### JSON parse robustness (`generator/generate.py`)
-- Fixed markdown fence stripping: the regex used non-greedy `.*?` matching, which broke when JSON content contained triple backticks (e.g. code blocks in task.yaml instructions). Replaced with line-based fence stripping.
-- Strengthened "no fences" instruction in the system prompt, but the robust parser is the real fix since models don't always comply.
+**Diversity module** (`diversity.py`) — Analyzes batch reports for:
+- Category coverage (fraction of 6 categories present) and evenness (Shannon entropy)
+- Language distribution
+- Near-duplicate detection (Jaccard similarity on topic word sets, threshold 0.7)
+- CLI: `python3.12 generator/diversity.py <batch-report.json>`
 
-### Difficulty adjustment loop (`generator/generate.py`, `generator/pipeline.py`) — Stretch Goal B
-- After evaluation classifies a task as `too_hard` (0/5 Opus passes) or `too_easy` (4-5/5), the pipeline adjusts difficulty and re-evaluates (up to 2 rounds).
-- **too_hard**: Instructs the LLM to remove 1-2 bugs, make remaining bugs more discoverable, reduce file interactions — while keeping the core challenge.
-- **too_easy**: Instructs the LLM to add subtle interacting bugs, misleading symptoms, edge cases — without making it impossible.
-- **Design decision**: Full file replacement on difficulty adjustment (not targeted repair). Unlike solution fixes where only solution.sh is broken, difficulty changes affect the relationship between source files, tests, and solution — all three need to stay consistent.
-- **Design decision**: Re-validates functionally after each adjustment before re-evaluating. An adjustment that breaks tests wastes expensive Opus eval budget. Validation is cheap (one Docker run) vs. evaluation (5+ agent runs).
-- Motivated by exemplar generation results: 2/2 tasks that passed functional validation were classified as too_hard (Opus 0/5). The generator consistently overshoots difficulty when targeting "3-5 interacting bugs."
+**Topic/prompt bank** (`prompts.py`) — 52 structured topics with category, difficulty, language metadata. Round-robin selection (`select_topics(diverse=True)`) maximizes coverage per batch.
 
-### Code quality cleanup
-- Added `from __future__ import annotations` to all modules for Python 3.9 compatibility.
-- Removed unused imports across 6 files (Path, Optional, tempfile, unused config constants).
-- Narrowed broad `except Exception` to specific exception types for debuggability.
-- Consistent use of `X | None` syntax over `Optional[X]` across all modules.
+### Human-Likeness Comparison — Stretch Goal D
 
-### Solution-first generation strategy (`generator/generate.py`)
-- **Two-phase generation**: Phase 1 writes a complete working program with tests (guaranteed correct). Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes solution.sh via heredocs.
-- **Design decision**: The previous single-phase approach asked the LLM to write broken code AND its fix simultaneously. This is cognitively difficult — the LLM often produced solutions that didn't fix all bugs (~20% functional validation pass rate across all attempts). Solution-first inverts this: writing correct code is easy, introducing bugs is easy, but doing both at once is hard.
-- **Phase 1 uses lower temperature (0.5)** for correctness; **Phase 2 uses higher temperature (0.7)** for creative, realistic bugs.
-- **Phase 2 prompt calibrated**: Requires majority of tests to fail (not all). Originally required 100% test failure but this was unrealistic — real codebases have bugs that affect some features but not others. Some tests passing gives the agent useful debugging signal. The functional validator ensures the overall test suite exits non-zero regardless.
-- **Cost**: Two API calls instead of one, but saves the 2 retry calls that were almost always needed with the old approach. Net cost is comparable.
-- **Higher retry budget**: `MAX_SOLUTION_FIRST_RETRIES=4` (vs global default of 2). Each targeted repair gets closer to passing (observed: 4/8 → 7/8 across retries), so more retries are productive. The single-phase approach keeps its default of 2 since its retries are less effective.
-- Usage: `python pipeline.py "topic" --solution-first`
+**Quality comparison** (`quality.py`) — Compares generated tasks against hand-crafted examples using structural metrics (instruction length, test count, file count, Dockerfile checks). Outlier detection flags tasks outside example range by > 50%.
+- CLI: `python3.12 generator/quality.py <task_dir_or_output_dir>`
 
-### Few-shot example curation (`generator/generate.py`)
-- **Negative few-shot examples**: Instead of excluding too-easy examples, they're now presented as labeled negative examples: "these are too simple, avoid this difficulty." The generator sees both positive examples (learnable range, labeled "GOOD EXAMPLES") and negative examples (too easy, labeled "TOO-EASY EXAMPLES").
-- **Design decision**: Negative examples are more informative than exclusion. Showing the generator what "too easy" looks like (single-file, single-command, no interacting bugs) helps it calibrate difficulty better than simply hiding those examples. The generator now has explicit contrast between target and avoid difficulty levels.
-- `TOO_EASY_EXAMPLES` set tracks which examples are confirmed too easy by evaluation. Currently: config-manifest-validator (Sonnet 3/3, Opus 4/4).
-- **`examples-opus/` directory**: Separate from hand-crafted `examples/` for Stretch Goal D (human-likeness comparison). The generator loads from both directories — Opus exemplars that pass evaluation become high-quality templates for Sonnet to replicate cheaply at scale.
+### Batch Infrastructure
 
-### Example task fixes
-- **config-manifest-validator**: Instruction said "manifest.txt" but tests and solution.sh both checked for "hello.txt". The agent correctly created manifest.txt as instructed, causing 7/7 test failures — making the task appear impossibly hard when it was actually a bug in the example. Fixed instruction to say "hello.txt". Also removed duplicated instruction text.
-- **Evaluation path resolution**: `evaluate.py` resolved dataset paths relative to the Python process cwd instead of the repo root, causing `_parse_run_results` to find empty directories. Fixed with `Path.resolve()`.
+**Batch runner** (`batch.py`) — Orchestrates generation, validation, and evaluation for multiple tasks:
+- `--n-concurrent N` for parallel task execution (thread-safe incremental JSONL writes)
+- `--resume [BATCH_ID_OR_PATH]` to pick up interrupted batches (meta file preserves original topic list)
+- Pre-flight checks: API key, Docker daemon, `tb` CLI, output dir writable, disk space
+- Pipeline funnel report with yield metric (learnable/attempted)
+- Cost estimation from token counts (Sonnet, Haiku, Opus rates)
+- Error categorization by failed stage (generation, structural, functional, evaluation)
+- `--seed` for reproducible prompt bank selection
 
-### Terminal Bench harness fixes
-- **Critical**: The `tb` harness was completely non-functional — all previous evaluation results (0/5 across all tasks) were caused by infrastructure failures, not task difficulty. Every fix below was necessary to get the first successful agent run.
-- **Missing prompt templates**: Created `terminus.txt` (agent system prompt), `timeout.txt` (command timeout notification), and `formatted-response.txt` (JSON schema fallback for models without native `response_format`). Reconstructed from source code context — the templates reference `{instruction}`, `{response_schema}`, `{terminal_state}`, `{history}` placeholders used in `terminus_1.py`.
-- **Missing `add_anthropic_caching()`**: Function was called in `lite_llm.py` but never defined. Added implementation that injects `cache_control` headers on system/user messages for Anthropic models.
-- **Missing `AsciinemaHandler`**: Class was used in `harness.py` but never defined. Added implementation that merges agent markers into asciinema v2 recordings.
-- **Missing `get-asciinema-timestamp.sh`**: Script expected by `tmux_session.py` to extract timestamps from recordings. Created with Python-based JSON parser.
-- **docker-compose.yaml for all examples**: The harness uses `docker compose`, not raw `docker build`. Added standardized compose files to all 6 examples with env-var-driven container/image names.
-- **tmux + asciinema in Dockerfiles**: The harness requires both tools inside the container for terminal session management and recording. Added to all 6 example Dockerfiles.
-- **JSON extraction fallback**: Added brace-extraction fallback to `terminus_1.py` for models that return JSON embedded in free text (common via OpenRouter routing).
-- **OpenRouter model routing**: Models must use `openrouter/` prefix (e.g., `openrouter/anthropic/claude-3.5-haiku`) for litellm to route through OpenRouter instead of calling Anthropic directly. The prefix is now auto-added in `evaluate.py`'s `_run_tb()` so `config.py` stays provider-agnostic.
+**Crash safety** — Incremental JSONL appends (not full-array rewrites) preserve completed results. `threading.Lock` prevents byte-interleaving under concurrent writes. Worker count capped to `min(n_concurrent, remaining)`.
 
-### Bug fixes
-- **Slug generation**: Topic strings with commas (e.g., "nested YAML, environment overrides") produced directory names containing commas, which are invalid Docker tags. Docker build failed with "invalid reference format". Fixed by stripping all non-alphanumeric/hyphen characters from slugs. Discovered during Opus exemplar generation — wasted 2 retry attempts before identifying the root cause was in our tooling, not the generated task.
-- **API retry**: OpenRouter occasionally returns malformed JSON responses (network interruption, server error). Added `_api_call_with_retry()` with exponential backoff (3 attempts, 5s/10s/20s). Does not retry on auth errors (4xx).
+### Harness Fixes
 
-### Test suites (`tests/`)
-- **122 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, diversity analysis, and harness unit tests (caching, AsciinemaHandler, JSON extraction, file existence).
-- All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
-- **Design decision**: Tests use `tmp_path` fixtures with synthetic task directories rather than the real examples, so they stay fast and don't depend on example task state.
-- Batch tests verify funnel counts, cost math, token aggregation, and edge cases (zero denominators, error statuses, generation failures).
+The `tb` harness was non-functional out of the box — all early evaluation results were infrastructure failures. Fixes required to get the first successful agent run:
+- Created missing prompt templates (`terminus.txt`, `timeout.txt`, `formatted-response.txt`)
+- Implemented missing `add_anthropic_caching()`, `AsciinemaHandler`, `get-asciinema-timestamp.sh`
+- Added `docker-compose.yaml` and `tmux asciinema` to all 6 example Dockerfiles
+- JSON extraction fallback in `terminus_1.py` for OpenRouter responses
+- Auto-prefix `openrouter/` on model names for litellm routing
+
+### Bug Fixes
+
+- **Slug generation**: Commas in topics produced invalid Docker tags. Fixed with character stripping + word-boundary truncation + SHA-256 hash suffix for collision safety.
+- **config-manifest-validator example**: Instruction said "manifest.txt" but tests checked "hello.txt" — appeared impossibly hard when it was actually a bug in the example.
+- **Evaluation path resolution**: `evaluate.py` resolved paths relative to cwd instead of repo root.
+- **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
+
+### Code Quality
+
+- `X | None` syntax throughout (not `Optional[X]`)
+- Narrowed `except Exception` to specific types
+- `_slugify` in dependency-free `config.py`; `batch_io.py` for resume helpers (no openai/pydantic chain)
+- 175 tests across 10 modules (~0.6s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
