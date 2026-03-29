@@ -128,7 +128,7 @@ Return your response as a JSON object with this structure:
   }
 }
 
-Return ONLY the JSON object. No markdown fences, no explanation, just the JSON."""
+IMPORTANT: Return ONLY raw JSON. Do NOT wrap it in ```json``` markdown fences or any other formatting. Start your response with { and end with }."""
 
 
 def _build_user_prompt(topic: str) -> str:
@@ -152,18 +152,30 @@ Remember:
 
 
 def _parse_response(response_text: str) -> dict:
-    """Parse the LLM response to extract files dict."""
+    """Parse the LLM response to extract files dict.
+
+    Handles: raw JSON, JSON in markdown fences (even when content contains ```),
+    and JSON embedded in surrounding text.
+    """
     text = response_text.strip()
 
-    # Try to extract JSON from markdown code fences if present
-    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if json_match:
-        text = json_match.group(1).strip()
+    # Strategy 1: Strip leading/trailing markdown fences if present.
+    # Can't use regex with .*? because the JSON content may itself contain ```
+    # (e.g. code blocks inside task.yaml instructions).
+    if text.startswith("```"):
+        # Remove opening fence line
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+        # Remove closing fence (last ```)
+        last_fence = text.rfind("```")
+        if last_fence != -1:
+            text = text[:last_fence]
+        text = text.strip()
 
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        # Try to find the JSON object in the text
+        # Strategy 2: find outermost { ... } braces
         brace_start = text.find("{")
         brace_end = text.rfind("}")
         if brace_start != -1 and brace_end != -1:
@@ -278,10 +290,14 @@ def regenerate_task(
 ) -> dict:
     """Regenerate a task using validation feedback.
 
-    Reads the previously generated files, sends them back to the LLM along
-    with the validation failure details, and asks for a corrected version.
-    This is much cheaper than generating from scratch because the LLM only
-    needs to fix the specific issues rather than re-derive the entire task.
+    Uses TARGETED repair: analyzes the feedback to determine which files need
+    fixing, then asks the LLM to regenerate only those files. This prevents
+    the "whack-a-mole" problem where fixing one file introduces bugs in others.
+
+    Repair strategies:
+    - "tests fail after solution" → only regenerate solution.sh
+    - "tests pass without solution" → only regenerate source files (buggy code)
+    - "structural issues" → regenerate all files (full rebuild)
 
     Args:
         topic: The original topic string.
@@ -298,7 +314,7 @@ def regenerate_task(
     )
     gen_model = model or GENERATOR_MODEL
 
-    # Read the previously generated files to include in the conversation
+    # Read the previously generated files
     previous_files = {}
     task_path = Path(task_dir)
     for fpath in sorted(task_path.rglob("*")):
@@ -311,23 +327,52 @@ def regenerate_task(
 
     previous_json = json.dumps({"files": previous_files}, indent=2)
 
-    feedback_prompt = f"""The task you generated for "{topic}" failed validation. Here are the specific issues:
+    # Determine repair strategy from feedback
+    feedback_lower = feedback.lower()
+    if "tests failed" in feedback_lower and "with solution" in feedback_lower:
+        # Only fix solution.sh — source files and tests are fine
+        repair_target = "solution_only"
+        repair_instruction = (
+            "The source files and tests are correct, but solution.sh does not fix all bugs. "
+            "Return ONLY a corrected solution.sh that fixes ALL bugs in the source files. "
+            "Carefully trace through every test case and verify your solution passes each one. "
+            "Return a JSON object: {\"files\": {\"solution.sh\": \"...\"}}"
+        )
+    elif "tests passed" in feedback_lower and "without solution" in feedback_lower:
+        # Source files don't have real bugs — fix the buggy source files
+        repair_target = "source_only"
+        infrastructure = {"task.yaml", "Dockerfile", "run-tests.sh", "solution.sh", "tests/test_outputs.py"}
+        source_files = [f for f in previous_files if f not in infrastructure]
+        repair_instruction = (
+            "The tests pass without solution.sh being applied, meaning the source files don't "
+            "have real bugs. Fix the SOURCE FILES to introduce real bugs that cause test failures. "
+            "Do NOT change task.yaml, Dockerfile, run-tests.sh, solution.sh, or tests/. "
+            f"Return a JSON object with only these source files: {source_files}"
+        )
+    else:
+        # Full rebuild for structural issues or unclear problems
+        repair_target = "full"
+        repair_instruction = (
+            "Return the complete corrected task as a JSON object with ALL files. "
+            "Make sure: (1) Tests FAIL on the unsolved container, "
+            "(2) solution.sh PASSES all tests, "
+            "(3) All file paths are consistent."
+        )
+
+    feedback_prompt = f"""The task you generated for "{topic}" failed validation:
 
 {feedback}
 
-Here is the task you previously generated:
+Here is the complete task:
 ```json
 {previous_json}
 ```
 
-Please fix ALL the issues listed above and return the complete corrected task as a JSON object with the same structure. Make sure:
-1. Tests FAIL on the unsolved container (the source files must have real bugs)
-2. solution.sh PASSES all tests (trace through every test mentally)
-3. All file paths are consistent between Dockerfile, source files, tests, and solution.sh
+{repair_instruction}
 
-Return ONLY the corrected JSON object."""
+Return ONLY the JSON object."""
 
-    print(f"  Regenerating with feedback ({len(feedback)} chars)...")
+    print(f"  Repairing ({repair_target}) with feedback ({len(feedback)} chars)...")
     print(f"  Model: {gen_model}")
 
     start = time.time()
@@ -337,11 +382,9 @@ Return ONLY the corrected JSON object."""
         model=gen_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(topic)},
-            {"role": "assistant", "content": previous_json},
             {"role": "user", "content": feedback_prompt},
         ],
-        temperature=0.4,  # Lower temp for corrections — we want precision, not creativity
+        temperature=0.3,  # Lower temp for repairs — we want precision
         max_tokens=32000,
     )
 
@@ -358,15 +401,21 @@ Return ONLY the corrected JSON object."""
 
     try:
         files = _parse_response(response_text)
-        # Clear old files and write new ones
-        for item in task_path.iterdir():
-            if item.name.startswith("_"):
-                continue  # preserve debug files
-            if item.is_dir():
-                shutil.rmtree(item)
-            else:
-                item.unlink()
-        _write_task_files(files, task_dir)
+
+        if repair_target == "full":
+            # Clear old files and write all new ones
+            for item in task_path.iterdir():
+                if item.name.startswith("_"):
+                    continue
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            _write_task_files(files, task_dir)
+        else:
+            # Targeted repair: only overwrite the returned files
+            _write_task_files(files, task_dir)
+
         status = "success"
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         status = f"parse_error: {e}"

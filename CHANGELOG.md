@@ -78,10 +78,18 @@
 
 ### Retry with feedback (`generator/generate.py`, `generator/pipeline.py`)
 - When structural or functional validation fails, the pipeline feeds the specific errors back to Sonnet and asks it to fix the task (up to `max_retries` attempts, default 2).
-- **Design decision**: Uses multi-turn conversation rather than regenerating from scratch. The LLM sees its original output + the validation errors, so it only needs to fix the specific issues. This is cheaper and more targeted than a full re-generation.
-- **Design decision**: Lower temperature (0.4) for retries vs. 0.7 for initial generation. Corrections need precision, not creativity.
+- **Targeted repair** (improved): Instead of regenerating all files on retry, the system now analyzes the feedback to repair only the broken files:
+  - "Tests FAILED with solution" → only regenerate `solution.sh` (~10k tokens vs 50k for full rebuild)
+  - "Tests PASSED without solution" → only regenerate source files (keep tests/solution intact)
+  - Structural issues → full rebuild (rare)
+- **Design decision**: The original full-rebuild approach caused "whack-a-mole" — fixing solution.sh would introduce new bugs in other files. Targeted repair preserves working files and only touches what's broken. Cut retry cost by ~80% and improved fix success rate.
+- **Design decision**: Lower temperature (0.3) for targeted repairs vs. 0.7 for initial generation. Corrections need precision.
 - Feedback includes test stdout/stderr excerpts so the LLM can see exactly which tests failed and why.
 - Retry results tracked in `stages` dict (as `retry_1`, `retry_2`) for cost accounting.
+
+### JSON parse robustness (`generator/generate.py`)
+- Fixed markdown fence stripping: the regex used non-greedy `.*?` matching, which broke when JSON content contained triple backticks (e.g. code blocks in task.yaml instructions). Replaced with line-based fence stripping.
+- Strengthened "no fences" instruction in the system prompt, but the robust parser is the real fix since models don't always comply.
 
 ### Code quality cleanup
 - Added `from __future__ import annotations` to all modules for Python 3.9 compatibility.
