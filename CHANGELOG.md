@@ -80,6 +80,8 @@
 - **Tier 3: Opus x5** (~$2-5/task) — final calibration. Classify as learnable (1-3/5), too_easy (4-5/5), or too_hard (0/5).
 - **Design decision**: Model capability ordering (Haiku < Sonnet < Opus) means if a weaker model finds it easy, a stronger one definitely will. We filter from the "too easy" side cheaply, only spending Opus budget on tasks with real uncertainty.
 - **Design decision**: Single-run Haiku was too noisy — a single binary signal can't distinguish "always passes" from "passes 60%". 5 runs gives a distribution. Thresholds are configurable for later tuning once we see empirical correlations.
+- **Opus early stopping** (Stretch Goal A): Runs Opus attempts sequentially and stops as soon as classification is certain. Three conditions: guaranteed learnable (passes ≥ 1 and passes + remaining ≤ 3), already too_easy (passes > 3), guaranteed too_hard (can't reach 1 even if all remaining pass). Saves ~$0.40-1.00 per skipped run. Most tasks are too_hard (0/3 → stop, save 2 runs) or too_easy (4/4 → stop, save 1 run).
+- **Design decision**: Sequential Opus runs are slower than parallel, but the cost savings outweigh the time cost — especially in batch mode where most generated tasks are too_hard and get classified after 3 runs instead of 5.
 - **Sonnet filter tuned**: Increased from 3 runs/threshold 3 to 5 runs/threshold 4. Sonnet 3/3 was too noisy — a 70% solve rate has 34% chance of triggering 3/3, but only 17% chance of 4+/5. This reduces false positives (tasks incorrectly classified as too easy) without significant cost increase (Sonnet is ~3x cheaper than Opus).
 
 ### End-to-end pipeline (`generator/pipeline.py`)
