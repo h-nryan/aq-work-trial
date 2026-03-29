@@ -89,8 +89,12 @@
 - Narrowed broad `except Exception` to specific exception types for debuggability.
 - Consistent use of `X | None` syntax over `Optional[X]` across all modules.
 
+### Bug fixes
+- **Slug generation**: Topic strings with commas (e.g., "nested YAML, environment overrides") produced directory names containing commas, which are invalid Docker tags. Docker build failed with "invalid reference format". Fixed by stripping all non-alphanumeric/hyphen characters from slugs. Discovered during Opus exemplar generation — wasted 2 retry attempts before identifying the root cause was in our tooling, not the generated task.
+- **API retry**: OpenRouter occasionally returns malformed JSON responses (network interruption, server error). Added `_api_call_with_retry()` with exponential backoff (3 attempts, 5s/10s/20s). Does not retry on auth errors (4xx).
+
 ### Test suites (`tests/`)
-- **95 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, and diversity analysis.
+- **97 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, batch metrics/cost estimation, and diversity analysis.
 - All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
 - **Design decision**: Tests use `tmp_path` fixtures with synthetic task directories rather than the real examples, so they stay fast and don't depend on example task state.
 - Batch tests verify funnel counts, cost math, token aggregation, and edge cases (zero denominators, error statuses, generation failures).
