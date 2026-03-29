@@ -12,7 +12,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "validator"))
-from config import EVAL_TRIALS, MAX_GENERATION_RETRIES
+from config import EVAL_TRIALS, MAX_GENERATION_RETRIES, MAX_SOLUTION_FIRST_RETRIES
 from docker_validate import docker_validate
 from evaluate import evaluate_task
 from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
@@ -108,6 +108,9 @@ def run_pipeline(
     Returns:
         dict with all stage results and final classification.
     """
+    # Solution-first gets more retries since each one gets closer to passing
+    effective_retries = MAX_SOLUTION_FIRST_RETRIES if solution_first else max_retries
+
     start = time.time()
     result = {
         "topic": topic,
@@ -139,11 +142,11 @@ def run_pipeline(
     task_dir = gen_result["task_dir"]
 
     # Stages 2-3: Validate with retry loop
-    for attempt in range(1 + max_retries):
+    for attempt in range(1 + effective_retries):
         is_retry = attempt > 0
         if is_retry:
             result["retries"] = attempt
-            print(f"\n[Retry {attempt}/{max_retries}]")
+            print(f"\n[Retry {attempt}/{effective_retries}]")
 
         # Stage 2: Structural validation
         print(f"\n[Structural Validation]")
@@ -152,7 +155,7 @@ def run_pipeline(
         print(f"  {'PASSED' if struct_result['passed'] else 'FAILED'}")
 
         if not struct_result["passed"]:
-            if attempt < max_retries:
+            if attempt < effective_retries:
                 feedback = _build_feedback(struct_result, None)
                 retry_result = regenerate_task(topic, task_dir, feedback, model=model)
                 result["stages"][f"retry_{attempt + 1}"] = retry_result
@@ -172,7 +175,7 @@ def run_pipeline(
             result["stages"]["functional"] = func_result
 
             if not func_result["passed"]:
-                if attempt < max_retries:
+                if attempt < effective_retries:
                     feedback = _build_feedback(None, func_result)
                     retry_result = regenerate_task(topic, task_dir, feedback, model=model)
                     result["stages"][f"retry_{attempt + 1}"] = retry_result
