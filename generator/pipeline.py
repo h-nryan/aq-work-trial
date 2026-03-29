@@ -35,24 +35,36 @@ def validate_structural(task_dir: str) -> dict:
 def validate_functional(task_dir: str) -> dict:
     """Build Docker image and verify solution.sh passes tests.
 
+    The generated Dockerfile only COPYs source files (the buggy code).
+    Infrastructure files (solution.sh, run-tests.sh, tests/) are bind-mounted
+    at runtime so the same image can be tested in both solved/unsolved states.
+
     Steps:
     1. Build Docker image from the task's Dockerfile
-    2. Run solution.sh inside the container
-    3. Run run-tests.sh and verify all tests pass
-    4. (Optional) Verify tests fail WITHOUT solution.sh
+    2. Run run-tests.sh WITHOUT solution — tests must FAIL
+    3. Run solution.sh THEN run-tests.sh — tests must PASS
     """
-    task_path = Path(task_dir)
+    task_path = Path(task_dir).resolve()
     task_name = task_path.name
-    image_name = f"tbench-gen-{task_name}".lower()
+    image_name = f"tbench-gen-{task_name}"[:63].lower()
+
+    # Detect WORKDIR from Dockerfile (default /app)
+    workdir = "/app"
+    dockerfile = task_path / "Dockerfile"
+    if dockerfile.exists():
+        for line in dockerfile.read_text().splitlines():
+            if line.strip().upper().startswith("WORKDIR"):
+                workdir = line.strip().split(None, 1)[1].strip()
 
     print(f"  [Functional] Building Docker image: {image_name}")
+    print(f"  [Functional] Container WORKDIR: {workdir}")
 
     # Step 1: Build
     build_result = subprocess.run(
         ["docker", "build", "-t", image_name, "."],
         capture_output=True,
         text=True,
-        cwd=task_dir,
+        cwd=str(task_path),
         timeout=300,
     )
     if build_result.returncode != 0:
@@ -62,38 +74,54 @@ def validate_functional(task_dir: str) -> dict:
             "error": build_result.stderr[:1000],
         }
 
+    # Common mount args: bind-mount solution.sh, run-tests.sh, tests/ into container
+    mount_args = []
+    for fname in ["solution.sh", "run-tests.sh"]:
+        host_path = task_path / fname
+        if host_path.exists():
+            mount_args += ["-v", f"{host_path}:{workdir}/{fname}:ro"]
+    tests_dir = task_path / "tests"
+    if tests_dir.exists():
+        mount_args += ["-v", f"{tests_dir}:{workdir}/tests:ro"]
+
     # Step 2: Verify tests FAIL on unsolved container
     print(f"  [Functional] Checking tests fail without solution...")
+    unsolved_cmd = [
+        "docker", "run", "--rm",
+        "-e", f"TEST_DIR={workdir}/tests",
+    ] + mount_args + [
+        image_name,
+        "bash", "-c", f"cd {workdir} && bash run-tests.sh",
+    ]
     unsolved_result = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "-e", f"TEST_DIR=/app/tests",
-            image_name,
-            "bash", "-c", "cd /app && bash run-tests.sh",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
+        unsolved_cmd, capture_output=True, text=True, timeout=180,
     )
     tests_fail_unsolved = unsolved_result.returncode != 0
 
     if not tests_fail_unsolved:
-        print(f"  [Functional] WARNING: Tests pass without solution (task is trivially solved)")
-        # This is a soft warning — task might still be useful if the instruction
-        # requires something beyond what the tests check
+        print(f"  [Functional] WARNING: Tests pass without solution (task may be trivially solved)")
 
     # Step 3: Run solution.sh + tests
     print(f"  [Functional] Running solution.sh + tests...")
+    # solution.sh needs write access to fix files, so mount it read-write
+    rw_mount_args = []
+    for fname in ["solution.sh", "run-tests.sh"]:
+        host_path = task_path / fname
+        if host_path.exists():
+            mount_args_rw = "" if fname == "solution.sh" else ":ro"
+            rw_mount_args += ["-v", f"{host_path}:{workdir}/{fname}{mount_args_rw}"]
+    if tests_dir.exists():
+        rw_mount_args += ["-v", f"{tests_dir}:{workdir}/tests:ro"]
+
+    solved_cmd = [
+        "docker", "run", "--rm",
+        "-e", f"TEST_DIR={workdir}/tests",
+    ] + rw_mount_args + [
+        image_name,
+        "bash", "-c", f"cd {workdir} && bash solution.sh && bash run-tests.sh",
+    ]
     solved_result = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "-e", f"TEST_DIR=/app/tests",
-            image_name,
-            "bash", "-c", "cd /app && bash solution.sh && bash run-tests.sh",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
+        solved_cmd, capture_output=True, text=True, timeout=300,
     )
     tests_pass_solved = solved_result.returncode == 0
 
