@@ -282,47 +282,64 @@ def evaluate_task(
             )
 
     # ── Tier 3: Opus × 5 (ground truth) with early stopping ──
+    # Hybrid strategy: first 3 runs in parallel for speed, then sequential
+    # with early-stop checks for cost efficiency.
     print(f"\n  [Tier: Opus x{n_trials}] Running on {task_name}...")
 
+    PARALLEL_BATCH = min(3, n_trials)
     opus_passes = 0
     opus_total = 0
     opus_trials = []
 
-    for run_idx in range(n_trials):
-        remaining = n_trials - opus_total - 1  # after this run completes
+    # Phase A: parallel batch of 3
+    batch_result = _run_tb(
+        task_dir=task_dir,
+        model=EVAL_MODEL,
+        n_attempts=PARALLEL_BATCH,
+        output_path=output_path,
+    )
+    opus_passes = batch_result["passes"]
+    opus_total = batch_result["total"] or PARALLEL_BATCH
+    opus_trials.append(batch_result)
+    remaining = n_trials - opus_total
 
-        single_result = _run_tb(
-            task_dir=task_dir,
-            model=EVAL_MODEL,
-            n_attempts=1,
-            output_path=output_path,
-        )
-        opus_total += 1
-        if single_result["passes"] > 0:
-            opus_passes += 1
-        opus_trials.append(single_result)
+    print(f"    Batch 1-{PARALLEL_BATCH}: {opus_passes}/{opus_total} passes")
 
-        remaining = n_trials - opus_total
+    # Check if we can classify already
+    def _can_stop(passes: int, remaining: int) -> str | None:
+        if passes >= LEARNABLE_MIN and passes + remaining <= LEARNABLE_MAX:
+            return "learnable"
+        if passes > LEARNABLE_MAX:
+            return "too_easy"
+        if passes + remaining < LEARNABLE_MIN:
+            return "too_hard"
+        return None
 
-        # Early stop: guaranteed learnable (min passes met, can't exceed max)
-        if opus_passes >= LEARNABLE_MIN and opus_passes + remaining <= LEARNABLE_MAX:
-            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
-                  f"guaranteed learnable (early stop, saved {remaining} runs)")
-            break
+    early_class = _can_stop(opus_passes, remaining)
+    if early_class:
+        print(f"    → {early_class} (early stop after {opus_total} runs, saved {remaining})")
+    else:
+        # Phase B: sequential runs with early-stop checks
+        for run_idx in range(remaining):
+            single_result = _run_tb(
+                task_dir=task_dir,
+                model=EVAL_MODEL,
+                n_attempts=1,
+                output_path=output_path,
+            )
+            opus_total += 1
+            if single_result["passes"] > 0:
+                opus_passes += 1
+            opus_trials.append(single_result)
 
-        # Early stop: already too_easy (exceeded max even with runs left)
-        if opus_passes > LEARNABLE_MAX:
-            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
-                  f"already too_easy (early stop, saved {remaining} runs)")
-            break
-
-        # Early stop: guaranteed too_hard (can't reach min even if all remaining pass)
-        if opus_passes + remaining < LEARNABLE_MIN:
-            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
-                  f"guaranteed too_hard (early stop, saved {remaining} runs)")
-            break
-
-        print(f"    Run {opus_total}/{n_trials}: {opus_passes}/{opus_total} passes so far")
+            runs_left = n_trials - opus_total
+            early_class = _can_stop(opus_passes, runs_left)
+            if early_class:
+                print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
+                      f"{early_class} (early stop, saved {runs_left} runs)")
+                break
+            else:
+                print(f"    Run {opus_total}/{n_trials}: {opus_passes}/{opus_total} passes")
 
     tier_results["opus"] = {
         "model": EVAL_MODEL,
