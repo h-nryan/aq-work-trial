@@ -53,19 +53,17 @@
 - **Design decision**: `select_topics(diverse=True)` uses round-robin across categories to maximize coverage per batch, preventing the generator from clustering in one domain.
 - `get_bank_stats()` for inspecting bank composition.
 
-### Difficulty-calibrated generation (`generator/generate.py`)
-- **Per-difficulty system prompt guidance**: easy (1-2 bugs, 80-90% solve rate), medium (3-5 interacting bugs, 40-60%), hard (5-7 bugs with dependency chains, 10-30%).
-- **Design decision**: Difficulty metadata from the prompt bank is threaded through the full pipeline (batch.py → pipeline.py → generate.py) rather than relying solely on the topic string to imply difficulty. This gives the LLM explicit calibration targets.
-- User prompt includes `DIFFICULTY LEVEL: X` and instructs the LLM to set the matching value in task.yaml.
+### Generation prompt (`generator/generate.py`)
+- **Reverted per-difficulty prompt hints** — all tasks now use a single fixed system prompt targeting the 1-3/5 learnable range. Per-difficulty hints (easy/medium/hard) were counterproductive because they worked against the pipeline's goal: every task should land in the learnable band regardless of topic. The tiered evaluation (Haiku→Sonnet→Opus) handles difficulty calibration, not the generation prompt.
+- **Design decision**: Prompt bank difficulty metadata is retained for topic selection and diversity reporting, but is NOT passed to the generator. The generator always targets "3-5 interacting bugs, ~40-60% solve rate."
 
 ### Batch generation (`generator/batch.py`)
-- Now uses prompt bank (`select_entries()`) instead of hardcoded DEFAULT_TOPICS list.
-- Passes difficulty metadata from prompt bank entries to the pipeline for calibrated generation.
+- Now uses prompt bank (`select_topics()`) instead of hardcoded DEFAULT_TOPICS list.
 - Aggregate metrics: generation rate, validation rate, learnable rate, cost, time.
 - Per-task results table and JSON report output.
 - CLI flags: `--skip-eval`, `--skip-functional`, `--skip-filters`, `--n-tasks N`, `--category`, `--difficulty`, `--language`.
 
 ### Test suites (`tests/`)
-- **61 tests** covering prompts, structural validator, Docker validator sanity checks, and generator prompt construction.
+- **56 tests** covering prompts, structural validator, Docker validator sanity checks, and generator prompt construction.
 - All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
 - **Design decision**: Tests use `tmp_path` fixtures with synthetic task directories rather than the real examples, so they stay fast and don't depend on example task state.
