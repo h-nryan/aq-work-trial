@@ -155,6 +155,7 @@
 - **Phase 1 uses lower temperature (0.5)** for correctness; **Phase 2 uses higher temperature (0.7)** for creative, realistic bugs.
 - **Phase 2 prompt calibrated**: Requires majority of tests to fail (not all). Originally required 100% test failure but this was unrealistic — real codebases have bugs that affect some features but not others. Some tests passing gives the agent useful debugging signal. The functional validator ensures the overall test suite exits non-zero regardless.
 - **Cost**: Two API calls instead of one, but saves the 2 retry calls that were almost always needed with the old approach. Net cost is comparable.
+- **Higher retry budget**: `MAX_SOLUTION_FIRST_RETRIES=4` (vs global default of 2). Each targeted repair gets closer to passing (observed: 4/8 → 7/8 across retries), so more retries are productive. The single-phase approach keeps its default of 2 since its retries are less effective.
 - Usage: `python pipeline.py "topic" --solution-first`
 
 ### Few-shot example curation (`generator/generate.py`)
