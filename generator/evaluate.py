@@ -20,7 +20,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
@@ -41,7 +40,7 @@ def _run_tb(
     task_dir: str,
     model: str,
     n_attempts: int = 1,
-    run_id: Optional[str] = None,
+    run_id: str | None = None,
     output_path: str = "runs",
     timeout_sec: float = 900.0,
 ) -> dict:
@@ -324,10 +323,10 @@ def evaluate_task(
 def _build_result(
     task_dir: str,
     classification: str,
-    filtered_at: Optional[str],
+    filtered_at: str | None,
     tier_results: dict,
-    opus_passes: Optional[int] = None,
-    opus_total: Optional[int] = None,
+    opus_passes: int | None = None,
+    opus_total: int | None = None,
 ) -> dict:
     """Build a standardized evaluation result dict."""
     task_name = Path(task_dir).name
