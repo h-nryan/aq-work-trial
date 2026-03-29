@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -33,6 +34,7 @@ def run_batch(
     skip_filters: bool = False,
     output_dir: str | None = None,
     seed: int | None = None,
+    n_concurrent: int = 1,
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 
@@ -71,12 +73,9 @@ def run_batch(
     print(f"Output: {batch_output_dir}")
     print(f"{'#'*60}")
 
-    results = []
-    for i, topic in enumerate(topics):
+    def _run_one(i: int, topic: str) -> dict:
         print(f"\n[{i+1}/{len(topics)}] {topic}")
-
         task_output_dir = os.path.join(batch_output_dir, _slugify(topic))
-
         try:
             result = run_pipeline(
                 topic=topic,
@@ -92,12 +91,27 @@ def run_batch(
                 "status": f"error: {e}",
                 "classification": None,
             }
-
-        results.append(result)
-
-        # Save incrementally — one JSON line per task
+        # Save incrementally
         with open(incremental_path, "a") as f:
             f.write(json.dumps(result, default=str) + "\n")
+        return result
+
+    results = []
+    if n_concurrent <= 1:
+        for i, topic in enumerate(topics):
+            results.append(_run_one(i, topic))
+    else:
+        print(f"Running {n_concurrent} tasks concurrently")
+        with ThreadPoolExecutor(max_workers=n_concurrent) as executor:
+            futures = {
+                executor.submit(_run_one, i, topic): i
+                for i, topic in enumerate(topics)
+            }
+            # Collect results in submission order
+            results = [None] * len(topics)
+            for future in as_completed(futures):
+                idx = futures[future]
+                results[idx] = future.result()
 
     batch_duration = time.time() - batch_start
 
@@ -324,6 +338,10 @@ if __name__ == "__main__":
         help="Random seed for reproducible prompt bank selection",
     )
     parser.add_argument(
+        "--n-concurrent", type=int, default=1,
+        help="Number of tasks to run concurrently (default: 1, sequential)",
+    )
+    parser.add_argument(
         "--skip-eval", action="store_true",
         help="Skip agent evaluation (generation + validation only)",
     )
@@ -358,4 +376,5 @@ if __name__ == "__main__":
         skip_filters=args.skip_filters,
         output_dir=args.output_dir,
         seed=args.seed,
+        n_concurrent=args.n_concurrent,
     )
