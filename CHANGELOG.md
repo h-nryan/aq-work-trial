@@ -57,13 +57,18 @@
 - **Reverted per-difficulty prompt hints** — all tasks now use a single fixed system prompt targeting the 1-3/5 learnable range. Per-difficulty hints (easy/medium/hard) were counterproductive because they worked against the pipeline's goal: every task should land in the learnable band regardless of topic. The tiered evaluation (Haiku→Sonnet→Opus) handles difficulty calibration, not the generation prompt.
 - **Design decision**: Prompt bank difficulty metadata is retained for topic selection and diversity reporting, but is NOT passed to the generator. The generator always targets "3-5 interacting bugs, ~40-60% solve rate."
 
-### Batch generation (`generator/batch.py`)
+### Batch runner + metrics (`generator/batch.py`)
 - Now uses prompt bank (`select_topics()`) instead of hardcoded DEFAULT_TOPICS list.
-- Aggregate metrics: generation rate, validation rate, learnable rate, cost, time.
-- Per-task results table and JSON report output.
-- CLI flags: `--skip-eval`, `--skip-functional`, `--skip-filters`, `--n-tasks N`, `--category`, `--difficulty`, `--language`.
+- **Incremental saves**: Each task result is appended to a JSONL file as it completes. If the batch crashes mid-run (network error, Docker timeout, OOM), completed results are preserved. The incremental file is cleaned up after the final JSON report is written.
+- **Design decision**: JSONL (one JSON object per line) for incremental saves rather than repeatedly rewriting a full JSON array. Append-only is crash-safe — a partial write only loses the last line, not the whole file.
+- **Cost estimation**: Computes approximate USD costs from token counts using per-model rates (Sonnet input/output, Haiku input/output, Opus input/output). Reports generation cost, evaluation cost, total, and cost-per-learnable-task. Rates are hardcoded from OpenRouter pricing — not perfectly accurate but good enough for budget planning.
+- **Design decision**: Cost estimation is best-effort from token counts rather than from OpenRouter billing APIs. Token counts are already in the pipeline results, so no additional API calls needed. Rates may drift over time but the relative cost structure (Haiku << Sonnet << Opus) is stable.
+- **Pipeline funnel report**: Shows drop-off at each stage with percentages (attempted → generated → structural pass → functional pass → evaluated → learnable). Makes bottlenecks immediately visible — e.g., if 80% fail functional validation, focus on improving the generator's Dockerfile/solution quality rather than tuning evaluation.
+- **Yield metric**: learnable/attempted ratio — the single number that matters for pipeline efficiency.
+- **CLI overhaul**: Replaced manual `sys.argv` parsing with `argparse`. Added `--output-dir` (was in the function signature but not wired to CLI), `--seed` (for reproducible prompt bank selection). All flags have help descriptions.
 
 ### Test suites (`tests/`)
-- **56 tests** covering prompts, structural validator, Docker validator sanity checks, and generator prompt construction.
+- **73 tests** covering prompts, structural validator, Docker validator sanity checks, generator prompt construction, and batch metrics/cost estimation.
 - All tests are fast (~0.6s) and deterministic — no Docker or API calls needed.
 - **Design decision**: Tests use `tmp_path` fixtures with synthetic task directories rather than the real examples, so they stay fast and don't depend on example task state.
+- Batch tests verify funnel counts, cost math, token aggregation, and edge cases (zero denominators, error statuses, generation failures).
