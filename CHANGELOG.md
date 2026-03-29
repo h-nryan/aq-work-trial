@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Quality comparison tooling (`generator/quality.py`) — Stretch Goal D
+- **New module**: Compares generated tasks against hand-crafted examples using structural metrics — no LLM calls or Docker builds required.
+- **Per-task metrics**: instruction length, solution lines, test lines, test function count, file count, source file count, Dockerfile checks (exists, has tmux, has docker-compose).
+- **Comparison output**: Per-metric min/mean/median/max for both example and generated sets, delta between means, and outlier detection (generated tasks that fall far outside the example range).
+- **Design decision**: Metrics are intentionally simple and file-derived. The goal is to flag structural anomalies (e.g., a generated task with 2 test functions vs. the example average of 12) rather than assess semantic quality. Semantic quality requires running the task against agents, which the evaluation pipeline already handles.
+- **Design decision**: Outlier threshold is 50% beyond the example range. This catches tasks that are structurally degenerate (too few tests, trivially short instructions) while allowing natural variation in task complexity.
+- **CLI**: `python generator/quality.py <task_dir_or_output_dir>`. Saves a `quality-report.json` alongside the console output.
+- **19 new tests** in `tests/test_quality.py` covering line counting, test function detection, stats computation, task analysis, comparison logic, outlier detection, and boolean checks.
+
+### Code quality cleanup (continued)
+- **`evaluate.py`**: Removed `from typing import Optional` import and replaced all `Optional[X]` annotations with `X | None` for consistency with the rest of the codebase (which already uses `from __future__ import annotations`).
+
 ### Harness compatibility: docker-compose.yaml and tmux/asciinema (`generator/generate.py`)
 - **Root cause identified**: all 0/5 evaluation results were infrastructure failures, not task difficulty — the tb harness requires `docker compose` (not raw docker) and needs `tmux` + `asciinema` installed in containers.
 - **`DOCKER_COMPOSE_TEMPLATE`**: standard `docker-compose.yaml` constant matching the format used by all example tasks. Injected automatically by `_write_task_files()` so every generated task is harness-compatible even if the LLM forgets.
