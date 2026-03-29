@@ -286,10 +286,9 @@ def _print_report(metrics: dict, results: list) -> None:
         topic = r.get("topic", "?")[:49]
         status = r.get("status", "?")[:19]
         classification = r.get("classification") or "-"
-        pass_rate = r.get("pass_rate", "-")
-        if isinstance(pass_rate, float):
-            pass_rate = f"{pass_rate:.0%}"
-        print(f"  {i:<4} {topic:<50} {status:<20} {classification:<10} {pass_rate}")
+        pass_rate = r.get("pass_rate")
+        pass_rate_str = f"{pass_rate:.0%}" if isinstance(pass_rate, (int, float)) else "-"
+        print(f"  {i:<4} {topic:<50} {status:<20} {classification:<10} {pass_rate_str}")
 
 
 def _pct(num: int, denom: int) -> str:

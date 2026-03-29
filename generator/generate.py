@@ -57,11 +57,19 @@ and are verified by pytest.
 CRITICAL RULES:
 1. Every task MUST have these files: task.yaml, Dockerfile, run-tests.sh, solution.sh, tests/test_outputs.py
 2. Tasks must include "source files" — the buggy/incomplete code the agent needs to fix or build upon.
-3. solution.sh must be a deterministic bash script that solves the task completely. It writes fixed files and runs any setup needed.
+3. solution.sh must be a deterministic bash script that solves the task completely. It uses `cat > filename << 'EOF'` heredocs to write fixed files and runs any setup needed.
 4. Tests MUST FAIL on the unsolved container (before solution.sh runs) and PASS after solution.sh runs.
 5. The Dockerfile must install all dependencies needed for both the task and testing.
 6. run-tests.sh installs uv + pytest and runs the tests. Follow the exact boilerplate pattern from examples.
 7. task.yaml must have: instruction (detailed), difficulty, category, tags, parser_name: pytest, and timeout fields.
+
+MOST IMPORTANT — AVOID THESE COMMON FAILURES:
+A. Tests MUST actually FAIL before solution.sh runs. The source files must have REAL bugs that cause test failures. If you write source code that already works, the task is broken. Verify mentally: "will running these tests against the buggy source files produce failures?"
+B. solution.sh must fix ALL bugs, not just some. Mentally trace every test case through your solution and verify it passes.
+C. solution.sh must write COMPLETE fixed files (using heredocs), not patches. It should be self-contained.
+D. Keep the technology stack simple — prefer Python, Bash, C. Avoid Node.js/npm unless the topic requires it, as npm installs are slow and fragile in containers.
+E. Dockerfile WORKDIR must match paths used in source files, tests, and solution.sh.
+F. Tests should test concrete outputs (file contents, exit codes, stdout) not require running servers. Server-based tasks are harder to validate reliably.
 
 DIFFICULTY CALIBRATION (CRITICAL):
 These tasks will be solved by a very capable AI agent (Claude Opus). To land in the \
@@ -189,7 +197,7 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.7,
-        max_tokens=16000,
+        max_tokens=32000,
     )
 
     duration = time.time() - start
