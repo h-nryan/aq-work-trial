@@ -377,9 +377,13 @@ The bugs should:
 - Be realistic (off-by-one, wrong variable, missing edge case, type error, bad config)
 - Interact with each other (fixing bug A might reveal bug B)
 - Require reading the full codebase to find (not just one file)
-- Cause 60-80% of the test cases to fail
 - NOT change tests, Dockerfile, run-tests.sh, or task.yaml
 - Be fixable — the original working code IS the solution
+
+CRITICAL: Every single test must FAIL against the buggy code. Mentally trace through \
+each test function and verify it will fail. If a test checks a feature that your bugs \
+don't affect, add a bug that breaks that feature too. No test should pass on the \
+unsolved container.
 
 Here is the working program:
 ```json
