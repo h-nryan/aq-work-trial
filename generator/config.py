@@ -28,9 +28,11 @@ EVAL_TRIALS = 5    # number of Opus runs per task
 # Tier 1: Haiku × 5 runs (cheapest)
 HAIKU_FILTER_RUNS = 5
 HAIKU_SKIP_THRESHOLD = 4   # skip if Haiku passes >= this many (too easy for Opus)
-# Tier 2: Sonnet × 3 runs (medium cost, closer Opus proxy)
-SONNET_FILTER_RUNS = 3
-SONNET_SKIP_THRESHOLD = 3  # skip if Sonnet passes all 3 (too easy for Opus)
+# Tier 2: Sonnet × 5 runs (medium cost, closer Opus proxy)
+# Increased from 3 runs to 5 for higher confidence — Sonnet 3/3 was too noisy
+# (a 70% true solve rate has 34% chance of 3/3, but only 17% chance of 5/5).
+SONNET_FILTER_RUNS = 5
+SONNET_SKIP_THRESHOLD = 4  # skip if Sonnet passes >= 4/5 (very likely too easy for Opus)
 # Sonnet as middle filter model (same as generator, but used for evaluation here)
 SONNET_FILTER_MODEL = GENERATOR_MODEL
 

@@ -21,9 +21,37 @@ class TestSlugify:
         long = "a " * 50
         assert len(_slugify(long)) <= 60
 
+    def test_truncation_at_word_boundary(self):
+        # Should not cut mid-word — the prefix before the hash ends at a hyphen
+        topic = "debug a c program with memory corruption in a linked list implementation"
+        result = _slugify(topic)
+        assert len(result) <= 60
+        # Hash suffix is the last 6 chars (preceded by hyphen)
+        assert len(result) <= 60  # should fit within limit
+        # The char before the hash suffix should be a hyphen
+        assert result[-7] == "-"
+
+    def test_truncation_no_collisions(self):
+        # Two topics that share a long prefix but differ at the end must get different slugs
+        a = _slugify("debug a c program with memory corruption in a linked list implementation")
+        b = _slugify("debug a c program with memory corruption in a linked list insertion sort")
+        assert a != b
+
+    def test_short_topic_unchanged(self):
+        # Topics under 60 chars must not get a hash suffix
+        topic = "fix a broken python script"
+        result = _slugify(topic)
+        assert result == "fix-a-broken-python-script"
+        # No hash suffix present
+        assert len(result) < 60
+
     def test_commas_stripped(self):
         result = _slugify("fix nested YAML, environment overrides, and defaults")
         assert "," not in result
+
+    def test_consecutive_hyphens_collapsed(self):
+        result = _slugify("fix  a--broken  script")
+        assert "--" not in result
 
     def test_docker_tag_safe(self):
         result = _slugify("fix a/b, c++ (test) issue!")
