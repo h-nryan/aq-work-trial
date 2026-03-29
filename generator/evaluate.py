@@ -109,7 +109,9 @@ def _run_tb(
             "trials": [],
         }
 
-    results_dir = Path(output_path) / run_id
+    # Resolve results path relative to repo root (where tb run executes)
+    repo_root = Path(os.path.dirname(os.path.dirname(__file__)))
+    results_dir = repo_root / output_path / run_id
     return _parse_run_results(results_dir, task_id, n_attempts, duration)
 
 
