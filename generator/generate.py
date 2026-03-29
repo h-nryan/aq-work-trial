@@ -71,13 +71,22 @@ def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
     raise last_error
 
 
+# Examples confirmed too easy (Sonnet solves 3/3, Opus solves trivially).
+# Excluded from few-shot context to avoid teaching wrong difficulty calibration.
+EXCLUDED_EXAMPLES = {
+    "config-manifest-validator",  # Sonnet 3/3, Opus 4/4 — trivially easy
+}
+
+
 def _load_examples() -> str:
-    """Load all example tasks as few-shot context for the generator."""
+    """Load example tasks as few-shot context, excluding confirmed too-easy ones."""
     examples = []
     examples_path = Path(EXAMPLES_DIR)
 
     for task_dir in sorted(examples_path.iterdir()):
         if not task_dir.is_dir():
+            continue
+        if task_dir.name in EXCLUDED_EXAMPLES:
             continue
 
         example_parts = [f"### Example: {task_dir.name}\n"]
