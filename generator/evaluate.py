@@ -61,6 +61,9 @@ def _run_tb(
     dataset_path = str(Path(task_dir).parent)
     task_id = Path(task_dir).name
 
+    # Ensure model uses openrouter/ prefix for litellm routing via OpenRouter
+    tb_model = model if model.startswith("openrouter/") else f"openrouter/{model}"
+
     if run_id is None:
         run_id = f"eval-{task_id}-{model.split('/')[-1]}-{int(time.time())}"
 
@@ -69,7 +72,7 @@ def _run_tb(
         "--dataset-path", dataset_path,
         "--task-id", task_id,
         "--agent", "terminus-1",
-        "--model", model,
+        "--model", tb_model,
         "--n-attempts", str(n_attempts),
         "--output-path", output_path,
         "--run-id", run_id,
