@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "val
 from config import EVAL_TRIALS, MAX_GENERATION_RETRIES
 from docker_validate import docker_validate
 from evaluate import evaluate_task
-from generate import adjust_difficulty, generate_task, regenerate_task
+from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
 
 # Max rounds of difficulty adjustment after evaluation
 MAX_DIFFICULTY_ADJUSTMENTS = 2
@@ -89,15 +89,21 @@ def run_pipeline(
     skip_eval: bool = False,
     max_retries: int = MAX_GENERATION_RETRIES,
     model: str | None = None,
+    solution_first: bool = False,
 ) -> dict:
     """Run the full pipeline for a single topic.
 
     Stages:
-    1. Generate task (Sonnet)
+    1. Generate task (Sonnet/Opus) — optionally using solution-first strategy
     2. Structural validation
     3. Functional validation (Docker)
     4. If validation fails, retry with feedback (up to max_retries)
-    5. Tiered evaluation: Haiku x5 → Sonnet x3 → Opus x5
+    5. Tiered evaluation: Haiku x5 → Sonnet x5 → Opus x5
+
+    Args:
+        solution_first: If True, use two-phase generation (write working
+            code first, then introduce bugs). Higher functional validation
+            pass rate but uses 2 API calls.
 
     Returns:
         dict with all stage results and final classification.
@@ -114,9 +120,14 @@ def run_pipeline(
     # Stage 1: Generate
     print(f"\n{'='*60}")
     print(f"Pipeline: {topic}")
+    if solution_first:
+        print(f"Strategy: solution-first (two-phase)")
     print(f"{'='*60}")
 
-    gen_result = generate_task(topic, output_dir=output_dir, model=model)
+    if solution_first:
+        gen_result = generate_task_solution_first(topic, output_dir=output_dir, model=model)
+    else:
+        gen_result = generate_task(topic, output_dir=output_dir, model=model)
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
 
@@ -252,6 +263,7 @@ if __name__ == "__main__":
     skip_eval = "--skip-eval" in sys.argv
     skip_functional = "--skip-functional" in sys.argv
     skip_filters = "--skip-filters" in sys.argv
+    solution_first = "--solution-first" in sys.argv
 
     gen_model = None
     for i, arg in enumerate(sys.argv):
@@ -264,6 +276,7 @@ if __name__ == "__main__":
         skip_functional=skip_functional,
         skip_filters=skip_filters,
         model=gen_model,
+        solution_first=solution_first,
     )
 
     print(json.dumps(result, indent=2, default=str))

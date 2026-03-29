@@ -350,6 +350,193 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     return result
 
 
+PHASE1_PROMPT = """\
+You are an expert software engineer. Write a COMPLETE, WORKING program for the topic below.
+
+Topic: "{topic}"
+
+Create a fully functional implementation with:
+1. All source files (working, bug-free code)
+2. A Dockerfile (Ubuntu-based, include `tmux asciinema` in apt-get install)
+3. A run-tests.sh (use the uv + pytest boilerplate from examples)
+4. A tests/test_outputs.py with 6-10 thorough test functions that all PASS
+5. A task.yaml with instruction, difficulty: medium, category, tags, parser_name: pytest
+
+The code must be CORRECT — all tests must pass when run against this code.
+
+{examples}
+
+Return a JSON object: {{"files": {{"filename": "content", ...}}}}
+Return ONLY the JSON object."""
+
+PHASE2_PROMPT = """\
+You are an expert at creating coding challenges. Given a WORKING program below, \
+introduce 3-5 subtle, interacting bugs to create a debugging challenge.
+
+The bugs should:
+- Be realistic (off-by-one, wrong variable, missing edge case, type error, bad config)
+- Interact with each other (fixing bug A might reveal bug B)
+- Require reading the full codebase to find (not just one file)
+- Cause 60-80% of the test cases to fail
+- NOT change tests, Dockerfile, run-tests.sh, or task.yaml
+- Be fixable — the original working code IS the solution
+
+Here is the working program:
+```json
+{working_json}
+```
+
+Return a JSON object containing ONLY the modified source files (the buggy versions).
+Do NOT include task.yaml, Dockerfile, run-tests.sh, or tests/ — only the source files you modified.
+Return ONLY the JSON object: {{"files": {{"source_file.py": "buggy content", ...}}}}"""
+
+
+def generate_task_solution_first(
+    topic: str,
+    output_dir: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """Generate a task using solution-first strategy (two-phase).
+
+    Phase 1: Generate a complete, WORKING program with tests.
+    Phase 2: Introduce bugs into the source files to create the challenge.
+
+    The working code from Phase 1 becomes solution.sh.
+    The buggy code from Phase 2 becomes the source files.
+    Tests, Dockerfile, run-tests.sh come from Phase 1 (unchanged).
+
+    This approach has much higher functional validation pass rates because
+    the solution is guaranteed correct — it was written first.
+    """
+    slug = _slugify(topic)
+
+    if output_dir is None:
+        output_dir = os.path.join(OUTPUT_DIR, slug)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    client = OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
+    )
+    gen_model = model or GENERATOR_MODEL
+    examples = _load_examples()
+
+    total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    start = time.time()
+
+    # ── Phase 1: Generate working code ──
+    print(f"Generating task (solution-first) for: {topic}")
+    print(f"  Model: {gen_model}")
+    print(f"  Phase 1: Generating working code...")
+
+    phase1_prompt = PHASE1_PROMPT.format(topic=topic, examples=examples)
+    response1 = _api_call_with_retry(
+        client,
+        model=gen_model,
+        messages=[
+            {"role": "system", "content": "You write correct, well-tested code. Return only JSON."},
+            {"role": "user", "content": phase1_prompt},
+        ],
+        temperature=0.5,  # Lower temp for correctness
+        max_tokens=32000,
+    )
+
+    if response1.usage:
+        for k in total_usage:
+            total_usage[k] += getattr(response1.usage, k, 0)
+
+    try:
+        working_files = _parse_response(response1.choices[0].message.content)
+    except (json.JSONDecodeError, ValueError) as e:
+        with open(os.path.join(output_dir, "_phase1_raw.txt"), "w") as f:
+            f.write(response1.choices[0].message.content)
+        return {
+            "task_dir": output_dir,
+            "status": f"phase1_parse_error: {e}",
+            "model": gen_model,
+            "usage": total_usage,
+            "duration_sec": round(time.time() - start, 2),
+        }
+
+    print(f"  Phase 1 complete: {len(working_files)} files")
+
+    # Build solution.sh from the working source files
+    # (solution.sh writes the working versions of all source files)
+    infrastructure = {"task.yaml", "Dockerfile", "run-tests.sh", "docker-compose.yaml"}
+    source_files = {k: v for k, v in working_files.items()
+                    if k not in infrastructure and not k.startswith("tests/")}
+
+    solution_lines = ["#!/bin/bash", "", "# Solution: restore the working versions of all source files"]
+    for filepath, content in sorted(source_files.items()):
+        # Use heredoc to write each file
+        solution_lines.append(f"cat > {filepath} << 'SOLUTION_EOF'")
+        solution_lines.append(content)
+        solution_lines.append("SOLUTION_EOF")
+        solution_lines.append("")
+    working_files["solution.sh"] = "\n".join(solution_lines)
+
+    # ── Phase 2: Introduce bugs ──
+    print(f"  Phase 2: Introducing bugs...")
+
+    working_json = json.dumps({"files": working_files}, indent=2)
+    phase2_prompt = PHASE2_PROMPT.format(working_json=working_json)
+
+    response2 = _api_call_with_retry(
+        client,
+        model=gen_model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": phase2_prompt},
+        ],
+        temperature=0.7,  # Higher temp for creative bugs
+        max_tokens=16000,
+    )
+
+    if response2.usage:
+        for k in total_usage:
+            total_usage[k] += getattr(response2.usage, k, 0)
+
+    try:
+        buggy_files = _parse_response(response2.choices[0].message.content)
+    except (json.JSONDecodeError, ValueError) as e:
+        with open(os.path.join(output_dir, "_phase2_raw.txt"), "w") as f:
+            f.write(response2.choices[0].message.content)
+        return {
+            "task_dir": output_dir,
+            "status": f"phase2_parse_error: {e}",
+            "model": gen_model,
+            "usage": total_usage,
+            "duration_sec": round(time.time() - start, 2),
+        }
+
+    print(f"  Phase 2 complete: {len(buggy_files)} buggy files")
+
+    # Merge: infrastructure + tests from phase 1, buggy source from phase 2
+    final_files = dict(working_files)  # start with everything from phase 1
+    for filepath, content in buggy_files.items():
+        if filepath not in infrastructure and not filepath.startswith("tests/"):
+            final_files[filepath] = content  # overwrite source with buggy version
+
+    _write_task_files(final_files, output_dir)
+    duration = time.time() - start
+
+    result = {
+        "task_dir": output_dir,
+        "status": "success",
+        "model": gen_model,
+        "strategy": "solution_first",
+        "usage": total_usage,
+        "duration_sec": round(duration, 2),
+    }
+
+    print(f"  Status: success (solution-first)")
+    print(f"  Duration: {duration:.1f}s")
+    print(f"  Tokens: {total_usage['total_tokens']}")
+
+    return result
+
+
 def regenerate_task(
     topic: str,
     task_dir: str,
