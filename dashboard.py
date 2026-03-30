@@ -254,7 +254,8 @@ def render_pipeline_view():
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     # Find the most recent active or completed batch
-    all_batches = sorted(glob.glob(os.path.join(OUTPUT_DIR, "sonnet-batch-*")))
+    all_batches = sorted(glob.glob(os.path.join(OUTPUT_DIR, "sonnet-batch-*")),
+                         key=lambda p: os.path.getmtime(p))
     if not all_batches:
         st.info("No batches found. Launch one from the sidebar.")
         return
