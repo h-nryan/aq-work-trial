@@ -130,6 +130,8 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - **Evaluation path resolution**: `evaluate.py` resolved paths relative to cwd instead of repo root.
 - **Stale resource cleanup**: `cleanup_stale_resources()` runs before each `_run_tb` call, killing both Docker containers and orphaned processes older than 20 minutes. The `tb` harness has a 6-minute agent timeout but doesn't always clean up containers or its own process tree when it fires. Three layers of cleanup: (1) stale Docker containers, (2) stale `tb run` processes stuck on dead containers, (3) orphaned parent evaluator processes (`python -c "from evaluate import..."`) waiting on dead children.
 - **Evaluation run cleanup**: `_run_tb` now removes run artifact directories after parsing results. All pass/fail data is captured in the return dict; the raw trial files under `runs/` were pure waste.
+- **Docker build failures now retried**: Bad generated Dockerfiles (e.g., conflicting packages like `systemctl` vs `systemd`) are now retried with a `dockerfile_only` repair target that only sends the Dockerfile + error (not the full task). Only true environment errors (Docker not available, disk full, permission denied) skip retries.
+- **Targeted repair context**: Dockerfile repairs send only the Dockerfile. Solution and source repairs send full task context (needed to understand file relationships).
 - **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
 
 ### Code Quality
