@@ -312,6 +312,23 @@ differences — the goal is testing bug-finding, not exact output formatting
 - The task should take a skilled human 10-20 minutes (NOT 30-60 minutes)
 - Do NOT make it impossible — a capable agent should solve it ~40-60% of the time
 
+STRUCTURAL PATTERNS FOR LEARNABILITY (data-driven from 17 batch runs):
+Tasks that land in the learnable range share these properties:
+1. PARTIAL CREDIT: Each bug breaks only 1-2 tests. Fixing any single bug makes some \
+tests pass. Avoid all-or-nothing designs where one remaining bug fails ALL tests \
+(e.g., scripts with set -e that crash on the first error).
+2. BEHAVIORAL TESTS: Tests invoke the program via subprocess or import and check behavior \
+(output content, return codes, data structures). NOT exact string matching against \
+pre-computed output files.
+3. REQUIREMENT-BASED INSTRUCTIONS: task.yaml describes WHAT the code should do, not \
+WHICH LINES to change. The agent should diagnose bugs by reading code, not by following \
+a recipe. Good: "The parser should handle empty input gracefully". \
+Bad: "Line 15 uses split() instead of csv.reader()".
+4. MIXED BUG DIFFICULTY: Include 1-2 simple bugs (wrong operator, missing return) and \
+1-2 subtle bugs (missing edge case, wrong data structure). The simple bugs provide \
+partial credit; the subtle ones create the difficulty gradient that produces 40-60% \
+solve rates.
+
 STUDY THE EXAMPLES CAREFULLY. The examples below show the exact difficulty level and bug \
 style to target. Match them closely — they are more important than the rules above.
 
@@ -604,6 +621,25 @@ IMPORTANT constraints:
 - Tests should verify program behavior (output values, return codes, file contents), \
 not infrastructure state (directories exist, packages installed, services running)
 
+TEST DESIGN (critical for correct difficulty calibration):
+- Tests MUST invoke the program directly (via subprocess or import) inside each test function
+- Do NOT have run-tests.sh pre-execute the program and save output to files, then have \
+tests read those files. This creates stale-output traps when the agent fixes the code \
+but run-tests.sh cached the old buggy output.
+- run-tests.sh should ONLY set up the environment (install pytest, create input fixtures). \
+It must NOT run the program being tested — let pytest do that.
+- Each test should be independent — passing or failing on its own, not depending on \
+shared state from other tests or from run-tests.sh
+- Prefer behavioral assertions (exit code, parsed output, data structure checks) over \
+exact string matching. Use "assert X in output" rather than "assert output == exact_string"
+
+TASK INSTRUCTIONS (task.yaml):
+- Describe WHAT the program should do and WHAT is wrong at a requirements level
+- Do NOT specify exact line numbers, exact variable names to change, or exact diffs
+- Good: "The CSV parser does not handle empty files gracefully — it should return an empty list"
+- Bad: "Line 15: change `data.split(',')` to `csv.reader(data)`"
+- The agent should need to READ the code and DIAGNOSE the bugs, not just apply a recipe
+
 The code must be CORRECT — all tests must pass when run against this code.
 
 {examples}
@@ -615,16 +651,31 @@ PHASE2_PROMPT = """\
 You are an expert at creating coding challenges. Given a WORKING program below, \
 introduce exactly 3-4 independently discoverable bugs to create a debugging challenge.
 
+BUG DESIGN — CRITICAL FOR CORRECT DIFFICULTY:
+The solving agent (Claude Opus) will read the code, diagnose bugs, and rewrite the \
+source file to fix them. To land in the "learnable" range (1-3 out of 5 attempts pass):
+
+USE A MIX of bug types — some simple, some subtle:
+- Simple bugs (agent finds ~80% of the time): wrong operator, wrong variable, missing \
+return statement, off-by-one error, wrong function call
+- Subtle bugs (agent finds ~30% of the time): missing edge case handling, wrong data \
+structure choice, inverted conditional logic, missing validation step
+- Include 1-2 simple bugs and 1-2 subtle bugs. The simple ones provide partial credit \
+while the subtle ones create the difficulty gradient.
+
+EACH BUG should break 1-2 tests, not all tests. If fixing bug A fixes tests 1-2 \
+and fixing bug B fixes tests 3-4, the agent gets partial credit for finding either one. \
+DO NOT create bugs where all tests fail if ANY single bug remains (e.g., avoid \
+set -e in bash scripts where one unfixed bug crashes the whole script).
+
 The bugs should:
-- Be realistic (off-by-one, wrong variable, missing edge case, type error, bad config)
 - Each be INDEPENDENTLY discoverable — a failing test should point toward the specific \
 bug that caused it, without needing to fix other bugs first
 - Do NOT create cascading bugs where fixing Bug A is a prerequisite to diagnosing Bug B
 - Stay in a SINGLE source file — do not spread bugs across multiple files
 - NOT change tests, Dockerfile, run-tests.sh, or task.yaml
 - Be fixable — the original working code IS the solution
-- Produce CLEAR test failures (wrong output, wrong type, missing value) — avoid bugs \
-that cause undefined behavior, segfaults, or intermittent failures
+- Produce CLEAR test failures (wrong output, wrong type, missing value)
 
 CRITICAL — VERIFY YOUR WORK:
 After introducing bugs, trace through EACH test function step by step:
@@ -632,6 +683,7 @@ After introducing bugs, trace through EACH test function step by step:
 2. Trace the code path with your buggy source files
 3. Confirm the test WILL FAIL (wrong return value, exception, etc.)
 4. Confirm each bug can be diagnosed INDEPENDENTLY from its test failure
+5. Confirm that fixing any ONE bug allows at least 1-2 tests to pass (partial credit)
 
 If a test would still pass with your buggy code, you MUST add another bug \
 that breaks it. The test suite MUST exit non-zero.
@@ -642,6 +694,7 @@ Common mistakes to avoid:
 - Adding a bug that causes an import error (too obvious, agent fixes instantly)
 - Creating cascading failures where one bug masks or blocks diagnosis of another
 - Adding 5+ bugs (too many for the time limit — cap at 3-4)
+- Making ALL bugs single-token changes (produces all-or-nothing difficulty)
 
 Here is the working program:
 ```json
@@ -649,11 +702,11 @@ Here is the working program:
 ```
 
 Return a JSON object with TWO keys:
-1. "verification" — for each test function, one line: "test_name: WILL FAIL because [reason]" or "test_name: STILL PASSES — need another bug"
+1. "verification" — for each test function, one line: "test_name: WILL FAIL because [reason]" or "test_name: STILL PASSES — need another bug". Also indicate which bug breaks which tests.
 2. "files" — ONLY the modified source files (buggy versions)
 
 Example format:
-{{"verification": "test_add: WILL FAIL because add() returns x-y instead of x+y\\ntest_multiply: WILL FAIL because wrong variable used", "files": {{"math.py": "buggy content..."}}}}"""
+{{"verification": "test_add: WILL FAIL because add() returns x-y instead of x+y (Bug 1)\\ntest_multiply: WILL FAIL because wrong variable used (Bug 2)\\ntest_divide: WILL FAIL because missing zero-division check (Bug 3)\\ntest_format: STILL PASSES — not affected by any bug", "files": {{"math.py": "buggy content..."}}}}"""
 
 
 def generate_task_solution_first(
@@ -700,8 +753,8 @@ def generate_task_solution_first(
     print(f"Generating task (solution-first) for: {topic}")
     print(f"  Model: {gen_model}")
     print(f"  Phase 1: Generating working code...")
-
     phase1_prompt = PHASE1_PROMPT.format(topic=topic, examples=examples)
+
     phase1_messages = [
         {"role": "system", "content": "You write correct, well-tested code. Return only JSON."},
         {"role": "user", "content": phase1_prompt},
@@ -814,6 +867,7 @@ def generate_task_solution_first(
         "status": "success",
         "model": gen_model,
         "strategy": "solution_first",
+        "topic": topic,
         "usage": total_usage,
         "duration_sec": round(duration, 2),
     }
@@ -1051,6 +1105,71 @@ Return ONLY the JSON object."""
     return result
 
 
+def _apply_surgical_edits(task_dir: str, edits: list[dict]) -> tuple[int, list[str]]:
+    """Apply surgical string-replacement edits to task files.
+
+    Each edit is {"file": "relative/path", "old": "exact old text", "new": "replacement text"}.
+    For deletions, "new" can be empty string.
+
+    Returns (applied_count, errors).
+    """
+    applied = 0
+    errors = []
+    task_path = Path(task_dir)
+
+    for i, edit in enumerate(edits):
+        fpath = edit.get("file", "")
+        old = edit.get("old", "")
+        new = edit.get("new", "")
+
+        if not fpath:
+            errors.append(f"Edit {i}: missing 'file' key")
+            continue
+        if old == "" and new == "":
+            errors.append(f"Edit {i}: both 'old' and 'new' are empty")
+            continue
+
+        full_path = task_path / fpath
+        if not full_path.exists():
+            errors.append(f"Edit {i}: file '{fpath}' does not exist")
+            continue
+
+        try:
+            content = full_path.read_text()
+        except UnicodeDecodeError:
+            errors.append(f"Edit {i}: cannot read '{fpath}' as text")
+            continue
+
+        # Normalize whitespace for matching: strip trailing spaces per line
+        # but preserve the exact replacement
+        if old not in content:
+            # Try with normalized line endings
+            old_normalized = old.replace("\r\n", "\n")
+            if old_normalized in content:
+                old = old_normalized
+            else:
+                errors.append(
+                    f"Edit {i}: exact match for 'old' not found in '{fpath}' "
+                    f"(old starts with: {old[:80]!r}...)"
+                )
+                continue
+
+        count = content.count(old)
+        if count > 1:
+            errors.append(
+                f"Edit {i}: 'old' matches {count} times in '{fpath}' — "
+                f"need unique match (old starts with: {old[:80]!r}...)"
+            )
+            continue
+
+        content = content.replace(old, new, 1)
+        full_path.write_text(content)
+        applied += 1
+        print(f"    Edit {i}: applied to {fpath} ({len(old)} chars -> {len(new)} chars)")
+
+    return applied, errors
+
+
 def adjust_difficulty(
     topic: str,
     task_dir: str,
@@ -1058,17 +1177,11 @@ def adjust_difficulty(
     pass_rate: float,
     model: str | None = None,
 ) -> dict:
-    """Adjust task difficulty based on evaluation results.
+    """Adjust task difficulty with surgical edits (not full regeneration).
 
-    When a task is too_hard (0/5 Opus passes) or too_easy (4-5/5), this
-    modifies the source files and solution to shift difficulty toward the
-    learnable range (1-3/5).
-
-    Strategy:
-    - too_hard: Simplify — remove 1-2 bugs, make remaining bugs more obvious,
-      reduce file count, add hints in error messages
-    - too_easy: Harden — add subtle bugs, introduce interactions between bugs,
-      add edge cases, make error messages less obvious
+    Uses constrained string-replacement edits to preserve test/code alignment.
+    For too_hard: remove a bug, add hints, or simplify a bug.
+    For too_easy: add a bug, make bugs subtler, or remove hints.
 
     Args:
         topic: The original topic string.
@@ -1100,54 +1213,122 @@ def adjust_difficulty(
     previous_json = json.dumps({"files": previous_files}, indent=2)
 
     if classification == "too_hard":
-        adjustment_instruction = (
-            f"This task is TOO HARD. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
-            f"(0 out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
-            "Make the task EASIER with STRUCTURAL simplification (not just bug changes):\n"
-            "- REDUCE source code to under 80 lines — flatten classes into simple functions, "
-            "remove abstractions, inline helpers, delete code that isn't related to bugs\n"
-            "- REDUCE tests to 5-6 focused tests — each test maps to one bug clearly\n"
-            "- IMPROVE instruction — name the exact function with each bug and describe the symptom\n"
-            "- KEEP the same topic and the same 3 bugs — but in simpler, flatter code\n"
-            "- KEEP it as a single Python file in /app/\n"
-            "- Update solution.sh to match the simplified code\n"
-            "- Tests must still FAIL before solution and PASS after\n\n"
-            "Return the complete adjusted task as a JSON object with ALL files."
-        )
+        # Distinguish severity: 0/5 with 0 tests passing needs aggressive changes,
+        # while 0/5 but close (agent got some tests) needs just a nudge
+        passes_int = int(pass_rate * 5) if pass_rate else 0
+
+        if passes_int == 0:
+            # Agent solved NOTHING — task is fundamentally too hard
+            adjustment_instruction = (
+                f"This task is WAY TOO HARD. An expert AI agent (Claude Opus) scored 0% "
+                f"(0 out of 5 attempts, 0 tests passing in any attempt). "
+                f"The target is 1-3 out of 5 passes (~20-60%).\n\n"
+                "The agent couldn't solve ANY bugs. Removing one test won't help. "
+                "You need to make the bugs MUCH more obvious.\n\n"
+                "Apply ALL of these changes (not just one):\n\n"
+                "1. SIMPLIFY THE HARDEST BUG — replace it with something obvious:\n"
+                "   - Change a subtle off-by-one to a clearly wrong variable name\n"
+                "   - Change a logic error to a missing function call\n"
+                "   - Make the bug produce a clear, descriptive error message\n\n"
+                "2. ADD CODE COMMENTS near each remaining bug like:\n"
+                "   # BUG: this comparison should use > not >=\n"
+                "   # FIXME: wrong variable used here\n\n"
+                "3. IMPROVE task.yaml instruction — add the exact function name and\n"
+                "   describe the symptom for each bug\n\n"
+                "4. REMOVE ONE TEST if there are more than 5 tests\n\n"
+                "CRITICAL RULES:\n"
+                "- Do NOT rename any functions, classes, variables, or files\n"
+                "- Do NOT restructure or rewrite code — only targeted edits\n"
+                "- Do NOT change run-tests.sh or Dockerfile\n"
+                "- Update solution.sh to match any bug changes\n"
+                "- Each edit must use EXACT string matching from the current file content\n"
+            )
+        else:
+            # Agent got some tests but not enough — surgical nudge
+            adjustment_instruction = (
+                f"This task is TOO HARD. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
+                f"({passes_int} out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
+                "The agent is CLOSE — pick ONE surgical operation:\n\n"
+                "OPTION A — REMOVE ONE BUG:\n"
+                "  - Identify the hardest bug in the source code\n"
+                "  - Fix that bug in the source file (revert it to correct code)\n"
+                "  - Remove the corresponding test function that tested for that bug\n"
+                "  - Remove the fix for that bug from solution.sh\n"
+                "  - Update task.yaml instructions to describe fewer bugs\n\n"
+                "OPTION B — ADD HINTS:\n"
+                "  - Add the exact function name and line number for each bug to task.yaml instructions\n"
+                "  - Add a comment near each bug in the source code hinting at the issue\n"
+                "  - Do NOT change any test code\n\n"
+                "OPTION C — SIMPLIFY ONE BUG:\n"
+                "  - Make the subtlest bug more obvious (e.g., change an off-by-one to a clearly wrong value)\n"
+                "  - Update solution.sh to match the simplified bug\n"
+                "  - Do NOT change any test code or other bugs\n\n"
+                "CRITICAL RULES:\n"
+                "- Do NOT rename any functions, classes, variables, or files\n"
+                "- Do NOT restructure or rewrite code — only targeted edits\n"
+                "- Do NOT change the test file except to delete an entire test function (Option A only)\n"
+                "- Do NOT change run-tests.sh or Dockerfile\n"
+                "- Each edit must use EXACT string matching from the current file content\n"
+            )
     else:  # too_easy
         adjustment_instruction = (
             f"This task is TOO EASY. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
             f"({int(pass_rate * 5)} out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
-            "Make the task HARDER — increase subtlety while keeping bugs independently discoverable:\n"
-            "- Replace obvious bugs (wrong variable name) with subtle ones (off-by-one, wrong operator in a correct-looking expression)\n"
-            "- Move bugs from obvious code paths to less-traveled ones (e.g., error handling, boundary conditions)\n"
-            "- Make the buggy code look MORE plausible — the bug should be a reasonable mistake, not obviously wrong\n"
-            "- Add one more bug if currently at 2 (target 3-4 total)\n"
-            "- Keep all bugs in a SINGLE source file — do NOT spread across files\n"
-            "- Each bug must STILL be independently discoverable from its test failure\n"
-            "- Do NOT create cascading bugs or misleading error messages that point to the wrong location\n"
-            "- Update solution.sh to fix any new bugs too\n"
-            "- Tests must still FAIL before solution and PASS after\n\n"
-            "Return the complete adjusted task as a JSON object with ALL files."
+            "You must make the task HARDER using ONE surgical operation. Pick exactly one:\n\n"
+            "OPTION A — ADD ONE BUG:\n"
+            "  - Add a subtle new bug to the source file (off-by-one, wrong operator, etc.)\n"
+            "  - Add a test function that catches the new bug\n"
+            "  - Add a fix for the new bug to solution.sh\n"
+            "  - Update task.yaml to mention the new bug\n\n"
+            "OPTION B — MAKE A BUG SUBTLER:\n"
+            "  - Pick the most obvious bug and make it harder to spot\n"
+            "  - E.g., change a wrong variable name to an off-by-one in a correct-looking expression\n"
+            "  - Update solution.sh to match the new bug\n"
+            "  - Do NOT change any test code\n\n"
+            "OPTION C — REMOVE HINTS:\n"
+            "  - Strip helpful comments near bugs in the source code\n"
+            "  - Make task.yaml instructions less specific (remove line numbers, function names)\n"
+            "  - Do NOT change any test code or solution.sh\n\n"
+            "CRITICAL RULES:\n"
+            "- Do NOT rename any functions, classes, variables, or files\n"
+            "- Do NOT restructure or rewrite code — only targeted edits\n"
+            "- Do NOT change run-tests.sh or Dockerfile\n"
+            "- Each edit must use EXACT string matching from the current file content\n"
         )
 
     prompt = f"""The task for "{topic}" needs difficulty adjustment.
 
 {adjustment_instruction}
 
-Here is the current task:
+Here are the current task files:
 ```json
 {previous_json}
 ```
 
-Return ONLY the JSON object with all files."""
+Return a JSON object describing your surgical edits:
+{{
+  "operation": "remove_bug" | "add_hints" | "simplify_bug" | "add_bug" | "make_subtler" | "remove_hints",
+  "reasoning": "Brief explanation of what you're changing and why",
+  "edits": [
+    {{
+      "file": "relative/path/to/file",
+      "old": "EXACT text to find in the file (copy-paste from above, whitespace-sensitive)",
+      "new": "replacement text (use empty string to delete)"
+    }}
+  ]
+}}
+
+IMPORTANT:
+- The "old" field must be an EXACT substring from the file content shown above — copy it character-for-character
+- Include enough context in "old" to be unique within the file (at least 2-3 lines)
+- Return ONLY the JSON object, no markdown fences, no explanation outside the JSON"""
 
     print(f"  Adjusting difficulty ({classification}, pass_rate={pass_rate:.0%})...")
     print(f"  Model: {gen_model}")
 
     start = time.time()
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": "You are a precise code editor. You make minimal, surgical changes to code. You never rewrite or restructure — you make the smallest edit that achieves the goal."},
         {"role": "user", "content": prompt},
     ]
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -1156,7 +1337,7 @@ Return ONLY the JSON object with all files."""
     for parse_attempt in range(3):
         response = _api_call_with_retry(
             client, model=gen_model, messages=messages,
-            temperature=0.5, max_tokens=32000,
+            temperature=0.3, max_tokens=16000,
         )
 
         response_text = response.choices[0].message.content
@@ -1165,18 +1346,68 @@ Return ONLY the JSON object with all files."""
                 usage[k] += getattr(response.usage, k, 0)
 
         try:
-            files = _parse_response(response_text)
-            # Full replacement — difficulty adjustment changes everything
-            for item in task_path.iterdir():
-                if item.name.startswith("_"):
-                    continue
-                if item.is_dir():
-                    shutil.rmtree(item)
+            # Parse the surgical edit response
+            text = response_text.strip()
+            if text.startswith("```"):
+                first_nl = text.index("\n")
+                text = text[first_nl + 1:]
+                last_fence = text.rfind("```")
+                if last_fence != -1:
+                    text = text[:last_fence]
+                text = text.strip()
+
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                brace_start = text.find("{")
+                brace_end = text.rfind("}")
+                if brace_start != -1 and brace_end != -1:
+                    data = json.loads(text[brace_start : brace_end + 1])
                 else:
-                    item.unlink()
-            _write_task_files(files, task_dir)
-            status = "success"
-            break
+                    raise
+
+            operation = data.get("operation", "unknown")
+            reasoning = data.get("reasoning", "")
+            edits = data.get("edits", [])
+
+            if not edits:
+                raise ValueError("No edits provided in response")
+
+            print(f"  Operation: {operation}")
+            print(f"  Reasoning: {reasoning[:120]}...")
+            print(f"  Edits: {len(edits)}")
+
+            # Save raw response for debugging
+            with open(os.path.join(task_dir, "_adjust_raw_response.txt"), "w") as f:
+                f.write(response_text)
+
+            # Apply the surgical edits
+            applied, errors = _apply_surgical_edits(task_dir, edits)
+
+            if errors:
+                print(f"  Edit errors: {errors}")
+
+            if applied == 0:
+                if parse_attempt < 2:
+                    print(f"  No edits applied — retrying (attempt {parse_attempt + 1})...")
+                    messages.append({"role": "assistant", "content": response_text})
+                    error_detail = "; ".join(errors[:3])
+                    messages.append({"role": "user", "content": (
+                        f"None of your edits could be applied. Errors:\n{error_detail}\n\n"
+                        "The 'old' field must be an EXACT character-for-character substring "
+                        "from the file content I showed you. Copy it precisely, including "
+                        "all whitespace, newlines, and indentation. Try again with the "
+                        "same operation but corrected 'old' strings."
+                    )})
+                    continue
+                else:
+                    status = f"no_edits_applied: {'; '.join(errors[:3])}"
+                    break
+            else:
+                print(f"  Successfully applied {applied}/{len(edits)} edits")
+                status = "success"
+                break
+
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             if parse_attempt < 2:
                 print(f"  Parse attempt {parse_attempt + 1} failed: {e} — retrying...")
