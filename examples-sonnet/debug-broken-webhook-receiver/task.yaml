@@ -1,0 +1,63 @@
+instruction: |-
+  Debug a broken webhook receiver with incorrect signature verification, replay protection, and retry handling.
+  
+  The webhook receiver at `/app/webhook_receiver.py` is supposed to:
+  1. Verify HMAC-SHA256 signatures in the X-Webhook-Signature header
+  2. Reject requests older than 5 minutes (300 seconds) using X-Webhook-Timestamp
+  3. Prevent replay attacks by tracking X-Request-ID headers
+  4. Process valid webhook payloads and return success responses
+  
+  Current bugs in the implementation:
+  - Signature verification logic is incorrect or missing
+  - Timestamp validation doesn't properly check the replay window
+  - Replay protection doesn't track processed request IDs correctly
+  - Missing or incorrect header validation
+  - Error responses may not have correct status codes
+  
+  The webhook receiver should:
+  - Accept POST requests to /webhook endpoint
+  - Verify HMAC-SHA256 signature using secret key "my_webhook_secret"
+  - Reject requests with timestamps outside 5-minute window (past or future)
+  - Reject duplicate request IDs (replay attacks)
+  - Return 200 with JSON response for valid requests
+  - Return 401 for invalid signatures or timestamps
+  - Return 409 for duplicate request IDs
+  
+  Expected webhook request format:
+  ```
+  POST /webhook
+  X-Webhook-Signature: <hmac_sha256_hex>
+  X-Webhook-Timestamp: <unix_timestamp>
+  X-Request-ID: <unique_id>
+  Content-Type: application/json
+  
+  {"event": "user.created", "data": {...}}
+  ```
+  
+  Fix all bugs so that:
+  - Valid webhooks with correct signatures are accepted
+  - Invalid signatures are rejected with 401
+  - Old or future timestamps are rejected with 401
+  - Duplicate request IDs are rejected with 409
+  - The server properly tracks processed requests
+  - All security checks work correctly
+  
+  The server runs on port 8080 and uses Python's http.server module.
+difficulty: medium
+category: security
+tags:
+  - python
+  - webhooks
+  - security
+  - hmac
+  - replay-protection
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 400
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

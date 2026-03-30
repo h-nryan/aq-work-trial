@@ -1,0 +1,7 @@
+classification: learnable
+opus_pass_rate: 0.6
+opus_passes: 3
+opus_total: 5
+category: networking
+approx_tokens: 3471
+source: pipeline-generated

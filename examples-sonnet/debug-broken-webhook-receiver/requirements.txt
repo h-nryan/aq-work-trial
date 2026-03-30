@@ -1,0 +1,5 @@
+# No runtime dependencies required
+# The webhook_receiver.py script uses only Python standard library modules
+# Test dependencies are handled by run-tests.sh using uv with pinned versions:
+# - pytest==8.4.1
+# - requests==2.31.0
