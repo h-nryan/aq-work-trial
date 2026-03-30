@@ -85,7 +85,7 @@ python3.12 generator/diversity.py output/batch-*-report.json
 ### Tests
 
 ```bash
-python3.12 -m pytest tests/ -q  # 175 tests, ~2s, no Docker/API calls
+python3.12 -m pytest tests/ -q  # 216 tests, ~4s, no Docker/API calls
 ```
 
 ## Project Structure
