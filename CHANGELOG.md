@@ -14,6 +14,17 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Dashboard: Expandable Task Details
+
+**Expandable task cards** (`dashboard.py`) — Each task row now has a "Details" expander showing:
+- **Stage timeline**: current stage, last updated timestamp
+- **Functional validation**: per-attempt results with pass/fail, execution times (build, test_without, test_with), error messages, and expandable test output excerpts
+- **Opus evaluation**: per-trial results showing tests passed/total, agent duration, token usage, failure mode, and expandable per-test pass/fail breakdown
+- **Difficulty adjustments**: round number, trigger reason, and expandable raw adjustment response
+- **Task files**: list of generated files
+
+This surfaces retry counts, per-stage durations, and debug output that were previously only visible via CLI or manual file inspection.
+
 ### Code Quality
 
 **Fix `_run_tb` timeout scaling for concurrent runs** (`evaluate.py`) — The subprocess timeout was set to `timeout_sec * n_attempts` (e.g. 5 × 900s = 75 min for 5 trials). But `tb run` executes trials with `--n-concurrent min(n,4)`, so actual wall time is `ceil(n / concurrent) × timeout_sec` (e.g. 2 waves × 900s = 30 min for 5 trials). The old formula was 2-5× too large, masking genuinely hung runs — a stuck agent could block a task slot for 45-75 min instead of 15-30 min. Fixed with `math.ceil(n_attempts / min(n_attempts, 4)) * timeout_sec`. Also promoted the hardcoded `max_tb_retries = 1` local variable to a module-level constant `_MAX_TB_RETRIES`.

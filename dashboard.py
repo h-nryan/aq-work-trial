@@ -282,6 +282,150 @@ def _render_stage_cell(current_stage: str, cell_stage: str, failed_stage: str = 
         return '<div class="stage-cell stage-pending">—</div>'
 
 
+def _render_task_details(task_dir: str, task_info: dict):
+    """Render detailed task information inside an expander."""
+    dirname = os.path.basename(task_dir)
+
+    # --- Stage timeline with durations ---
+    st.markdown("**Stage Timeline**")
+    timeline_parts = []
+
+    # Generation info
+    status_file = os.path.join(task_dir, "_status.json")
+    if os.path.exists(status_file):
+        try:
+            status = json.load(open(status_file))
+            stage = status.get("stage", "?")
+            detail = status.get("detail", "")
+            updated = status.get("updated_at", "")
+            timeline_parts.append(f"Current: **{stage}** — {detail}")
+            if updated:
+                timeline_parts.append(f"Last updated: `{updated}`")
+        except Exception:
+            pass
+
+    # Validation attempts
+    val_files = sorted(glob.glob(os.path.join(task_dir, "validation_attempt_*.json")))
+    if val_files:
+        st.markdown(f"**Functional Validation** ({len(val_files)} attempt{'s' if len(val_files) != 1 else ''})")
+        for vf in val_files:
+            try:
+                v = json.load(open(vf))
+                attempt = v.get("attempt", "?")
+                passed = v.get("passed", False)
+                issues = v.get("issues", [])
+                times = v.get("execution_times", {})
+
+                status_icon = "✅" if passed else "❌"
+                time_parts = []
+                for phase, secs in times.items():
+                    if isinstance(secs, (int, float)):
+                        time_parts.append(f"{phase}: {secs:.1f}s")
+                time_str = " | ".join(time_parts) if time_parts else ""
+
+                st.markdown(f"Attempt {attempt} {status_icon} {time_str}")
+                if issues and not passed:
+                    for issue in issues[:3]:
+                        st.markdown(f"  - `{issue[:120]}`")
+
+                # Show test output excerpt on failure
+                if not passed:
+                    details = v.get("details", {})
+                    for phase in ("without_solution", "with_solution"):
+                        pd = details.get(phase, {})
+                        stdout = pd.get("stdout_tail", "")
+                        if stdout and len(stdout) > 20:
+                            with st.expander(f"  {phase} output"):
+                                st.code(stdout[-800:], language="text")
+            except Exception:
+                pass
+
+    # Eval results — look for runs
+    eval_runs = sorted(glob.glob(os.path.join("runs", f"eval-{dirname}-*")))
+    if eval_runs:
+        st.markdown(f"**Opus Evaluation** ({len(eval_runs)} run{'s' if len(eval_runs) != 1 else ''})")
+        for run_dir in eval_runs:
+            results_file = os.path.join(run_dir, "results.json")
+            if os.path.exists(results_file):
+                try:
+                    rdata = json.load(open(results_file))
+                    trials = rdata.get("results", [])
+                    for trial in trials:
+                        resolved = trial.get("is_resolved", False)
+                        pr = trial.get("parser_results") or {}
+                        tp = sum(1 for v in pr.values() if v == "passed")
+                        tt = len(pr)
+                        fm = trial.get("failure_mode", "")
+                        icon = "✅" if resolved else "❌"
+
+                        # Agent timing
+                        agent_start = trial.get("agent_started_at", "")
+                        agent_end = trial.get("agent_ended_at", "")
+                        agent_dur = ""
+                        if agent_start and agent_end:
+                            try:
+                                from datetime import datetime as _dt
+                                t0 = _dt.fromisoformat(agent_start.replace("+00:00", ""))
+                                t1 = _dt.fromisoformat(agent_end.replace("+00:00", ""))
+                                secs = (t1 - t0).total_seconds()
+                                agent_dur = f" ({secs:.0f}s)"
+                            except Exception:
+                                pass
+
+                        # Token usage
+                        in_tok = trial.get("total_input_tokens")
+                        out_tok = trial.get("total_output_tokens")
+                        tok_str = ""
+                        if in_tok or out_tok:
+                            tok_str = f" | {(in_tok or 0) + (out_tok or 0):,} tokens"
+
+                        st.markdown(
+                            f"{icon} Tests: **{tp}/{tt}**{agent_dur}{tok_str}"
+                            + (f" — {fm}" if fm and not resolved else "")
+                        )
+
+                        # Show per-test results
+                        if pr and tt > 0:
+                            test_lines = []
+                            for tname, tresult in sorted(pr.items()):
+                                t_icon = "✅" if tresult == "passed" else "❌"
+                                test_lines.append(f"  {t_icon} {tname}")
+                            with st.expander(f"  Per-test results ({tp}/{tt})"):
+                                st.text("\n".join(test_lines))
+                except Exception:
+                    pass
+
+    # Adjustment snapshots
+    adj_dirs = sorted(glob.glob(task_dir + ".pre_adj*"))
+    if adj_dirs:
+        st.markdown(f"**Difficulty Adjustments** ({len(adj_dirs)} round{'s' if len(adj_dirs) != 1 else ''})")
+        for adj_dir in adj_dirs:
+            snap_file = os.path.join(adj_dir, "_adj_snapshot.json")
+            if os.path.exists(snap_file):
+                try:
+                    snap = json.load(open(snap_file))
+                    rd = snap.get("adjustment_round", "?")
+                    trigger = snap.get("trigger", "?")
+                    st.markdown(f"Round {rd}: {trigger}")
+                except Exception:
+                    pass
+
+        # Show adjustment response if available
+        adj_response = os.path.join(task_dir, "_adjust_raw_response.txt")
+        if os.path.exists(adj_response):
+            with st.expander("Adjustment response"):
+                try:
+                    st.code(open(adj_response).read()[:2000], language="json")
+                except Exception:
+                    pass
+
+    # Task files summary
+    st.markdown("**Task Files**")
+    files = [f for f in os.listdir(task_dir)
+             if not f.startswith("_") and not f.startswith("validation_")]
+    st.text(", ".join(sorted(files)) if files else "No files")
+
+
 def render_pipeline_view():
     """Single-page pipeline view."""
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -386,9 +530,10 @@ def render_pipeline_view():
     </div>
     """, unsafe_allow_html=True)
 
-    # Task rows
+    # Task rows — each is an expandable card
     for t in tasks:
         topic = t["topic"][:35] if t["topic"] else "?"
+        full_topic = t.get("topic", "?")
         stage = t["stage"]
         cl = t.get("classification")
         pr = t.get("pass_rate")
@@ -452,7 +597,7 @@ def render_pipeline_view():
 
         st.markdown(f"""
         <div class="task-row {row_class}">
-            <div class="task-name" title="{t['topic']}">{topic}</div>
+            <div class="task-name" title="{full_topic}">{topic}</div>
             {gen_cell}
             {struct_cell}
             {func_cell}
@@ -462,6 +607,12 @@ def render_pipeline_view():
             {result_cell}
         </div>
         """, unsafe_allow_html=True)
+
+        # Expandable detail card
+        task_dir = t.get("dir")
+        if task_dir and os.path.isdir(task_dir):
+            with st.expander(f"Details: {full_topic[:60]}"):
+                _render_task_details(task_dir, t)
 
     # Aggregate stats across all batches at bottom
     with st.expander("All-time metrics"):
