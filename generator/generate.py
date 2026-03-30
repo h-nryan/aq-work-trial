@@ -184,10 +184,8 @@ CRITICAL RULES:
 5. The Dockerfile MUST install tmux and asciinema alongside all other dependencies (required by the test harness). Example: `RUN apt-get update && apt-get install -y tmux asciinema curl && rm -rf /var/lib/apt/lists/*`
 6. run-tests.sh installs uv + pytest and runs the tests. Follow the exact boilerplate pattern from examples.
 7. task.yaml must have: instruction (detailed), difficulty, category, tags, parser_name: pytest, and timeout fields.
-8. The instruction in task.yaml MUST hint at what areas have bugs — e.g. "the delimiter \
-handling and header parsing have issues" or "there are bugs in the sorting logic and \
-edge case handling." The agent only reads the instruction and source code ONCE before \
-attempting a fix, so vague instructions like "fix the bugs" make the task too hard.
+8. The instruction in task.yaml should describe WHAT the program does and WHAT the expected behavior is, \
+but should NOT hint at where the bugs are or what's broken. The agent should have to read the code to find the bugs.
 
 MOST IMPORTANT — AVOID THESE COMMON FAILURES:
 A. Tests MUST actually FAIL before solution.sh runs. The source files must have REAL bugs that cause test failures. If you write source code that already works, the task is broken. Verify mentally: "will running these tests against the buggy source files produce failures?"
@@ -246,7 +244,7 @@ DIFFICULTY — THE MOST IMPORTANT THING:
 Study the examples below. They show EXACTLY the right difficulty. Match them:
 - Put all bugs in ONE source file under 150 lines
 - 3-4 bugs that each produce a clear, distinct test failure
-- task.yaml instruction MUST hint at bug areas (e.g. "the delimiter handling has issues"), not just "fix the bugs"
+- task.yaml instruction should describe what the program does and expected behavior, but NOT hint at where bugs are
 - The examples show what "learnable" looks like. Copy their style, not just their format.
 
 OUTPUT FORMAT:
