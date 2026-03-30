@@ -123,6 +123,7 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - **config-manifest-validator example**: Instruction said "manifest.txt" but tests checked "hello.txt" — appeared impossibly hard when it was actually a bug in the example.
 - **Timeout as valid failure**: Docker validator now accepts test timeout without solution as a valid failure mode (buggy code may hang due to infinite loops, deadlocks, or memory corruption). Previously blocked promotion of tasks like the C linked list exemplar where buggy code hangs but solution runs cleanly.
 - **Evaluation path resolution**: `evaluate.py` resolved paths relative to cwd instead of repo root.
+- **Evaluation run cleanup**: `_run_tb` now removes run artifact directories after parsing results. All pass/fail data is captured in the return dict; the raw trial files under `runs/` were pure waste.
 - **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
 
 ### Code Quality

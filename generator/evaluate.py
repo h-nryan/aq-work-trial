@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -43,6 +44,7 @@ def _run_tb(
     run_id: str | None = None,
     output_path: str = "runs",
     timeout_sec: float = 900.0,
+    cleanup: bool = True,
 ) -> dict:
     """Run the tb harness against a single task.
 
@@ -111,7 +113,13 @@ def _run_tb(
     # Resolve results path relative to repo root (where tb run executes)
     repo_root = Path(os.path.dirname(os.path.dirname(__file__)))
     results_dir = repo_root / output_path / run_id
-    return _parse_run_results(results_dir, task_id, n_attempts, duration)
+    parsed = _parse_run_results(results_dir, task_id, n_attempts, duration)
+
+    # Clean up run artifacts — all data is captured in the return dict
+    if cleanup and results_dir.exists():
+        shutil.rmtree(results_dir, ignore_errors=True)
+
+    return parsed
 
 
 def _parse_run_results(
