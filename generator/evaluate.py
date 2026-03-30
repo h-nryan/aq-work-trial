@@ -15,6 +15,7 @@ side cheaply and only spend Opus budget on tasks with real uncertainty.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -27,6 +28,10 @@ from pathlib import Path
 # each trial gets its own container running in parallel, so max wall time is
 # ~6-7 min per batch. 20 min threshold gives ample margin.
 STALE_CONTAINER_AGE_SEC = 1200
+
+# Number of times _run_tb retries on transient infrastructure failures
+# (e.g. Docker daemon restart, temporary connection refused).
+_MAX_TB_RETRIES = 1
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
@@ -318,15 +323,22 @@ def _run_tb(
 
     print(f"  Running: {' '.join(cmd)}")
 
-    max_tb_retries = 1  # retry once on transient failures
+    # Timeout budget: runs execute with --n-concurrent min(n,4), so wall time
+    # is ceil(n / concurrent) waves × timeout_sec, not n × timeout_sec.
+    # Example: n_attempts=5, concurrent=4 → 2 waves → 2 × 900s = 1800s,
+    # not 5 × 900s = 4500s. Overly large timeouts mask hung runs.
+    _n_concurrent = min(n_attempts, 4)
+    _n_waves = math.ceil(n_attempts / _n_concurrent)
+    _total_timeout = timeout_sec * _n_waves
+
     start = time.time()
-    for tb_attempt in range(1 + max_tb_retries):
+    for tb_attempt in range(1 + _MAX_TB_RETRIES):
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout_sec * n_attempts,
+                timeout=_total_timeout,
                 cwd=os.path.dirname(os.path.dirname(__file__)),
             )
             duration = time.time() - start
@@ -343,8 +355,8 @@ def _run_tb(
                     "connection refused", "daemon is not running",
                     "no space left", "resource temporarily unavailable",
                 ])
-                if transient and tb_attempt < max_tb_retries:
-                    print(f"  Transient error — retrying tb run ({tb_attempt + 1}/{max_tb_retries})")
+                if transient and tb_attempt < _MAX_TB_RETRIES:
+                    print(f"  Transient error — retrying tb run ({tb_attempt + 1}/{_MAX_TB_RETRIES})")
                     _kill_containers_for_task(task_id)
                     time.sleep(5)
                     start = time.time()  # reset for fresh timing
@@ -354,8 +366,8 @@ def _run_tb(
             duration = time.time() - start
             print(f"  tb run timed out after {duration:.0f}s — killing orphaned containers")
             _kill_containers_for_task(task_id)
-            if tb_attempt < max_tb_retries:
-                print(f"  Retrying tb run after timeout ({tb_attempt + 1}/{max_tb_retries})")
+            if tb_attempt < _MAX_TB_RETRIES:
+                print(f"  Retrying tb run after timeout ({tb_attempt + 1}/{_MAX_TB_RETRIES})")
                 time.sleep(5)
                 start = time.time()
                 continue
