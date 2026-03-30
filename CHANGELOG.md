@@ -19,7 +19,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 **Solution-first strategy** (`generate.py`) — Phase 1 writes a complete working program with passing tests; Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes `solution.sh`. This inverts the original single-phase approach which asked the LLM to write broken code AND its fix simultaneously — that had ~20% functional validation pass rate. Solution-first separates two easy tasks (write correct code; introduce bugs) instead of one hard task.
 - Phase 1 uses temperature 0.5 (correctness); Phase 2 uses 0.7 (creative bugs)
 - Phase 2 requires majority of tests to fail, not all — some passing tests give the agent useful debugging signal
-- Higher retry budget (`MAX_SOLUTION_FIRST_RETRIES=4` vs default 2) since each targeted repair gets closer to passing
+- Higher retry budget (`MAX_SOLUTION_FIRST_RETRIES=6` vs default 2) since each targeted repair gets closer to passing
+- Source-only repair now includes test function code so the LLM can see what each test checks and introduce bugs that break those specific checks (previously guessed blindly)
 - Usage: `python3.12 pipeline.py "topic" --solution-first`
 
 **Few-shot example curation** (`generate.py`) — Three-way classification of reference examples:
