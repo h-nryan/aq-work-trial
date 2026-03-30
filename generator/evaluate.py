@@ -362,12 +362,21 @@ def _parse_run_results(
             resolved = trial_data.get("is_resolved", False)
             if resolved:
                 passes += 1
+            # Count test results
+            parser_results = trial_data.get("parser_results", {})
+            tests_passed = sum(1 for v in parser_results.values() if v == "passed")
+            tests_total = len(parser_results)
+
             trials.append({
                 "trial": trial_dir.name,
                 "resolved": resolved,
                 "failure_mode": trial_data.get("failure_mode"),
                 "input_tokens": trial_data.get("total_input_tokens"),
                 "output_tokens": trial_data.get("total_output_tokens"),
+                "agent_started_at": trial_data.get("agent_started_at"),
+                "agent_ended_at": trial_data.get("agent_ended_at"),
+                "tests_passed": tests_passed,
+                "tests_total": tests_total,
             })
         except (json.JSONDecodeError, KeyError) as e:
             trials.append({"trial": trial_dir.name, "resolved": False, "status": f"parse_error: {e}"})
