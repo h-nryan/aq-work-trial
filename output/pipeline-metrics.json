@@ -1,18 +1,18 @@
 {
   "aggregate": {
-    "total_tasks": 36,
-    "generated": 29,
-    "structural_pass": 35,
-    "functional_pass": 10,
-    "evaluated": 12,
+    "total_tasks": 42,
+    "generated": 33,
+    "structural_pass": 39,
+    "functional_pass": 11,
+    "evaluated": 14,
     "learnable": 3,
     "too_easy": 1,
-    "too_hard": 8,
-    "learnable_yield": 0.0833,
-    "functional_rate": 0.3448,
-    "learnable_of_evaluated": 0.25,
-    "total_gen_tokens": 1559421,
-    "total_duration_sec": 52469.1,
+    "too_hard": 10,
+    "learnable_yield": 0.0714,
+    "functional_rate": 0.3333,
+    "learnable_of_evaluated": 0.2143,
+    "total_gen_tokens": 1729977,
+    "total_duration_sec": 60374.5,
     "num_batches": 9
   },
   "per_batch": [
@@ -58,23 +58,23 @@
     },
     {
       "name": "sonnet-batch-5-variant-B",
-      "total": 3,
+      "total": 4,
       "functional": 1,
       "evaluated": 3,
       "learnable": 1,
       "too_easy": 0,
       "too_hard": 2,
-      "duration_min": 147.8
+      "duration_min": 152.8
     },
     {
       "name": "sonnet-batch-6-no-hints",
-      "total": 5,
-      "functional": 2,
-      "evaluated": 2,
+      "total": 6,
+      "functional": 3,
+      "evaluated": 3,
       "learnable": 2,
       "too_easy": 0,
-      "too_hard": 0,
-      "duration_min": 87.9
+      "too_hard": 1,
+      "duration_min": 176.4
     },
     {
       "name": "sonnet-batch-7-variant-B-no-hints",
@@ -88,23 +88,23 @@
     },
     {
       "name": "sonnet-batch-8-A-soft-hints",
-      "total": 3,
+      "total": 5,
       "functional": 0,
       "evaluated": 0,
       "learnable": 0,
       "too_easy": 0,
       "too_hard": 0,
-      "duration_min": 19.3
+      "duration_min": 25.8
     },
     {
       "name": "sonnet-batch-9-A-full-hints",
-      "total": 1,
+      "total": 3,
       "functional": 0,
-      "evaluated": 0,
+      "evaluated": 1,
       "learnable": 0,
       "too_easy": 0,
-      "too_hard": 0,
-      "duration_min": 6.8
+      "too_hard": 1,
+      "duration_min": 38.6
     }
   ],
   "learnable": [
