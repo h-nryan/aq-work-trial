@@ -866,11 +866,36 @@ def regenerate_task(
             "wrong base image.\n"
             "Return a JSON object: {\"files\": {\"Dockerfile\": \"...\"}}"
         )
-    elif "tests failed" in feedback_lower and "with solution" in feedback_lower:
-        # Only fix solution.sh — source files and tests are fine
+    elif "timed out" in feedback_lower and "with solution" in feedback_lower:
+        # Solution causes a hang/infinite loop — different from just failing tests
         repair_target = "solution_only"
         repair_instruction = (
+            "The solution causes the program to HANG (timeout). This usually means:\n"
+            "- An infinite loop in the fixed code (missing break/termination condition)\n"
+            "- Blocking I/O (reading from stdin when no input is provided)\n"
+            "- A server that starts but never exits\n\n"
+            "Fix solution.sh to produce code that runs to completion without hanging. "
+            "Check every loop for proper termination and ensure no blocking reads.\n"
+            "Return a JSON object: {\"files\": {\"solution.sh\": \"...\"}}"
+        )
+    elif "tests failed" in feedback_lower and "with solution" in feedback_lower:
+        # Only fix solution.sh — include failing test details
+        repair_target = "solution_only"
+        test_files = {k: v for k, v in previous_files.items() if k.startswith("tests/")}
+        test_context = "\n\n".join(
+            f"**{name}**:\n```\n{content}\n```" for name, content in test_files.items()
+        )
+        # Extract failing test names from feedback if available
+        failing_tests = ""
+        for line in feedback.split("\n"):
+            if "FAILED" in line and "test_" in line:
+                failing_tests += f"  {line.strip()}\n"
+        failing_info = f"\nFailing tests:\n{failing_tests}" if failing_tests else ""
+
+        repair_instruction = (
             "The source files and tests are correct, but solution.sh does not fix all bugs. "
+            f"{failing_info}\n"
+            f"Here are the tests — study which ones fail and why:\n{test_context}\n\n"
             "Return ONLY a corrected solution.sh that fixes ALL bugs in the source files. "
             "Carefully trace through every test case and verify your solution passes each one. "
             "Return a JSON object: {\"files\": {\"solution.sh\": \"...\"}}"
