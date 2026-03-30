@@ -20,6 +20,19 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Validated with retest on 3 previously-failing topics** — Ran generation-only (no eval) on the 3 topics that failed functional validation in batch 24 with 5 examples: backup rotation (0% pass rate across batches 22-24), curl wrapper (tests pass without solution), DNS resolver (solution doesn't fix bugs). With 9 examples, all 3 passed functional validation (backup rotation on attempt 3, curl wrapper on attempt 2, DNS resolver on attempt 3). The backup rotation topic had never passed functional validation in any prior batch — this is a direct improvement from more examples giving Sonnet better structural patterns for test/solution alignment.
 
+### Dashboard: Fix Sonnet/Opus Cell Rendering Inconsistencies
+
+**Remove broken `runs/` fallback from main row SONNET and OPUS cells** (`dashboard.py`) — Both cells had a `runs/` directory fallback that was doubly broken: (1) it read stale dirs from previous pipeline runs, and (2) the `results.json` path was wrong — it looked for `runs/{run_id}/results.json` but the actual structure is `runs/{run_id}/{task_id}/{trial_dir}/results.json`. This caused "..." to appear for completed tasks whenever a stale `runs/` dir existed.
+
+Fixed behavior:
+- **Completed tasks with stages data**: show `passes/total` (unchanged)
+- **Completed tasks without stages data** (older pipeline format): show `—` instead of misleading `...`
+- **In-progress evaluating tasks**: show `...` (no stages written yet — genuinely pending)
+- **eval_skipped tasks**: show `skip` (unchanged)
+- Also eliminated duplicate `eval_stages` lookup between Sonnet and Opus rendering blocks.
+
+**Fix stale docstring in `evaluate.py`** — module header said "Sonnet × 3 runs" but constant is `SONNET_FILTER_RUNS = 5`.
+
 ### Dashboard: Fix Spurious Eval Rows Before Any Trials Complete
 
 **Remove stale `runs/` fallback and fix batch-dict accumulation** (`dashboard.py`) — Two bugs caused "unknown_agent_errors 0/0" to appear before any evaluation had run:

@@ -636,73 +636,33 @@ def render_pipeline_view():
             sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
         elif stage in ("completed", "evaluating") or cl:
-            # Check if Sonnet filter actually ran — from eval data or runs/ dir
             eval_stages = t.get("stages", {}).get("evaluation", {})
-            sonnet_tier = eval_stages.get("tier_results", {}).get("sonnet", {})
+            tier_results = eval_stages.get("tier_results", {})
+
+            # Sonnet filter cell
+            sonnet_tier = tier_results.get("sonnet", {})
             if sonnet_tier:
                 sp = sonnet_tier.get("passes", 0)
                 st_total = sonnet_tier.get("total", 0)
                 sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
+            elif stage == "evaluating":
+                # In-progress — no stages data yet
+                sonnet_cell = '<div class="stage-cell stage-active">...</div>'
             else:
-                # Fallback: check runs/ dir for Sonnet eval runs (in-progress tasks)
-                task_dir = t.get("dir")
-                dirname = os.path.basename(task_dir) if task_dir else ""
-                sonnet_runs = glob.glob(os.path.join("runs", f"eval-{dirname}-claude-sonnet-*"))
-                if sonnet_runs:
-                    # Sonnet ran — try to read results
-                    sonnet_pass = 0
-                    sonnet_total = 0
-                    for sr in sonnet_runs:
-                        rf = os.path.join(sr, "results.json")
-                        if os.path.exists(rf):
-                            try:
-                                rd = json.load(open(rf))
-                                for trial in rd.get("results", []):
-                                    sonnet_total += 1
-                                    if trial.get("is_resolved"):
-                                        sonnet_pass += 1
-                            except Exception:
-                                pass
-                    if sonnet_total > 0:
-                        sonnet_cell = f'<div class="stage-cell stage-done">{sonnet_pass}/{sonnet_total}</div>'
-                    else:
-                        sonnet_cell = '<div class="stage-cell stage-active">...</div>'
-                else:
-                    sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
-            # Opus cell — show partial results from runs/ if in progress
-            eval_stages = t.get("stages", {}).get("evaluation", {})
-            opus_tier = eval_stages.get("tier_results", {}).get("opus", {})
+                # Completed but stages data unavailable (older pipeline format)
+                sonnet_cell = '<div class="stage-cell stage-skipped">—</div>'
+
+            # Opus eval cell
+            opus_tier = tier_results.get("opus", {})
             if opus_tier and opus_tier.get("total"):
                 op = opus_tier.get("passes", 0)
                 ot = opus_tier.get("total", 0)
-                if cl == "learnable":
-                    opus_cell = f'<div class="stage-cell stage-done">{op}/{ot}</div>'
-                elif cl in ("too_hard", "too_easy"):
+                if cl in ("too_hard", "too_easy"):
                     opus_cell = f'<div class="stage-cell stage-failed">{op}/{ot}</div>'
                 else:
                     opus_cell = f'<div class="stage-cell stage-done">{op}/{ot}</div>'
             elif stage == "evaluating":
-                # Check runs/ for in-progress Opus results
-                task_dir_o = t.get("dir")
-                dirname_o = os.path.basename(task_dir_o) if task_dir_o else ""
-                opus_runs = glob.glob(os.path.join("runs", f"eval-{dirname_o}-claude-opus-*"))
-                opus_pass = 0
-                opus_total_r = 0
-                for orun in opus_runs:
-                    rf = os.path.join(orun, "results.json")
-                    if os.path.exists(rf):
-                        try:
-                            rd = json.load(open(rf))
-                            for trial in rd.get("results", []):
-                                opus_total_r += 1
-                                if trial.get("is_resolved"):
-                                    opus_pass += 1
-                        except Exception:
-                            pass
-                if opus_total_r > 0:
-                    opus_cell = f'<div class="stage-cell stage-active">{opus_pass}/{opus_total_r}</div>'
-                else:
-                    opus_cell = '<div class="stage-cell stage-active">...</div>'
+                opus_cell = '<div class="stage-cell stage-active">...</div>'
             else:
                 opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":

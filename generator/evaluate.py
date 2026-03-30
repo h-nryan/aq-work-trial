@@ -4,7 +4,7 @@ before expensive Opus evaluation.
 
 Filter chain (each tier gates the next):
   Tier 1: Haiku × 5 runs   (~$0.05-0.25)  — catches trivially easy tasks
-  Tier 2: Sonnet × 3 runs  (~$0.30-1.00)  — closer proxy for Opus capability
+  Tier 2: Sonnet × 5 runs  (~$0.30-1.00)  — closer proxy for Opus capability
   Tier 3: Opus × 5 runs    (~$2-5.00)     — final calibration (the ground truth)
 
 Design rationale: model capability is Haiku < Sonnet < Opus, so if a weaker model
