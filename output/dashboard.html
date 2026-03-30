@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Pipeline Metrics Dashboard</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #16213e; padding-bottom: 10px; }
+  h2 { color: #16213e; margin-top: 30px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin: 20px 0; }
+  .metric-card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+  .metric-value { font-size: 2.5em; font-weight: bold; color: #0f3460; }
+  .metric-label { color: #666; font-size: 0.9em; margin-top: 5px; }
+  .metric-highlight { color: #e94560; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  th { background: #16213e; color: white; padding: 12px 15px; text-align: left; }
+  td { padding: 10px 15px; border-bottom: 1px solid #eee; }
+  tr:hover { background: #f0f4ff; }
+  .funnel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  .funnel-bar { background: #e8eaf6; border-radius: 4px; margin: 8px 0; overflow: hidden; }
+  .funnel-fill { background: linear-gradient(90deg, #0f3460, #16213e); padding: 8px 15px; color: white; font-size: 0.9em; border-radius: 4px; }
+  .learnable-item { background: white; border-radius: 8px; padding: 15px; margin: 10px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+  .pass-rate { font-size: 1.3em; font-weight: bold; color: #0f3460; }
+  .timestamp { color: #999; font-size: 0.85em; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>Task Generation Pipeline Metrics</h1>
+<p class="timestamp">Generated: 2026-03-29 23:58</p>
+
+<div class="metrics-grid">
+  <div class="metric-card">
+    <div class="metric-value">36</div>
+    <div class="metric-label">Tasks Attempted</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">10</div>
+    <div class="metric-label">Functional Pass</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value metric-highlight">3</div>
+    <div class="metric-label">Learnable</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">8%</div>
+    <div class="metric-label">Learnable Yield</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">1,559,421</div>
+    <div class="metric-label">Generation Tokens</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">874m</div>
+    <div class="metric-label">Total Time</div>
+  </div>
+</div>
+
+<h2>Pipeline Funnel</h2>
+<div class="funnel">
+  <div class="funnel-bar">
+    <div class="funnel-fill" style="width: 81%">Generated: 29</div>
+  </div>
+  <div class="funnel-bar">
+    <div class="funnel-fill" style="width: 97%">Structural: 35</div>
+  </div>
+  <div class="funnel-bar">
+    <div class="funnel-fill" style="width: 28%">Functional: 10</div>
+  </div>
+  <div class="funnel-bar">
+    <div class="funnel-fill" style="width: 33%">Evaluated: 12</div>
+  </div>
+  <div class="funnel-bar">
+    <div class="funnel-fill" style="width: 8%">Learnable: 3</div>
+  </div>
+</div>
+
+<h2>Per-Batch Breakdown</h2>
+<table>
+<tr><th>Batch</th><th>Total</th><th>Functional</th><th>Evaluated</th><th>Learnable</th><th>Too Easy</th><th>Too Hard</th><th>Time</th></tr>
+<tr>
+  <td>sonnet-batch-1</td><td>4</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>24m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-2</td><td>4</td><td>3</td>
+  <td>3</td><td><strong>0</strong></td>
+  <td>1</td><td>2</td><td>391m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-3</td><td>6</td><td>1</td>
+  <td>1</td><td><strong>0</strong></td>
+  <td>0</td><td>1</td><td>84m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-4</td><td>6</td><td>3</td>
+  <td>3</td><td><strong>0</strong></td>
+  <td>0</td><td>3</td><td>87m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-5-variant-B</td><td>3</td><td>1</td>
+  <td>3</td><td><strong>1</strong></td>
+  <td>0</td><td>2</td><td>148m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-6-no-hints</td><td>5</td><td>2</td>
+  <td>2</td><td><strong>2</strong></td>
+  <td>0</td><td>0</td><td>88m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-7-variant-B-no-hints</td><td>4</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>26m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-8-A-soft-hints</td><td>3</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>19m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-9-A-full-hints</td><td>1</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>7m</td>
+</tr></table>
+<h2>Learnable Task Inventory</h2>
+<div class="learnable-item">
+  <div>
+    <strong>fix a broken Python template engine with incorrect variable </strong><br>
+    <small>sonnet-batch-5-variant-B | 1 retries</small>
+  </div>
+  <div class="pass-rate">25%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python script that incorrectly converts CSV to JSON du</strong><br>
+    <small>sonnet-batch-6-no-hints | 1 retries</small>
+  </div>
+  <div class="pass-rate">25%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a multi-stage Docker build with broken layer caching, wr</strong><br>
+    <small>sonnet-batch-6-no-hints | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+</body>
+</html>
