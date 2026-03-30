@@ -231,6 +231,11 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
                 task_info["classification"] = cl
                 task_info["pass_rate"] = r.get("pass_rate")
                 task_info["detail"] = f"{cl}"
+            elif status == "completed" and not cl:
+                # Skip-eval tasks: passed functional validation, no Opus classification
+                task_info["stage"] = "completed"
+                task_info["classification"] = "eval_skipped"
+                task_info["detail"] = "functional ✓ (eval skipped)"
             elif "failed" in status or "error" in status:
                 task_info["stage"] = "failed"
                 task_info["detail"] = status.replace("_", " ")[:30]
@@ -621,6 +626,8 @@ def render_pipeline_view():
             row_class = "too-hard"
         elif cl == "too_easy":
             row_class = "too-easy"
+        elif cl == "eval_skipped":
+            row_class = "learnable"  # passed functional — show as positive
         elif stage == "failed":
             row_class = "failed"
         elif stage in ("generating", "structural", "functional", "evaluating"):
@@ -648,6 +655,8 @@ def render_pipeline_view():
         if cl == "learnable":
             pr_s = f"{pr:.0%}" if isinstance(pr, (int, float)) else ""
             result_cell = f'<div class="result-cell result-learnable">✓ {pr_s}</div>'
+        elif cl == "eval_skipped":
+            result_cell = '<div class="result-cell result-learnable">✓ func</div>'
         elif cl == "too_hard":
             result_cell = '<div class="result-cell result-hard">TOO HARD</div>'
         elif cl == "too_easy":
