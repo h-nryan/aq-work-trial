@@ -330,6 +330,17 @@ EXCLUDED_TOPICS = {
     # Server-based networking (requires running servers)
     "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL issues",
     "fix a Python TCP proxy with broken connection pooling, half-close handling, and backpressure bugs",
+    # Infrastructure/packaging bugs (Sonnet can't reliably scaffold environment deps;
+    # 0/12 learnable tasks have bugs outside application logic)
+    "repair a broken Python package build with incorrect pyproject.toml, missing entry points, and version bugs",
+    "debug a broken CI/CD pipeline script with incorrect artifact handling, test parallelization, and caching bugs",
+    # Always-fail topics (0% functional pass rate across 2+ batches)
+    "debug a broken Python ORM layer with incorrect query generation, lazy loading, and transaction handling",
+    "fix a Bash script that fails to count and summarize log file entries correctly",
+    "fix a Python socket client that drops messages due to incorrect buffer handling",
+    "fix a broken CMake project with incorrect library linking, missing find_package, and install rules",
+    "fix a broken Python HTTP client with retry logic, timeout handling, and redirect bugs",
+    "repair a Python state machine implementation with incorrect transition validation and event handling",
 }
 
 
