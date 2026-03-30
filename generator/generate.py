@@ -91,10 +91,27 @@ TOO_HARD_EXAMPLES = {
 
 
 def _load_task_dir(task_dir: Path) -> str:
-    """Load all files from a task directory into a formatted string."""
+    """Load all files from a task directory into a formatted string.
+
+    If a _bugs.md file exists, it's included with a special header explaining
+    the bug-to-test mapping. This teaches the generator what makes good bugs.
+    """
     parts = [f"### Example: {task_dir.name}\n"]
+
+    # Load _bugs.md first if it exists — gives context for reading the buggy code
+    bugs_file = task_dir / "_bugs.md"
+    if bugs_file.exists():
+        try:
+            content = bugs_file.read_text()
+            parts.append(
+                f"**BUG ANNOTATIONS** (study these — this is what makes good bugs):\n"
+                f"```\n{content}\n```\n"
+            )
+        except UnicodeDecodeError:
+            pass
+
     for fpath in sorted(task_dir.rglob("*")):
-        if fpath.is_file() and not fpath.name.startswith("."):
+        if fpath.is_file() and not fpath.name.startswith(".") and fpath.name != "_bugs.md":
             rel = fpath.relative_to(task_dir)
             try:
                 content = fpath.read_text()
