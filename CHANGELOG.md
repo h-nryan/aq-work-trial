@@ -102,6 +102,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - **too_hard**: Remove 1-2 bugs, make remaining more discoverable
 - **too_easy**: Add subtle interacting bugs, misleading symptoms
 - Re-validates functionally after each adjustment before re-evaluating (validation is one Docker run vs. 5+ Opus agent runs)
+- **Backup/restore on adjustment failure**: Task files are backed up before each adjustment. If the adjusted version fails validation, the backup is restored and the original classification is preserved. Previously, failed adjustments destroyed working (but wrong-difficulty) tasks.
 - *Design decision*: Full file replacement, not targeted repair — difficulty changes affect the relationship between source, tests, and solution.
 
 ### Diversity Analysis — Stretch Goal C
