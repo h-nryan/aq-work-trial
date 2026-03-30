@@ -24,6 +24,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Prune exited Docker containers** (`evaluate.py`) — Added `_prune_exited_containers()` to `cleanup_stale_resources()`. The `tb` harness leaves stopped containers behind after each eval run; without pruning these accumulate (130+ in batch 11 alone). Now pruned automatically alongside stale container kills and network cleanup.
 
+**Pre-built Docker base image for high concurrency** (`validator/Dockerfile.base`, `docker_validate.py`) — Batch 12 with `--n-concurrent 12` had 12/12 failures from Docker build timeouts (300s) caused by 12 tasks all running `apt-get update && apt-get install` simultaneously. Fix: pre-built `tbench-base:latest` image with all common deps (python3, gcc, cmake, tmux, uv, etc.). The validator auto-rewrites each task's Dockerfile from `FROM ubuntu:*`, `FROM python:*`, or `FROM debian:*` to `FROM tbench-base:latest`, stripping apt-get/pip install layers. Per-task builds drop from ~60-280s to ~0.4s, making concurrency of 12 feasible. Base image is built once on first use and cached. Batch 13 confirmed: 25/29 builds at 0.35-0.59s; the 4 slow ones (83-277s) were from `FROM python:3.11-slim` which the initial version didn't rewrite — now fixed.
+
+**Reduced validation timeouts** (`pipeline.py`) — Build timeout 300s→60s, test timeout 180s→120s. Data from batch 11 shows builds complete in <1s (with base image) and 99% of tests in 12-14s. The worst outlier (C linked list compilation) was 110s. Previous 180s timeout wasted minutes per task on tests that would never pass (e.g., tasks with server loops that hang forever).
+
+**Fix UnboundLocalError on generation failure** (`pipeline.py`) — `task_dir` was referenced before assignment when generation failed, causing a crash that masked the real error.
+
 ### Generation
 
 **Pre-batch prompt audit and refinements** (`generate.py`, `prompts.py`) — Systematic audit before committing to a $400-budget batch run:
@@ -52,6 +58,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - Phase 2 requires majority of tests to fail, not all — some passing tests give the agent useful debugging signal
 - Retry budget `MAX_SOLUTION_FIRST_RETRIES=3` (reduced from 6 — retries 4-6 rarely succeed)
 - Source-only repair now includes test function code so the LLM can see what each test checks and introduce bugs that break those specific checks (previously guessed blindly)
+- **Timeout-specific solution repair**: When solution.sh causes a hang (not just test failures), the repair prompt targets infinite loops, blocking I/O, and missing termination conditions instead of generic "fix all bugs."
+- **Test-aware solution repair**: solution_only repair now includes failing test names and test function code, matching what source_only already had. Previously couldn't see which test was failing.
 - **Phase 2 self-verification**: Prompt now requires the LLM to trace each test function against its buggy code and output a per-test verification ("test_X: WILL FAIL because..."). Forces chain-of-thought about test-to-bug mapping. Motivated by first Sonnet batch where 0/3 tasks passed functional validation because Phase 2 bugs didn't break tests.
 - **Bug annotations in exemplars**: `_bugs.md` files in Opus exemplars explicitly describe each bug (what's wrong, why it's realistic, which tests it breaks). Loaded first in the few-shot context with a "BUG ANNOTATIONS" header so Sonnet learns the test-to-bug mapping pattern, not just what buggy code looks like.
 - Usage: `python3.12 pipeline.py "topic" --solution-first`
