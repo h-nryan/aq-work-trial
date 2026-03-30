@@ -1,0 +1,57 @@
+instruction: |-
+  Debug and fix memory corruption issues in a C linked list implementation. The program at `/app/linkedlist.c` has several bugs causing memory leaks, segmentation faults, and incorrect behavior.
+  
+  The linked list implementation includes these functions:
+  - `create_node`: Creates a new node
+  - `insert_at_beginning`: Inserts node at the start
+  - `insert_at_end`: Inserts node at the end
+  - `delete_node`: Removes a node with given value
+  - `reverse_list`: Reverses the entire list
+  - `print_list`: Displays the list
+  - `free_list`: Deallocates all nodes
+  - `find_middle`: Returns the middle node
+  - `has_cycle`: Detects if list has a cycle
+  
+  Known Issues:
+  1. Memory leaks in delete and free operations
+  2. Infinite loop in reverse_list function
+  3. Segmentation fault in find_middle for certain lists
+  4. Use-after-free error in free_list
+  5. Missing null checks causing crashes
+  
+  Requirements:
+  - Fix all memory corruption bugs
+  - Ensure no memory leaks (valgrind clean)
+  - All functions must work correctly
+  - Program must compile with: gcc -Wall -g
+  - Output format must match expected test output
+  
+  Expected program output:
+  ```
+  Inserting elements...
+  List after insertions: 20 -> 10 -> 30 -> 40 -> NULL
+  
+  Deleting 20...
+  List after deletion: 10 -> 30 -> 40 -> NULL
+  
+  Middle element: 30
+  
+  Reversing list...
+  List after reversal: 40 -> 30 -> 10 -> NULL
+  
+  Checking for cycle: No
+  
+  Freeing list...
+  ```
+  
+  The main.c file tests all functions. Do not modify main.c or the header file.
+difficulty: medium
+category: debugging
+tags:
+  - c
+  - memory-management
+  - linked-lists
+  - debugging
+  - valgrind
+parser_name: pytest
+timeout: 180
