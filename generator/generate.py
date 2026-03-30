@@ -85,9 +85,10 @@ def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
             print(f"  Retrying in {delay}s...")
             time.sleep(delay)
         except Exception as e:
-            # Don't retry on auth errors, bad requests, etc.
+            # Don't retry on auth errors, bad requests, or unrecoverable client errors.
+            # openai.APITimeoutError falls here and IS retried (timeout not in this list).
             err_str = str(e).lower()
-            if any(code in err_str for code in ("401", "403", "422", "invalid")):
+            if any(code in err_str for code in ("401", "403", "422", "invalid_request")):
                 raise
             last_error = e
             delay = API_RETRY_DELAY * (2 ** attempt)
