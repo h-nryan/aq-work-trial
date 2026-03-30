@@ -44,6 +44,37 @@ def _write_status(task_dir: str, stage: str, detail: str = "", **extra) -> None:
         pass  # Non-critical — don't break pipeline for status writes
 
 
+def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None:
+    """Save functional validation result to a per-attempt log file.
+
+    Creates validation_attempt_{N}.json in the task dir with the full
+    validation result (issues, execution times, phase details) for debugging.
+    """
+    import json as _json
+
+    log_path = os.path.join(task_dir, f"validation_attempt_{attempt}.json")
+    try:
+        # Extract the most useful debugging info
+        log_data = {
+            "attempt": attempt,
+            "passed": func_result.get("passed", False),
+            "issues": func_result.get("issues", []),
+            "tests_fail_without_solution": func_result.get("tests_fail_without_solution"),
+            "tests_pass_with_solution": func_result.get("tests_pass_with_solution"),
+            "solution_idempotent": func_result.get("solution_idempotent"),
+            "execution_times": func_result.get("execution_times", {}),
+            "image_builds": func_result.get("image_builds"),
+        }
+        # Include phase details (stdout/stderr tails) if available
+        details = func_result.get("details", {})
+        if details:
+            log_data["details"] = details
+        with open(log_path, "w") as f:
+            _json.dump(log_data, f, indent=2, default=str)
+    except Exception:
+        pass  # Non-critical
+
+
 def _auto_promote(task_dir: str, result: dict) -> None:
     """Auto-promote a learnable task to examples-sonnet/."""
     from pathlib import Path
@@ -166,8 +197,8 @@ def validate_functional(task_dir: str) -> dict:
     """
     return docker_validate(
         task_dir=task_dir,
-        build_timeout=300,
-        test_timeout=180,
+        build_timeout=60,
+        test_timeout=120,
         cleanup=True,
         skip_extended=True,
     )
@@ -186,14 +217,19 @@ def _build_feedback(struct_result: dict | None, func_result: dict | None) -> str
         if issues:
             parts.append("FUNCTIONAL VALIDATION FAILED:\n" + "\n".join(f"- {i}" for i in issues))
 
-        # Include test output excerpts for debugging context
+        # Include test output excerpts for debugging context.
+        # Use generous limits so Sonnet can see exactly which tests failed and why.
         details = func_result.get("details", {})
         for phase in ("without_solution", "with_solution"):
             phase_detail = details.get(phase, {})
             stdout = phase_detail.get("stdout_tail", "")
             stderr = phase_detail.get("stderr_tail", "")
             if stdout or stderr:
-                parts.append(f"\n{phase.upper()} output:\nstdout: {stdout[-500:]}\nstderr: {stderr[-500:]}")
+                parts.append(
+                    f"\n{phase.upper()} output:\n"
+                    f"stdout (last 1500 chars): {stdout[-1500:]}\n"
+                    f"stderr (last 500 chars): {stderr[-500:]}"
+                )
 
     return "\n\n".join(parts) if parts else "Validation failed (no details available)."
 
@@ -272,14 +308,14 @@ def run_pipeline(
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
 
+    task_dir = gen_result.get("task_dir") or output_dir or ""
+
     if gen_result["status"] != "success":
         result["status"] = "generation_failed"
         result["failed_stage"] = "generation"
-        _write_status(task_dir or output_dir or "", "failed", "generation failed")
+        _write_status(task_dir, "failed", "generation failed")
         result["duration_sec"] = round(time.time() - start, 2)
         return result
-
-    task_dir = gen_result["task_dir"]
 
     # Stages 2-3: Validate with retry loop
     for attempt in range(1 + effective_retries):
@@ -317,6 +353,9 @@ def run_pipeline(
             _write_status(task_dir, "functional", f"Docker build + test, attempt {attempt + 1}")
             func_result = validate_functional(task_dir)
             result["stages"]["functional"] = func_result
+
+            # Save per-attempt validation log for debugging
+            _save_validation_log(task_dir, attempt + 1, func_result)
 
             if not func_result["passed"]:
                 # Only skip retries for environment errors that regeneration
@@ -417,6 +456,23 @@ def run_pipeline(
                     shutil.rmtree(task_dir)
                     shutil.copytree(snapshot_dir, task_dir)
                     break  # Keep the original classification, don't return failure
+
+                # For too_easy adjustments: cheap Sonnet check before expensive Opus re-eval.
+                # If Sonnet still solves it 3/3, it's still too easy — save the Opus cost.
+                if classification == "too_easy":
+                    from evaluate import _run_tb
+                    from config import SONNET_FILTER_MODEL
+                    print(f"\n[Sonnet quick-check after too_easy adjustment]")
+                    sonnet_check = _run_tb(
+                        task_dir=task_dir,
+                        model=SONNET_FILTER_MODEL,
+                        n_attempts=3,
+                    )
+                    sonnet_passes = sonnet_check.get("passes", 0)
+                    print(f"  Sonnet solved {sonnet_passes}/3")
+                    if sonnet_passes >= 3:
+                        print(f"  Still too easy for Sonnet — skipping Opus, trying another adjustment")
+                        continue  # Try another adjustment round without burning Opus
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
