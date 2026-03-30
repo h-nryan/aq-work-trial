@@ -14,6 +14,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Example Budget Increase
+
+**Doubled example token budget from 20K to 40K** (`generate.py`) — Increases few-shot examples from 5 to 9 (covering all 6 categories). More examples give Sonnet better calibration for bug difficulty and solution alignment. Motivated by batch 24 functional failures: curl wrapper (bugs too weak — tests pass without solution) and DNS resolver (Phase 1/2 mismatch — solution doesn't fix bugs). Both failure modes suggest Sonnet needs more reference material for correct bug/test/solution structure. Cost impact negligible (~$0.02/generation) vs Opus eval savings.
+
 ### Dashboard: Expandable Task Details
 
 **Expandable task cards** (`dashboard.py`) — Each task row now has a "Details" expander showing:

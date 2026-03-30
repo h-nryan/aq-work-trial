@@ -100,7 +100,7 @@ def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
 # Included in few-shot context as NEGATIVE examples — "don't generate tasks this simple."
 # Default token budget for examples in the prompt.
 # Total learnable examples ~25k tokens; budget caps how many we include.
-DEFAULT_EXAMPLE_TOKEN_BUDGET = 20000
+DEFAULT_EXAMPLE_TOKEN_BUDGET = 40000
 
 
 def _load_task_dir(task_dir: Path) -> str:
