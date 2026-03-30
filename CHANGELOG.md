@@ -66,6 +66,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Opus early stopping with hybrid parallelism** — First 3 Opus runs execute in parallel for speed. If classification is determined (e.g., 0/3 → too_hard, 3/3 → too_easy), stop. Otherwise run attempts 4-5 sequentially with early-stop checks. Saves ~$0.40-1.00 per skipped run; most tasks classify after 3 parallel runs.
 
+**Early stopping on all tiers** — The hybrid parallel+sequential early-stop strategy now applies to Haiku and Sonnet filter tiers too (not just Opus). For filters, the decision is simpler (skip vs proceed): after 3 parallel runs, if passes + remaining < threshold → proceed immediately. Haiku 0/3 with threshold 4 → can't reach 4 even if remaining 2 pass → stop, saved 2 runs.
+
+**`--solution-first` in batch CLI** — Batch runs now support `--solution-first` flag, passing it through to each `run_pipeline` call. Kept as a flag (not default) to allow A/B comparison of generation strategies on learnable yield.
+
 **Sonnet filter tuning** — Increased from 3 runs / threshold 3 to 5 runs / threshold 4. A 70% true solve rate has 34% chance of 3/3 but only 17% chance of 4+/5, reducing false positives.
 
 ### Difficulty Tuning — Stretch Goal B
