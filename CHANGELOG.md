@@ -176,6 +176,8 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
 - **Phase 1/2 parse retry**: Both solution-first phases now retry the API call up to 3 times when the response is unparseable JSON, instead of failing immediately.
 
+- **Trial data preservation**: `_parse_run_results` now captures agent timing (`agent_started_at/ended_at`), test pass counts (`tests_passed/total`), and token usage before cleanup deletes the raw files. Enables analysis of agent behavior on too-hard tasks without disabling cleanup.
+
 ### Code Quality
 
 - `X | None` syntax throughout (not `Optional[X]`)
