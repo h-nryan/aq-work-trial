@@ -14,6 +14,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Sonnet Filter Calibration
+
+**Lowered SONNET_SKIP_THRESHOLD from 4 to 3** (`config.py`) — Cross-batch analysis shows Opus consistently scores >= Sonnet on the same tasks. A task Sonnet solves 3/5 is almost certainly too easy for Opus (likely 4-5/5). The one learnable case with Sonnet data (Docker build) had Sonnet 2/4, Opus 1/3 — Opus scored lower, confirming Sonnet is a conservative proxy. Threshold of 3 catches too_easy tasks earlier, enabling cheaper adjustment via Sonnet quick-check instead of burning Opus eval budget.
+
 ### Prompt Cleanup
 
 **Removed prompt variant B** (`generate.py`, `pipeline.py`, `batch.py`) — Variant A (verbose constraints with data-driven structural rules) has been used exclusively in all successful batches (including batch 22's 75% learnable rate). Variant B (trimmed, example-driven) was tested once in batch 5 but never adopted. Removed SYSTEM_PROMPT_B, PHASE2_PROMPT_B, the variant-B user prompt path, and the `--prompt-variant` CLI flag to reduce dead code. Variant A is now the only generation prompt.
