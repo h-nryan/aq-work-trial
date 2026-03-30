@@ -1,0 +1,57 @@
+instruction: |-
+  Fix a broken Python log rotation script that has several bugs preventing proper log file management.
+  
+  The script `/app/log_rotator.py` is supposed to:
+  1. Read configuration from a JSON file
+  2. Check if log files exceed their maximum size
+  3. Rotate logs by renaming them with timestamps
+  4. Optionally compress rotated logs
+  5. Clean up old rotated logs based on retention policy
+  
+  Current bugs in the script:
+  - Size comparison is broken (comparing KB to bytes)
+  - Compression fails due to text/binary mode mismatch
+  - Rotated files are created in the wrong directory
+  - Cleanup doesn't properly handle compressed files
+  - Uncompressed files aren't removed after compression
+  - Old file cleanup sorts alphabetically instead of by modification time
+  
+  The script should work with the provided config.json format:
+  ```json
+  {
+    "logs": {
+      "log_name": {
+        "path": "/path/to/log.file",
+        "max_size": 1048576,  // bytes
+        "compress": true,
+        "keep": 5  // number of rotated files to keep
+      }
+    }
+  }
+  ```
+  
+  Fix all the bugs in the script so that:
+  - Size checks work correctly (bytes to bytes comparison)
+  - Compression produces valid gzip files
+  - Rotated files stay in the same directory as the original
+  - Cleanup counts and removes both compressed and uncompressed files
+  - Uncompressed files are deleted after successful compression
+  - Cleanup removes oldest files by modification time, not name
+  
+  The script should be run as: `python log_rotator.py config.json`
+difficulty: medium
+category: software-engineering
+tags:
+  - python
+  - debugging
+  - file-operations
+  - compression
+parser_name: pytest
+max_agent_timeout_sec: 900.0
+max_test_timeout_sec: 600.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 900
+expert_time_estimate_min: 20
+junior_time_estimate_min: 40
+resource_class: small

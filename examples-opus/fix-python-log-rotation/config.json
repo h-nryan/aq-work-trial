@@ -1,0 +1,22 @@
+{
+  "logs": {
+    "application": {
+      "path": "/app/test_logs/app.log",
+      "max_size": 1048576,
+      "compress": true,
+      "keep": 3
+    },
+    "access": {
+      "path": "/app/test_logs/access.log",
+      "max_size": 2097152,
+      "compress": true,
+      "keep": 5
+    },
+    "error": {
+      "path": "/app/test_logs/error.log",
+      "max_size": 524288,
+      "compress": false,
+      "keep": 10
+    }
+  }
+}
