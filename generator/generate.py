@@ -82,11 +82,12 @@ TOO_EASY_EXAMPLES = {
 # Examples confirmed too hard by evaluation (Opus 0/5).
 # Excluded from few-shot context — showing impossible tasks as "good examples"
 # miscalibrates difficulty upward and wastes prompt tokens.
-TOO_HARD_EXAMPLES: set[str] = set()
-# Will be populated once Opus ×5 evals complete for the remaining examples.
-# Confirmed learnable: csv-to-json-cli-fix (Opus 2-3/5)
-# Pending: broken-coordinate-transform, broken-flask-api,
-#          fix-maven-artifact-dependencies, log-rotation-analyzer
+TOO_HARD_EXAMPLES = {
+    "broken-coordinate-transform",  # Opus 0/5, Sonnet 0/3
+    "broken-flask-api",             # Opus 0/5, Sonnet 0/3
+}
+# Confirmed learnable: csv-to-json-cli-fix (Opus 3/5)
+# Pending: fix-maven-artifact-dependencies, log-rotation-analyzer
 
 
 def _load_task_dir(task_dir: Path) -> str:
