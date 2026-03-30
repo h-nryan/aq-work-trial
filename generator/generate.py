@@ -612,12 +612,27 @@ def regenerate_task(
     elif "tests passed" in feedback_lower and "without solution" in feedback_lower:
         # Source files don't have real bugs — fix the buggy source files
         repair_target = "source_only"
-        infrastructure = {"task.yaml", "Dockerfile", "run-tests.sh", "solution.sh", "tests/test_outputs.py"}
-        source_files = [f for f in previous_files if f not in infrastructure]
+        infrastructure = {"task.yaml", "Dockerfile", "run-tests.sh", "solution.sh"}
+        test_files = {k: v for k, v in previous_files.items() if k.startswith("tests/")}
+        source_files = [f for f in previous_files
+                        if f not in infrastructure and not f.startswith("tests/")]
+        # Include test code so the LLM knows what to break
+        test_context = "\n\n".join(
+            f"**{name}**:\n```\n{content}\n```" for name, content in test_files.items()
+        )
         repair_instruction = (
             "The tests pass without solution.sh being applied, meaning the source files don't "
-            "have real bugs. Fix the SOURCE FILES to introduce real bugs that cause test failures. "
-            "Do NOT change task.yaml, Dockerfile, run-tests.sh, solution.sh, or tests/. "
+            "have real bugs. You MUST introduce bugs into the source files that cause the tests "
+            "to FAIL.\n\n"
+            f"Here are the test functions — study them to understand what to break:\n{test_context}\n\n"
+            "For each test function, identify what it checks and introduce a bug in the source "
+            "code that makes THAT specific check fail. Common approaches:\n"
+            "- Wrong return values or calculations\n"
+            "- Off-by-one errors in loops or indexing\n"
+            "- Missing or incorrect error handling\n"
+            "- Wrong variable names or swapped arguments\n"
+            "- Incorrect string formatting or parsing\n\n"
+            "Do NOT change tests, task.yaml, Dockerfile, run-tests.sh, or solution.sh.\n"
             f"Return a JSON object with only these source files: {source_files}"
         )
     else:

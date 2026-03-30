@@ -22,7 +22,7 @@ OPUS_EXAMPLES_DIR = os.path.join(BASE_DIR, "examples-opus")
 
 # --- Generation ---
 MAX_GENERATION_RETRIES = 2
-MAX_SOLUTION_FIRST_RETRIES = 4  # More retries for solution-first — each gets closer
+MAX_SOLUTION_FIRST_RETRIES = 6  # More retries for solution-first — "tests pass without solution" often needs several attempts
 LEARNABLE_MIN = 1  # minimum passes out of 5
 LEARNABLE_MAX = 3  # maximum passes out of 5
 EVAL_TRIALS = 5    # number of Opus runs per task
