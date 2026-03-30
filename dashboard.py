@@ -381,7 +381,9 @@ def _render_task_details(task_dir: str, task_info: dict):
                 all_trials.append(batch)
 
     # Fallback: look in runs/ if no trial data in batch results
-    if not all_trials:
+    # Only if task actually reached eval stage (not still in generation/functional)
+    task_stage = task_info.get("stage", "")
+    if not all_trials and task_stage in ("completed", "evaluating"):
         eval_runs = sorted(glob.glob(os.path.join("runs", f"eval-{dirname}-*")))
         for run_dir in eval_runs:
             results_file = os.path.join(run_dir, "results.json")
