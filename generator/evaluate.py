@@ -682,12 +682,12 @@ def _build_result(
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python evaluate.py <task_dir> [--skip-filters] [--skip-haiku] [--skip-sonnet] [--trials N]")
+        print("Usage: python evaluate.py <task_dir> [--skip-filters] [--include-haiku] [--skip-sonnet] [--trials N]")
         sys.exit(1)
 
     task_dir = sys.argv[1]
     skip_filters = "--skip-filters" in sys.argv
-    skip_haiku = "--skip-haiku" in sys.argv
+    skip_haiku = "--include-haiku" not in sys.argv
     skip_sonnet = "--skip-sonnet" in sys.argv
     n_trials = EVAL_TRIALS
 

@@ -23,7 +23,7 @@ SONNET_EXAMPLES_DIR = os.path.join(BASE_DIR, "examples-sonnet")
 
 # --- Generation ---
 MAX_GENERATION_RETRIES = 2
-MAX_SOLUTION_FIRST_RETRIES = 6  # More retries for solution-first — "tests pass without solution" often needs several attempts
+MAX_SOLUTION_FIRST_RETRIES = 3  # Retries 4-6 rarely succeed (bimodal: tasks pass in 1-2 or not at all)
 LEARNABLE_MIN = 1  # minimum passes out of 5
 LEARNABLE_MAX = 3  # maximum passes out of 5
 EVAL_TRIALS = 5    # number of Opus runs per task

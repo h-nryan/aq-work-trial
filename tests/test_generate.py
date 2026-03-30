@@ -1,4 +1,4 @@
-"""Tests for generator/generate.py (_parse_response, _load_examples) and config.py (_slugify)."""
+"""Tests for generator/generate.py (_parse_response, select_examples) and config.py (_slugify)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 from config import _slugify, _SLUG_MAX_LEN, _SLUG_HASH_LEN
 from generate import (
     SYSTEM_PROMPT, SYSTEM_PROMPT_B, HINT_RULES, _format_prompt,
-    _build_user_prompt, _parse_response, _load_examples,
+    _build_user_prompt, _parse_response, select_examples, _score_example,
 )
 
 
@@ -161,134 +161,163 @@ class TestParseResponse:
 
 
 # ---------------------------------------------------------------------------
-# _load_examples -- three-way classification
+# select_examples -- metadata-driven example selection
 # ---------------------------------------------------------------------------
 
-class TestLoadExamples:
-    """Test example loading with the three-way classification logic."""
+class TestSelectExamples:
+    """Test metadata-driven example selection."""
 
-    def _make_task_dir(self, parent, name, content="hello"):
-        """Create a minimal task directory with one file."""
-        d = os.path.join(str(parent), name)
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "task.yaml"), "w") as f:
-            f.write(content)
+    def _make_example(self, parent, name, classification="learnable",
+                      pass_rate=0.4, category="debugging", tokens=3000):
+        """Create a minimal example directory with _meta.yaml."""
+        d = parent / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "task.yaml").write_text(f"instruction: test\ndifficulty: medium\n")
+        (d / "_meta.yaml").write_text(
+            f"classification: {classification}\n"
+            f"opus_pass_rate: {pass_rate}\n"
+            f"opus_passes: {int(pass_rate * 5)}\n"
+            f"opus_total: 5\n"
+            f"category: {category}\n"
+            f"approx_tokens: {tokens}\n"
+            f"source: test\n"
+        )
 
-    def test_positive_examples(self, monkeypatch, tmp_path):
-        """Normal examples (not too-easy, not too-hard) appear as positive."""
+    def test_learnable_examples_selected(self, monkeypatch, tmp_path):
+        """Learnable examples appear as positive."""
         examples_dir = tmp_path / "examples"
-        examples_dir.mkdir()
-        self._make_task_dir(examples_dir, "good-task")
+        self._make_example(examples_dir, "good-task")
 
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
-        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "opus-nope"))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", set())
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", set())
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
-        result = _load_examples()
+        result = select_examples()
         assert "GOOD EXAMPLES" in result
         assert "good-task" in result
-        assert "TOO-EASY" not in result
 
     def test_too_easy_in_negative_section(self, monkeypatch, tmp_path):
-        """TOO_EASY_EXAMPLES items appear in the negative (TOO-EASY) section."""
+        """Too-easy examples appear in negative section."""
         examples_dir = tmp_path / "examples"
-        examples_dir.mkdir()
-        self._make_task_dir(examples_dir, "trivial-task")
+        self._make_example(examples_dir, "trivial-task", classification="too_easy",
+                          pass_rate=1.0, tokens=1000)
 
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
-        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "opus-nope"))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", {"trivial-task"})
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", set())
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
-        result = _load_examples()
+        result = select_examples()
         assert "TOO-EASY EXAMPLES" in result
         assert "trivial-task" in result
 
-    def test_too_hard_excluded_entirely(self, monkeypatch, tmp_path):
-        """TOO_HARD_EXAMPLES items do not appear anywhere in the output."""
+    def test_too_hard_excluded(self, monkeypatch, tmp_path):
+        """Too-hard examples are excluded entirely."""
         examples_dir = tmp_path / "examples"
-        examples_dir.mkdir()
-        self._make_task_dir(examples_dir, "impossible-task")
-        self._make_task_dir(examples_dir, "normal-task")
+        self._make_example(examples_dir, "hard-task", classification="too_hard", pass_rate=0.0)
+        self._make_example(examples_dir, "good-task")
 
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
-        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "opus-nope"))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", set())
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", {"impossible-task"})
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
-        result = _load_examples()
-        assert "impossible-task" not in result
-        assert "normal-task" in result
+        result = select_examples()
+        assert "hard-task" not in result
+        assert "good-task" in result
 
-    def test_opus_examples_as_positive(self, monkeypatch, tmp_path):
-        """Opus-generated examples from examples-opus/ are included as positive."""
+    def test_no_meta_skipped(self, monkeypatch, tmp_path):
+        """Examples without _meta.yaml are skipped."""
         examples_dir = tmp_path / "examples"
-        examples_dir.mkdir()
-        opus_dir = tmp_path / "examples-opus"
-        opus_dir.mkdir()
-        self._make_task_dir(opus_dir, "opus-generated-task")
+        d = examples_dir / "no-meta"
+        d.mkdir(parents=True)
+        (d / "task.yaml").write_text("instruction: test\n")
 
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
-        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(opus_dir))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", set())
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", set())
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
-        result = _load_examples()
-        assert "GOOD EXAMPLES" in result
-        assert "opus-generated-task" in result
+        result = select_examples()
+        assert result == ""
 
-    def test_three_way_combined(self, monkeypatch, tmp_path):
-        """All three classifications work together in a single call."""
+    def test_token_budget_respected(self, monkeypatch, tmp_path):
+        """Token budget limits how many examples are included."""
         examples_dir = tmp_path / "examples"
-        examples_dir.mkdir()
-        self._make_task_dir(examples_dir, "normal-a")
-        self._make_task_dir(examples_dir, "easy-one")
-        self._make_task_dir(examples_dir, "hard-one")
-
-        opus_dir = tmp_path / "examples-opus"
-        opus_dir.mkdir()
-        self._make_task_dir(opus_dir, "opus-b")
+        self._make_example(examples_dir, "big-a", tokens=8000, category="debugging")
+        self._make_example(examples_dir, "big-b", tokens=8000, category="networking")
+        self._make_example(examples_dir, "big-c", tokens=8000, category="build-systems")
 
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
-        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(opus_dir))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", {"easy-one"})
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", {"hard-one"})
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
-        result = _load_examples()
-        assert "normal-a" in result
-        assert "easy-one" in result        # in negative section
-        assert "hard-one" not in result     # excluded
-        assert "opus-b" in result           # positive
-        assert "TOO-EASY EXAMPLES" in result
-        assert "GOOD EXAMPLES" in result
+        result = select_examples(token_budget=15000)
+        # Only 2 of 3 should fit in 15k budget (8k each)
+        count = sum(1 for name in ["big-a", "big-b", "big-c"] if name in result)
+        assert count <= 2
+
+    def test_category_diversity(self, monkeypatch, tmp_path):
+        """Examples from different categories are preferred."""
+        examples_dir = tmp_path / "examples"
+        self._make_example(examples_dir, "debug-1", category="debugging", tokens=2000)
+        self._make_example(examples_dir, "debug-2", category="debugging", tokens=2000)
+        self._make_example(examples_dir, "net-1", category="networking", tokens=2000)
+
+        monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
+
+        result = select_examples(token_budget=5000)
+        # Should pick one from each category before doubling up
+        assert "net-1" in result
+        assert "debug-1" in result or "debug-2" in result
 
     def test_no_examples_dirs(self, monkeypatch, tmp_path):
         """Returns empty string when no examples directories exist."""
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(tmp_path / "nope1"))
         monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope2"))
         monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope3"))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", set())
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", set())
 
-        result = _load_examples()
+        result = select_examples()
         assert result == ""
 
-    def test_files_in_examples_dir_ignored(self, monkeypatch, tmp_path):
-        """Plain files (not dirs) in the examples directory are skipped."""
-        examples_dir = tmp_path / "examples"
-        examples_dir.mkdir()
-        (examples_dir / "README.md").write_text("ignore me")
-        self._make_task_dir(examples_dir, "real-task")
+    def test_across_all_dirs(self, monkeypatch, tmp_path):
+        """Examples from all three directories are considered."""
+        ex_dir = tmp_path / "examples"
+        opus_dir = tmp_path / "opus"
+        sonnet_dir = tmp_path / "sonnet"
+        self._make_example(ex_dir, "hand-a", category="debugging")
+        self._make_example(opus_dir, "opus-b", category="networking")
+        self._make_example(sonnet_dir, "sonnet-c", category="build-systems")
 
-        monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
-        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope"))
-        monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", set())
-        monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", set())
+        monkeypatch.setattr("generate.EXAMPLES_DIR", str(ex_dir))
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(opus_dir))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(sonnet_dir))
 
-        result = _load_examples()
-        assert "README" not in result
-        assert "real-task" in result
+        result = select_examples()
+        assert "hand-a" in result
+        assert "opus-b" in result
+        assert "sonnet-c" in result
+
+
+class TestScoreExample:
+    """Test the example scoring function."""
+
+    def test_ideal_pass_rate_scores_highest(self):
+        """Pass rate of 0.5 (ideal) scores higher than 0.2 (borderline)."""
+        ideal = _score_example({"opus_pass_rate": 0.5, "approx_tokens": 3000}, None)
+        borderline = _score_example({"opus_pass_rate": 0.2, "approx_tokens": 3000}, None)
+        assert ideal > borderline
+
+    def test_category_match_bonus(self):
+        """Matching category gets a score bonus."""
+        match = _score_example({"opus_pass_rate": 0.4, "category": "debugging", "approx_tokens": 3000}, "debugging")
+        no_match = _score_example({"opus_pass_rate": 0.4, "category": "networking", "approx_tokens": 3000}, "debugging")
+        assert match > no_match
+
+    def test_smaller_examples_preferred(self):
+        """Smaller examples get slight preference."""
+        small = _score_example({"opus_pass_rate": 0.4, "approx_tokens": 2000}, None)
+        large = _score_example({"opus_pass_rate": 0.4, "approx_tokens": 7000}, None)
+        assert small > large
 
 
 # ---------------------------------------------------------------------------

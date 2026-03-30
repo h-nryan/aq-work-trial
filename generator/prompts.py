@@ -391,6 +391,14 @@ def select_topics(
     return [e.topic for e in entries]
 
 
+def get_category_for_topic(topic: str) -> str | None:
+    """Look up a topic's category from the prompt bank. Returns None if not found."""
+    for entry in PROMPT_BANK:
+        if entry.topic == topic:
+            return entry.category
+    return None
+
+
 def get_bank_stats() -> dict:
     """Return summary statistics about the prompt bank."""
     stats: dict = {

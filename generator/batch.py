@@ -20,7 +20,7 @@ from batch_io import load_incremental, load_meta, resolve_resume, save_meta
 from config import GENERATOR_MODEL, OPENROUTER_API_KEY, OUTPUT_DIR, SONNET_FILTER_MODEL, _slugify
 from evaluate import cleanup_stale_resources
 from pipeline import run_pipeline
-from prompts import select_topics
+from prompts import get_category_for_topic, select_topics
 
 
 def _atexit_cleanup() -> None:
@@ -125,7 +125,7 @@ def run_batch(
     seed: int | None = None,
     n_concurrent: int = 1,
     resume_from: str | None = None,
-    solution_first: bool = False,
+    solution_first: bool = True,
     prompt_variant: str = "A",
     hint_style: str = "none",
 ) -> dict:
@@ -225,6 +225,7 @@ def run_batch(
                 solution_first=solution_first,
                 prompt_variant=prompt_variant,
                 hint_style=hint_style,
+                target_category=get_category_for_topic(topic),
             )
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -530,8 +531,8 @@ if __name__ == "__main__":
         help="Skip Haiku/Sonnet filter tiers (go straight to Opus)",
     )
     parser.add_argument(
-        "--solution-first", action="store_true",
-        help="Use two-phase generation (write working code first, then introduce bugs)",
+        "--no-solution-first", action="store_true",
+        help="Disable solution-first generation (use single-phase instead). Not recommended.",
     )
     parser.add_argument(
         "--resume", metavar="BATCH_ID_OR_PATH", nargs="?", const="auto",
@@ -575,7 +576,7 @@ if __name__ == "__main__":
         seed=args.seed,
         n_concurrent=args.n_concurrent,
         resume_from=args.resume,
-        solution_first=args.solution_first,
+        solution_first=not args.no_solution_first,
         prompt_variant=args.prompt_variant,
         hint_style=args.hint_style,
     )

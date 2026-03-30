@@ -21,6 +21,42 @@ from generate import adjust_difficulty, generate_task, generate_task_solution_fi
 MAX_DIFFICULTY_ADJUSTMENTS = 2
 
 
+def _write_task_meta(task_dir: str, result: dict, category: str | None = None) -> None:
+    """Write _meta.yaml to a completed task directory.
+
+    This metadata enables automated example selection — learnable tasks
+    can be fed back into the prompt as few-shot examples.
+    """
+    classification = result.get("classification")
+    if not classification:
+        return
+
+    passes = result.get("passes", 0)
+    total = result.get("total", 0)
+    pass_rate = result.get("pass_rate", 0.0)
+
+    # Estimate token count from file sizes
+    approx_tokens = 0
+    for root, _, files in os.walk(task_dir):
+        for fname in files:
+            if not fname.startswith(".") and fname != "_meta.yaml":
+                try:
+                    approx_tokens += os.path.getsize(os.path.join(root, fname)) // 4
+                except OSError:
+                    pass
+
+    meta_path = os.path.join(task_dir, "_meta.yaml")
+    with open(meta_path, "w") as f:
+        f.write(f"classification: {classification}\n")
+        f.write(f"opus_pass_rate: {pass_rate}\n")
+        f.write(f"opus_passes: {passes}\n")
+        f.write(f"opus_total: {total}\n")
+        if category:
+            f.write(f"category: {category}\n")
+        f.write(f"approx_tokens: {approx_tokens}\n")
+        f.write(f"source: pipeline-generated\n")
+
+
 def validate_structural(task_dir: str) -> dict:
     """Run the structural validator on a task directory."""
     validator_path = os.path.join(
@@ -87,12 +123,13 @@ def run_pipeline(
     skip_filters: bool = False,
     skip_functional: bool = False,
     skip_eval: bool = False,
-    max_retries: int = MAX_GENERATION_RETRIES,
+    max_retries: int | None = None,
     model: str | None = None,
-    solution_first: bool = False,
+    solution_first: bool = True,
     include_haiku: bool = False,
     prompt_variant: str = "A",
     hint_style: str = "none",
+    target_category: str | None = None,
 ) -> dict:
     """Run the full pipeline for a single topic.
 
@@ -113,7 +150,12 @@ def run_pipeline(
         dict with all stage results and final classification.
     """
     # Solution-first gets more retries since each one gets closer to passing
-    effective_retries = MAX_SOLUTION_FIRST_RETRIES if solution_first else max_retries
+    if max_retries is not None:
+        effective_retries = max_retries
+    elif solution_first:
+        effective_retries = MAX_SOLUTION_FIRST_RETRIES
+    else:
+        effective_retries = MAX_GENERATION_RETRIES
 
     start = time.time()
     result = {
@@ -135,12 +177,12 @@ def run_pipeline(
     if solution_first:
         gen_result = generate_task_solution_first(
             topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
-            hint_style=hint_style,
+            hint_style=hint_style, target_category=target_category,
         )
     else:
         gen_result = generate_task(
             topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
-            hint_style=hint_style,
+            hint_style=hint_style, target_category=target_category,
         )
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
@@ -293,6 +335,10 @@ def run_pipeline(
     result["status"] = "completed"
     result["duration_sec"] = round(time.time() - start, 2)
 
+    # Auto-write _meta.yaml for learnable tasks (feeds back into example selection)
+    if result.get("classification") and task_dir:
+        _write_task_meta(task_dir, result, target_category)
+
     print(f"\n{'='*60}")
     print(f"Pipeline complete: {topic}")
     print(f"  Status: {result['status']}")
@@ -314,7 +360,7 @@ if __name__ == "__main__":
     skip_eval = "--skip-eval" in sys.argv
     skip_functional = "--skip-functional" in sys.argv
     skip_filters = "--skip-filters" in sys.argv
-    solution_first = "--solution-first" in sys.argv
+    solution_first = "--no-solution-first" not in sys.argv
     include_haiku = "--include-haiku" in sys.argv
 
     gen_model = None

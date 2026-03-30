@@ -16,10 +16,23 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ### Generation
 
+**Metadata-driven example selection** (`generate.py`, `pipeline.py`) — Replaced hardcoded example classification with `_meta.yaml` metadata files on each example directory. New `select_examples()` function picks examples within a token budget (~20k tokens) using deterministic criteria:
+- Category diversity: one example per category first, then fill by score
+- Score = pass rate closeness to ideal (40-60%) + category match to target topic + token efficiency
+- Too-hard examples excluded, at most 1 too-easy negative example included
+- Pipeline auto-writes `_meta.yaml` for every evaluated task, enabling self-sustaining loop: generate → evaluate → feed best back as examples
+- *Design decision*: Token budget (not example count) because examples vary 1k-6.5k tokens. Scoring by pass rate closeness ensures we show solidly learnable examples, not borderline ones.
+
+**Solution-first is now the default** (`pipeline.py`, `batch.py`) — Non-solution-first consistently failed functional validation. Changed `solution_first=True` default, CLI flag is now `--no-solution-first`.
+
+**Reduced retry budget** (`config.py`) — `MAX_SOLUTION_FIRST_RETRIES` reduced from 6 to 3. Retry data across 8 batches shows bimodal distribution: tasks either pass in 1-2 retries or max out at 6. Retries 4-6 are nearly pure waste (~$0.15/retry in Sonnet calls).
+
+**Evaluate CLI: skip Haiku by default** (`evaluate.py`) — Fixed CLI to match function default (`skip_haiku=True`). Haiku tier was accidentally running on CLI invocations, wasting ~$0.20/task. Use `--include-haiku` to opt in.
+
 **Solution-first strategy** (`generate.py`) — Phase 1 writes a complete working program with passing tests; Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes `solution.sh`. This inverts the original single-phase approach which asked the LLM to write broken code AND its fix simultaneously — that had ~20% functional validation pass rate. Solution-first separates two easy tasks (write correct code; introduce bugs) instead of one hard task.
 - Phase 1 uses temperature 0.5 (correctness); Phase 2 uses 0.7 (creative bugs)
 - Phase 2 requires majority of tests to fail, not all — some passing tests give the agent useful debugging signal
-- Higher retry budget (`MAX_SOLUTION_FIRST_RETRIES=6` vs default 2) since each targeted repair gets closer to passing
+- Retry budget `MAX_SOLUTION_FIRST_RETRIES=3` (reduced from 6 — retries 4-6 rarely succeed)
 - Source-only repair now includes test function code so the LLM can see what each test checks and introduce bugs that break those specific checks (previously guessed blindly)
 - **Phase 2 self-verification**: Prompt now requires the LLM to trace each test function against its buggy code and output a per-test verification ("test_X: WILL FAIL because..."). Forces chain-of-thought about test-to-bug mapping. Motivated by first Sonnet batch where 0/3 tasks passed functional validation because Phase 2 bugs didn't break tests.
 - **Bug annotations in exemplars**: `_bugs.md` files in Opus exemplars explicitly describe each bug (what's wrong, why it's realistic, which tests it breaks). Loaded first in the few-shot context with a "BUG ANNOTATIONS" header so Sonnet learns the test-to-bug mapping pattern, not just what buggy code looks like.

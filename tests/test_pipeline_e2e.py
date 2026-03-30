@@ -140,7 +140,7 @@ class TestHappyPath:
 
     def test_learnable_result(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "test-task")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
         monkeypatch.setattr("pipeline.evaluate_task", _mock_evaluate_learnable)
 
@@ -157,20 +157,9 @@ class TestHappyPath:
         assert "functional" in result["stages"]
         assert "evaluation" in result["stages"]
 
-    def test_solution_first_strategy(self, tmp_path, monkeypatch):
-        task_dir = str(tmp_path / "test-task-sf")
-        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
-        monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
-        monkeypatch.setattr("pipeline.evaluate_task", _mock_evaluate_learnable)
-
-        result = run_pipeline("fix a test bug", output_dir=task_dir, solution_first=True)
-
-        assert result["status"] == "completed"
-        assert result["classification"] == "learnable"
-
     def test_skip_functional_and_eval(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "test-task-skip")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
 
         result = run_pipeline(
             "fix a test bug",
@@ -187,7 +176,7 @@ class TestHappyPath:
 
 class TestGenerationFailure:
     def test_generation_fails(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate_fail)
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate_fail)
 
         result = run_pipeline("bad topic", output_dir=str(tmp_path / "fail"))
 
@@ -214,7 +203,7 @@ class TestStructuralValidation:
                 "usage": {}, "duration_sec": 0.1,
             }
 
-        monkeypatch.setattr("pipeline.generate_task", generate_bad)
+        monkeypatch.setattr("pipeline.generate_task_solution_first", generate_bad)
 
         result = run_pipeline("bad struct", output_dir=task_dir, max_retries=0)
 
@@ -242,7 +231,7 @@ class TestStructuralValidation:
                 "usage": {}, "duration_sec": 0.1,
             }
 
-        monkeypatch.setattr("pipeline.generate_task", generate_first_bad)
+        monkeypatch.setattr("pipeline.generate_task_solution_first", generate_first_bad)
         monkeypatch.setattr("pipeline.regenerate_task", _mock_regenerate_success)
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
         monkeypatch.setattr("pipeline.evaluate_task", _mock_evaluate_learnable)
@@ -257,7 +246,7 @@ class TestStructuralValidation:
 class TestFunctionalValidation:
     def test_functional_failure_no_retries(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "func-fail")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_fail)
 
         result = run_pipeline("func fail", output_dir=task_dir, max_retries=0)
@@ -276,7 +265,7 @@ class TestFunctionalValidation:
                 return {"passed": False, "issues": ["Tests PASSED without solution"]}
             return {"passed": True, "issues": []}
 
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", docker_validate_eventually_passes)
         monkeypatch.setattr("pipeline.regenerate_task", _mock_regenerate_success)
         monkeypatch.setattr("pipeline.evaluate_task", _mock_evaluate_learnable)
@@ -288,7 +277,7 @@ class TestFunctionalValidation:
 
     def test_infrastructure_error_skips_retries(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "infra-fail")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_infra_fail)
 
         result = run_pipeline("infra fail", output_dir=task_dir, max_retries=3)
@@ -314,7 +303,7 @@ class TestEvaluation:
                 }
             return _mock_evaluate_learnable(**kwargs)
 
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
         monkeypatch.setattr("pipeline.evaluate_task", evaluate_then_learnable)
         monkeypatch.setattr("pipeline.adjust_difficulty", _mock_adjust_success)
@@ -335,7 +324,7 @@ class TestEvaluation:
                 return _mock_evaluate_too_hard(**kwargs)
             return _mock_evaluate_learnable(**kwargs)
 
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
         monkeypatch.setattr("pipeline.evaluate_task", evaluate_then_learnable)
         monkeypatch.setattr("pipeline.adjust_difficulty", _mock_adjust_success)
@@ -347,7 +336,7 @@ class TestEvaluation:
 
     def test_stays_too_hard_after_max_adjustments(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "stuck-hard")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
         monkeypatch.setattr("pipeline.evaluate_task", _mock_evaluate_too_hard)
         monkeypatch.setattr("pipeline.adjust_difficulty", _mock_adjust_success)
@@ -359,7 +348,7 @@ class TestEvaluation:
 
     def test_skip_eval(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "skip-eval")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
 
         result = run_pipeline("skip eval", output_dir=task_dir, skip_eval=True)
@@ -386,7 +375,7 @@ class TestRetryRegenFailure:
                 "usage": {}, "duration_sec": 0.1,
             }
 
-        monkeypatch.setattr("pipeline.generate_task", generate_bad)
+        monkeypatch.setattr("pipeline.generate_task_solution_first", generate_bad)
         monkeypatch.setattr("pipeline.regenerate_task", _mock_regenerate_fail)
 
         result = run_pipeline("regen fail", output_dir=task_dir, max_retries=1)
@@ -396,7 +385,7 @@ class TestRetryRegenFailure:
 
     def test_functional_retry_regen_fails(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "func-regen-fail")
-        monkeypatch.setattr("pipeline.generate_task", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
         monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_fail)
         monkeypatch.setattr("pipeline.regenerate_task", _mock_regenerate_fail)
 

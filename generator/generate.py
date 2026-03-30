@@ -119,20 +119,9 @@ def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
 
 # Examples confirmed too easy by evaluation (Sonnet/Opus solve trivially).
 # Included in few-shot context as NEGATIVE examples — "don't generate tasks this simple."
-TOO_EASY_EXAMPLES = {
-    "config-manifest-validator",  # Sonnet 3/3, Opus 4/4 — single-command solution
-}
-
-# Examples confirmed too hard by evaluation (Opus 0/5).
-# Excluded from few-shot context — showing impossible tasks as "good examples"
-# miscalibrates difficulty upward and wastes prompt tokens.
-TOO_HARD_EXAMPLES = {
-    "broken-coordinate-transform",       # Opus 0/5, Sonnet 0/3 — C++ matrix math
-    "broken-flask-api",                  # Opus 0/5, Sonnet 0/3 — server-based
-    "log-rotation-analyzer",             # Opus 0/5, Sonnet 0/5 — create from scratch
-    "fix-maven-artifact-dependencies",   # Opus 0/5, Sonnet 0/5 — Maven/Java config
-}
-# Confirmed learnable: csv-to-json-cli-fix (Opus 3/5)
+# Default token budget for examples in the prompt.
+# Total learnable examples ~25k tokens; budget caps how many we include.
+DEFAULT_EXAMPLE_TOKEN_BUDGET = 20000
 
 
 def _load_task_dir(task_dir: Path) -> str:
@@ -166,60 +155,141 @@ def _load_task_dir(task_dir: Path) -> str:
     return "\n".join(parts)
 
 
-def _load_examples() -> str:
-    """Load example tasks as few-shot context from both hand-crafted and Opus-generated dirs.
+def _load_example_meta(task_dir: Path) -> dict | None:
+    """Load _meta.yaml from an example directory. Returns None if missing."""
+    import yaml
+    meta_path = task_dir / "_meta.yaml"
+    if not meta_path.exists():
+        return None
+    try:
+        return yaml.safe_load(meta_path.read_text())
+    except Exception:
+        return None
 
-    Learnable examples are presented as positive examples ("generate tasks like these").
-    Too-easy examples are labeled as negative examples ("this is too simple, avoid this").
-    Opus-generated examples (from examples-opus/) are included as positive examples.
+
+def _score_example(meta: dict, target_category: str | None) -> float:
+    """Score an example for selection. Higher = better candidate.
+
+    Scoring factors:
+    - Pass rate closeness to ideal (0.4-0.6) — best examples are solidly learnable
+    - Category match to target topic — same-category examples are more relevant
+    - Token efficiency — prefer smaller examples (more room for others)
     """
-    positive_examples = []
-    negative_examples = []
+    score = 0.0
+    pass_rate = meta.get("opus_pass_rate", 0.5)
 
-    # Load hand-crafted examples — three-way classification
-    examples_path = Path(EXAMPLES_DIR)
-    if examples_path.is_dir():
+    # Ideal pass rate is 0.4-0.6 (2-3/5). Score drops as it moves away.
+    ideal_center = 0.5
+    score += max(0, 1.0 - abs(pass_rate - ideal_center) * 3)
+
+    # Category match bonus
+    if target_category and meta.get("category") == target_category:
+        score += 0.5
+
+    # Token efficiency — slight preference for smaller examples
+    tokens = meta.get("approx_tokens", 5000)
+    score += max(0, (8000 - tokens) / 8000) * 0.3
+
+    return score
+
+
+def select_examples(
+    target_category: str | None = None,
+    token_budget: int = DEFAULT_EXAMPLE_TOKEN_BUDGET,
+) -> str:
+    """Select examples using _meta.yaml metadata, optimizing for diversity and relevance.
+
+    Selection algorithm:
+    1. Load all examples with _meta.yaml from all example directories
+    2. Separate into learnable (positive) and too_easy (negative)
+    3. Exclude too_hard examples entirely
+    4. Ensure category diversity — pick one from each represented category first
+    5. Fill remaining budget by score (pass rate closeness + category match)
+    6. Include at most 1 negative (too_easy) example
+
+    Returns formatted string for prompt injection.
+    """
+    candidates = []  # (task_dir, meta, content_str)
+    negative = []
+
+    for examples_path in [Path(EXAMPLES_DIR), Path(OPUS_EXAMPLES_DIR), Path(SONNET_EXAMPLES_DIR)]:
+        if not examples_path.is_dir():
+            continue
         for task_dir in sorted(examples_path.iterdir()):
             if not task_dir.is_dir():
                 continue
-            if task_dir.name in TOO_HARD_EXAMPLES:
-                continue  # exclude — miscalibrates difficulty upward
+            meta = _load_example_meta(task_dir)
+            if meta is None:
+                continue  # skip examples without metadata
+            classification = meta.get("classification", "unknown")
+            if classification == "too_hard":
+                continue  # never show too-hard examples
             content = _load_task_dir(task_dir)
-            if task_dir.name in TOO_EASY_EXAMPLES:
-                negative_examples.append(content)
-            else:
-                positive_examples.append(content)
+            if classification == "too_easy":
+                negative.append((task_dir, meta, content))
+            elif classification == "learnable":
+                candidates.append((task_dir, meta, content))
 
-    # Load Opus-generated examples (learnable — passed evaluation)
-    opus_path = Path(OPUS_EXAMPLES_DIR)
-    if opus_path.is_dir():
-        for task_dir in sorted(opus_path.iterdir()):
-            if not task_dir.is_dir():
-                continue
-            positive_examples.append(_load_task_dir(task_dir))
+    # Phase 1: category diversity — one example per category
+    selected = []
+    selected_tokens = 0
+    seen_categories = set()
 
-    # Load Sonnet-generated examples (learnable — passed evaluation)
-    sonnet_path = Path(SONNET_EXAMPLES_DIR)
-    if sonnet_path.is_dir():
-        for task_dir in sorted(sonnet_path.iterdir()):
-            if not task_dir.is_dir():
-                continue
-            positive_examples.append(_load_task_dir(task_dir))
+    # Sort candidates by score for each category
+    by_category: dict[str, list] = {}
+    for task_dir, meta, content in candidates:
+        cat = meta.get("category", "unknown")
+        by_category.setdefault(cat, []).append((task_dir, meta, content))
 
+    for cat in sorted(by_category.keys()):
+        items = by_category[cat]
+        items.sort(key=lambda x: _score_example(x[1], target_category), reverse=True)
+        best = items[0]
+        tokens = best[1].get("approx_tokens", 5000)
+        if selected_tokens + tokens <= token_budget:
+            selected.append(best)
+            selected_tokens += tokens
+            seen_categories.add(cat)
+
+    # Phase 2: fill remaining budget with highest-scored remaining candidates
+    remaining = [
+        (td, m, c) for td, m, c in candidates
+        if (td, m, c) not in selected
+    ]
+    remaining.sort(key=lambda x: _score_example(x[1], target_category), reverse=True)
+
+    for td, m, c in remaining:
+        tokens = m.get("approx_tokens", 5000)
+        if selected_tokens + tokens <= token_budget:
+            selected.append((td, m, c))
+            selected_tokens += tokens
+
+    # Build output
     sections = []
-    if positive_examples:
+    if selected:
+        positive_parts = [c for _, _, c in selected]
         sections.append(
             "## GOOD EXAMPLES (target this difficulty level)\n"
             "These tasks are in the learnable range — generate tasks similar to these.\n\n"
-            + "\n---\n\n".join(positive_examples)
+            + "\n---\n\n".join(positive_parts)
         )
-    if negative_examples:
-        sections.append(
-            "## TOO-EASY EXAMPLES (avoid this difficulty level)\n"
-            "These tasks are too simple — an AI agent solves them trivially every time. "
-            "Your generated tasks must be significantly harder than these.\n\n"
-            + "\n---\n\n".join(negative_examples)
-        )
+
+    # Include at most 1 negative example if budget allows
+    if negative:
+        best_neg = negative[0]
+        neg_tokens = best_neg[1].get("approx_tokens", 2000)
+        if selected_tokens + neg_tokens <= token_budget:
+            sections.append(
+                "## TOO-EASY EXAMPLES (avoid this difficulty level)\n"
+                "These tasks are too simple — an AI agent solves them trivially every time. "
+                "Your generated tasks must be significantly harder than these.\n\n"
+                + best_neg[2]
+            )
+
+    n_selected = len(selected)
+    cats = sorted(seen_categories)
+    print(f"  Examples: {n_selected} selected (~{selected_tokens} tokens), categories: {cats}")
+
     return "\n\n".join(sections)
 
 
@@ -329,9 +399,9 @@ Return JSON with two keys:
 2. "files" — ONLY the modified source files (buggy versions)"""
 
 
-def _build_user_prompt(topic: str, variant: str = "A") -> str:
+def _build_user_prompt(topic: str, variant: str = "A", target_category: str | None = None) -> str:
     """Build the user prompt with topic and examples."""
-    examples = _load_examples()
+    examples = select_examples(target_category=target_category)
 
     if variant == "B":
         # Trimmed variant: examples do the teaching, minimal reminders
@@ -437,6 +507,7 @@ def generate_task(
     model: str | None = None,
     prompt_variant: str = "A",
     hint_style: str = "none",
+    target_category: str | None = None,
 ) -> dict:
     """Generate a Terminal Bench task for the given topic.
 
@@ -465,7 +536,7 @@ def generate_task(
     gen_model = model or GENERATOR_MODEL
     raw_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
     sys_prompt = _format_prompt(raw_prompt, hint_style=hint_style, variant=prompt_variant)
-    user_prompt = _build_user_prompt(topic, variant=prompt_variant)
+    user_prompt = _build_user_prompt(topic, variant=prompt_variant, target_category=target_category)
 
     print(f"Generating task for: {topic}")
     print(f"  Model: {gen_model}  |  Prompt variant: {prompt_variant}")
@@ -598,6 +669,7 @@ def generate_task_solution_first(
     model: str | None = None,
     prompt_variant: str = "A",
     hint_style: str = "none",
+    target_category: str | None = None,
 ) -> dict:
     """Generate a task using solution-first strategy (two-phase).
 
@@ -626,7 +698,7 @@ def generate_task_solution_first(
         api_key=OPENROUTER_API_KEY,
     )
     gen_model = model or GENERATOR_MODEL
-    examples = _load_examples()
+    examples = select_examples(target_category=target_category)
 
     total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     start = time.time()
