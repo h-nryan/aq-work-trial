@@ -157,6 +157,45 @@ def cleanup_stale_resources(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
     return containers + processes
 
 
+def _kill_containers_for_task(task_id: str) -> int:
+    """Kill all running Docker containers whose name contains the given task_id.
+
+    Used for targeted cleanup after a timeout — rather than waiting for the
+    age-based stale cleanup, immediately kill containers we know are orphaned.
+
+    Returns the number of containers killed.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.ID}} {{.Names}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 0
+
+    killed = 0
+    for line in result.stdout.strip().splitlines():
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        container_id, name = parts
+        if task_id in name:
+            try:
+                subprocess.run(
+                    ["docker", "kill", container_id],
+                    capture_output=True, timeout=10,
+                )
+                killed += 1
+            except subprocess.TimeoutExpired:
+                continue
+
+    if killed:
+        print(f"  Killed {killed} orphaned container(s) for {task_id}")
+    return killed
+
+
 def _run_tb(
     task_dir: str,
     model: str,
@@ -224,7 +263,8 @@ def _run_tb(
                 print(f"  stdout: {result.stdout[:500]}")
     except subprocess.TimeoutExpired:
         duration = time.time() - start
-        print(f"  tb run timed out after {duration:.0f}s")
+        print(f"  tb run timed out after {duration:.0f}s — killing orphaned containers")
+        _kill_containers_for_task(task_id)
         return {
             "passes": 0,
             "total": n_attempts,

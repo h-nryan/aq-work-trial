@@ -4,6 +4,7 @@ Batch generation — generate multiple tasks, validate, evaluate, and report met
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import shutil
@@ -17,8 +18,24 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(__file__))
 from batch_io import load_incremental, load_meta, resolve_resume, save_meta
 from config import GENERATOR_MODEL, OPENROUTER_API_KEY, OUTPUT_DIR, SONNET_FILTER_MODEL, _slugify
+from evaluate import cleanup_stale_resources
 from pipeline import run_pipeline
 from prompts import select_topics
+
+
+def _atexit_cleanup() -> None:
+    """Kill orphaned Docker containers and stale processes on batch exit.
+
+    Registered via atexit so that if the batch process crashes, gets killed,
+    or finishes normally, we don't leave zombie containers running.
+    Uses a short age threshold (60s) since we know the batch is over.
+    """
+    cleaned = cleanup_stale_resources(max_age_sec=60)
+    if cleaned:
+        print(f"\natexit: cleaned up {cleaned} orphaned resource(s)")
+
+
+atexit.register(_atexit_cleanup)
 
 
 def preflight_checks(

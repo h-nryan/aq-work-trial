@@ -33,8 +33,9 @@ class TestSystemPrompt:
     def test_mentions_solve_rate(self):
         assert "40-60%" in SYSTEM_PROMPT
 
-    def test_mentions_interacting_bugs(self):
-        assert "3-5 distinct bugs" in SYSTEM_PROMPT
+    def test_mentions_independently_discoverable_bugs(self):
+        assert "3-4 bugs" in SYSTEM_PROMPT
+        assert "independently discoverable" in SYSTEM_PROMPT
 
     def test_requires_all_files(self):
         assert "task.yaml" in SYSTEM_PROMPT
