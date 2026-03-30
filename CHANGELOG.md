@@ -14,6 +14,22 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Retry and Error Handling Hardening
+
+Comprehensive audit of all error paths in the pipeline. Previously, several failure modes would silently abandon a task with no retry. Now every error path either retries with context or logs diagnostics.
+
+**Generation exception handling** (`pipeline.py`) — If `generate_task_solution_first()` throws an exception (API timeout, network error), `_status.json` is now updated to show the failure instead of staying at "generating" forever. Previously the exception propagated to batch.py's catch block but `_status.json` was never updated, making the task appear permanently stuck in the UI.
+
+**Docker build retries** (`docker_validate.py`) — `_build_image()` now retries up to 2 times on transient failures (connection refused, daemon not running, DNS resolution, I/O timeout). Previously a single Docker daemon hiccup would fail the entire validation with no retry.
+
+**tb run retries** (`evaluate.py`) — `_run_tb()` now retries once on transient subprocess failures (connection refused, daemon not running, resource temporarily unavailable) and on timeouts. Previously a single timeout meant 0 passes and too_hard classification, even if the failure was transient.
+
+**Incremental write durability** (`batch.py`) — JSONL appends now call `f.flush()` + `os.fsync()` to ensure data hits disk before the thread continues. Prevents data loss if the batch process crashes between write and OS flush.
+
+**Silent exception logging** (`pipeline.py`) — `_write_status()` now logs a warning to stderr instead of silently swallowing file I/O errors. Disk-full or permission-denied errors are no longer invisible.
+
+**Phase 2 file guard** (`generate.py`) — After Phase 2 returns buggy files, the merge step now validates that Phase 2 only modified known source files from Phase 1. Unknown files and infrastructure/test modifications are logged and ignored, preventing Phase 2 from corrupting test data or introducing files the solution doesn't cover.
+
 ### Sonnet Filter Calibration
 
 **Lowered SONNET_SKIP_THRESHOLD from 4 to 3** (`config.py`) — Cross-batch analysis shows Opus consistently scores >= Sonnet on the same tasks. A task Sonnet solves 3/5 is almost certainly too easy for Opus (likely 4-5/5). The one learnable case with Sonnet data (Docker build) had Sonnet 2/4, Opus 1/3 — Opus scored lower, confirming Sonnet is a conservative proxy. Threshold of 3 catches too_easy tasks earlier, enabling cheaper adjustment via Sonnet quick-check instead of burning Opus eval budget.

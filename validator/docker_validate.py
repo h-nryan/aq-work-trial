@@ -216,27 +216,43 @@ def _rewrite_run_tests_for_base(task_dir: Path) -> bool:
     return False
 
 
-def _build_image(task_dir: Path, tag: str, timeout: int = 300) -> dict:
+def _build_image(task_dir: Path, tag: str, timeout: int = 300, max_retries: int = 2) -> dict:
     """Build Docker image from the task's Dockerfile.
 
     Returns dict with 'success' bool and 'error' string if failed.
+    Retries on transient failures (timeouts, daemon errors).
     """
-    try:
-        result = subprocess.run(
-            ["docker", "build", "-t", tag, "."],
-            cwd=str(task_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode != 0:
-            return {
-                "success": False,
-                "error": f"Docker build failed (exit {result.returncode}):\n{result.stderr[-2000:]}",
-            }
-        return {"success": True, "error": None}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"Docker build timed out after {timeout}s"}
+    last_error = None
+    for attempt in range(1 + max_retries):
+        try:
+            result = subprocess.run(
+                ["docker", "build", "-t", tag, "."],
+                cwd=str(task_dir),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr[-2000:]
+                # Transient Docker daemon errors → retry
+                transient = any(s in error_msg.lower() for s in [
+                    "connection refused", "daemon is not running", "temporary failure",
+                    "could not resolve", "i/o timeout",
+                ])
+                if transient and attempt < max_retries:
+                    import time as _time
+                    _time.sleep(2 ** attempt)
+                    continue
+                return {
+                    "success": False,
+                    "error": f"Docker build failed (exit {result.returncode}):\n{error_msg}",
+                }
+            return {"success": True, "error": None}
+        except subprocess.TimeoutExpired:
+            last_error = f"Docker build timed out after {timeout}s"
+            if attempt < max_retries:
+                continue
+    return {"success": False, "error": last_error or "Docker build failed after retries"}
 
 
 def _run_tests_in_container(

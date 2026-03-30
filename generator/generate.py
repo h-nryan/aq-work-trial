@@ -785,10 +785,17 @@ def generate_task_solution_first(
     if not actually_changed:
         print(f"  WARNING: Phase 2 returned identical files — no bugs introduced")
 
+    # Validate Phase 2 only modified known source files (not infra/tests/new files)
+    for filepath in buggy_files:
+        if filepath not in working_files:
+            print(f"  WARNING: Phase 2 introduced unknown file '{filepath}' — ignoring")
+        elif filepath in infrastructure or filepath.startswith("tests/"):
+            print(f"  WARNING: Phase 2 modified infrastructure/test file '{filepath}' — ignoring")
+
     # Merge: infrastructure + tests from phase 1, buggy source from phase 2
     final_files = dict(working_files)  # start with everything from phase 1
     for filepath, content in buggy_files.items():
-        if filepath not in infrastructure and not filepath.startswith("tests/"):
+        if filepath not in infrastructure and not filepath.startswith("tests/") and filepath in working_files:
             final_files[filepath] = content  # overwrite source with buggy version
 
     _write_task_files(final_files, output_dir)

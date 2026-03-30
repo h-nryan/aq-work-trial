@@ -237,6 +237,8 @@ def run_batch(
         with write_lock:
             with open(incremental_path, "a") as f:
                 f.write(json.dumps(result, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
         return result
 
     def _write_report(results: list[dict], batch_status: str = "completed") -> dict:

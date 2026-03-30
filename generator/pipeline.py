@@ -40,8 +40,8 @@ def _write_status(task_dir: str, stage: str, detail: str = "", **extra) -> None:
         os.makedirs(task_dir, exist_ok=True)
         with open(os.path.join(task_dir, "_status.json"), "w") as f:
             _json.dump(status, f)
-    except Exception:
-        pass  # Non-critical — don't break pipeline for status writes
+    except Exception as e:
+        print(f"  WARNING: Failed to write status to {task_dir}: {e}", file=__import__('sys').stderr)
 
 
 def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None:
@@ -294,16 +294,27 @@ def run_pipeline(
     if output_dir:
         _write_status(output_dir, "generating", "Phase 1 + Phase 2" if solution_first else "Single phase")
 
-    if solution_first:
-        gen_result = generate_task_solution_first(
-            topic, output_dir=output_dir, model=model,
-            hint_style=hint_style, target_category=target_category,
-        )
-    else:
-        gen_result = generate_task(
-            topic, output_dir=output_dir, model=model,
-            hint_style=hint_style, target_category=target_category,
-        )
+    try:
+        if solution_first:
+            gen_result = generate_task_solution_first(
+                topic, output_dir=output_dir, model=model,
+                hint_style=hint_style, target_category=target_category,
+            )
+        else:
+            gen_result = generate_task(
+                topic, output_dir=output_dir, model=model,
+                hint_style=hint_style, target_category=target_category,
+            )
+    except Exception as e:
+        task_dir = output_dir or ""
+        if task_dir:
+            _write_status(task_dir, "failed", f"generation exception: {e}")
+        result["status"] = "generation_exception"
+        result["failed_stage"] = "generation"
+        result["stages"]["generate"] = {"status": "exception", "error": str(e)}
+        result["duration_sec"] = round(time.time() - start, 2)
+        return result
+
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
 

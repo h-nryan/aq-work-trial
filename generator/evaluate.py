@@ -318,34 +318,54 @@ def _run_tb(
 
     print(f"  Running: {' '.join(cmd)}")
 
+    max_tb_retries = 1  # retry once on transient failures
     start = time.time()
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec * n_attempts,
-            cwd=os.path.dirname(os.path.dirname(__file__)),
-        )
-        duration = time.time() - start
+    for tb_attempt in range(1 + max_tb_retries):
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec * n_attempts,
+                cwd=os.path.dirname(os.path.dirname(__file__)),
+            )
+            duration = time.time() - start
 
-        if result.returncode != 0:
-            print(f"  tb run failed (exit {result.returncode})")
-            if result.stderr:
-                print(f"  stderr: {result.stderr[:500]}")
-            if result.stdout:
-                print(f"  stdout: {result.stdout[:500]}")
-    except subprocess.TimeoutExpired:
-        duration = time.time() - start
-        print(f"  tb run timed out after {duration:.0f}s — killing orphaned containers")
-        _kill_containers_for_task(task_id)
-        return {
-            "passes": 0,
-            "total": n_attempts,
-            "duration_sec": round(duration, 2),
-            "status": "timeout",
-            "trials": [],
-        }
+            if result.returncode != 0:
+                print(f"  tb run failed (exit {result.returncode})")
+                if result.stderr:
+                    print(f"  stderr: {result.stderr[:500]}")
+                if result.stdout:
+                    print(f"  stdout: {result.stdout[:500]}")
+                # Retry on transient infrastructure errors
+                stderr_lower = (result.stderr or "").lower()
+                transient = any(s in stderr_lower for s in [
+                    "connection refused", "daemon is not running",
+                    "no space left", "resource temporarily unavailable",
+                ])
+                if transient and tb_attempt < max_tb_retries:
+                    print(f"  Transient error — retrying tb run ({tb_attempt + 1}/{max_tb_retries})")
+                    _kill_containers_for_task(task_id)
+                    time.sleep(5)
+                    start = time.time()  # reset for fresh timing
+                    continue
+            break  # success or non-transient failure
+        except subprocess.TimeoutExpired:
+            duration = time.time() - start
+            print(f"  tb run timed out after {duration:.0f}s — killing orphaned containers")
+            _kill_containers_for_task(task_id)
+            if tb_attempt < max_tb_retries:
+                print(f"  Retrying tb run after timeout ({tb_attempt + 1}/{max_tb_retries})")
+                time.sleep(5)
+                start = time.time()
+                continue
+            return {
+                "passes": 0,
+                "total": n_attempts,
+                "duration_sec": round(duration, 2),
+                "status": "timeout",
+                "trials": [],
+            }
 
     # Resolve results path relative to repo root (where tb run executes)
     repo_root = Path(os.path.dirname(os.path.dirname(__file__)))
