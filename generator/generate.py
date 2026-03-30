@@ -975,6 +975,9 @@ Return ONLY the JSON object."""
     print(f"  Model: {gen_model}")
 
     start = time.time()
+    # Always use SYSTEM_PROMPT (Variant A) for repairs regardless of how the task
+    # was originally generated — full constraints are more useful than trimmed
+    # examples when the LLM needs to fix a specific structural/functional issue.
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": feedback_prompt},

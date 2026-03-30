@@ -36,7 +36,14 @@ HAIKU_SKIP_THRESHOLD = 4   # skip if Haiku passes >= this many (too easy for Opu
 # Increased from 3 runs to 5 for higher confidence — Sonnet 3/3 was too noisy
 # (a 70% true solve rate has 34% chance of 3/3, but only 17% chance of 5/5).
 SONNET_FILTER_RUNS = 5
-SONNET_SKIP_THRESHOLD = 3  # skip if Sonnet passes >= 3/5 (Opus >= Sonnet, so 3/5 Sonnet ≈ too easy for Opus)
+# Threshold rationale: if Sonnet passes 3/5 (60%), Opus — being stronger — is
+# expected to pass at least as often, likely landing at 4-5/5 (too easy).
+# Tradeoff: a task that Sonnet solves exactly 3/5 and Opus solves exactly 3/5
+# would be a false positive (filtered, but actually learnable). We accept this
+# risk because (a) Opus reliably outperforms Sonnet, making Opus-exactly-3/5
+# rare for Sonnet-3/5 tasks, and (b) the cost of running Opus on likely-too-easy
+# tasks exceeds the cost of occasionally filtering a borderline learnable.
+SONNET_SKIP_THRESHOLD = 3
 # Sonnet as middle filter model (same as generator, but used for evaluation here)
 SONNET_FILTER_MODEL = GENERATOR_MODEL
 

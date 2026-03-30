@@ -26,6 +26,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Use `yaml.dump` in `_write_task_meta`** (`pipeline.py`) — `_meta.yaml` was written with hand-rolled f-string writes. If any value (particularly `category`) contained a YAML special character (`:`, `#`, `"`, etc.) the output would be silently malformed and fail to parse. Replaced with `yaml.dump(..., sort_keys=True)` which handles all edge cases. `yaml` (pyyaml) was already a declared generator dependency; added module-level import to `pipeline.py`.
 
+**Document `SONNET_SKIP_THRESHOLD=3` tradeoff** (`config.py`) — The threshold was lowered from 4 to 3 (skip if Sonnet passes ≥ 3/5). The single-line comment didn't capture the full reasoning. Expanded to explain: Opus reliably outperforms Sonnet, so a task Sonnet solves 3/5 is expected to land at 4-5/5 for Opus (too easy). The accepted false-positive risk — a Sonnet-3/5 task that Opus would also solve exactly 3/5 — is low in practice and cheaper than running Opus on likely-too-easy tasks.
+
+**Document `regenerate_task` always uses full prompt** (`generate.py`) — Added a comment clarifying that repairs always use `SYSTEM_PROMPT` (Variant A, full constraints) regardless of how the task was originally generated. This is intentional: targeted repair needs the full constraint set to fix specific structural/functional issues.
+
 ### Early Adjustment with Test-Level Granularity
 
 **Early adjustment after 0/3 parallel batch** (`evaluate.py`, `pipeline.py`) — Major refactor of the evaluation + adjustment loop. Previously, the pipeline ran all 5 Opus trials before adjusting difficulty, wasting 2 expensive Opus runs on clearly-too-hard tasks. Now, after the initial 3-parallel Opus batch:
