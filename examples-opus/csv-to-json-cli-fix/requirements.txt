@@ -1,4 +1,0 @@
-# No runtime dependencies required
-# The csv_to_json.py script uses only Python standard library modules (sys, json)
-# Test dependencies are handled by run-tests.sh using uv with pinned versions:
-# - pytest==8.4.1
