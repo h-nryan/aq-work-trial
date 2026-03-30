@@ -749,6 +749,8 @@ def evaluate_task(
                 classification="too_easy",
                 filtered_at="haiku",
                 tier_results=tier_results,
+                opus_passes=haiku_tier["passes"],
+                opus_total=haiku_tier["total"],
             )
 
     # ── Tier 2: Sonnet × 3 ──
@@ -766,12 +768,16 @@ def evaluate_task(
         if sonnet_tier["should_skip"]:
             print(f"\n  FILTERED at Tier 2: Sonnet passed {sonnet_tier['passes']}/{sonnet_tier['total']}")
             print(f"  Task is too easy for Opus — skipping Opus tier.")
-            return _build_result(
+            # Use Sonnet's scores as the pass/total so adjustment gets real data
+            result = _build_result(
                 task_dir=task_dir,
                 classification="too_easy",
                 filtered_at="sonnet",
                 tier_results=tier_results,
+                opus_passes=sonnet_tier["passes"],
+                opus_total=sonnet_tier["total"],
             )
+            return result
 
     # ── Tier 3: Opus × 5 (ground truth) with early stopping ──
     # Hybrid strategy: first 3 runs in parallel for speed, then sequential

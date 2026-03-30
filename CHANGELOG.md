@@ -83,6 +83,12 @@ This surfaces retry counts, per-stage durations, and debug output that were prev
 
 **Document `regenerate_task` always uses full prompt** (`generate.py`) — Added a comment clarifying that repairs always use `SYSTEM_PROMPT` (Variant A, full constraints) regardless of how the task was originally generated. This is intentional: targeted repair needs the full constraint set to fix specific structural/functional issues.
 
+### Sonnet Filter / Adjustment Fix
+
+**Pass filter scores through to adjustment** (`evaluate.py`) — When the Sonnet filter flagged a task as too_easy (3/5), the eval result returned `passes=None, pass_rate=None` (since Opus never ran). The pipeline converted this to 0%, so the adjustment prompt was told "too_easy with 0% pass rate" — contradictory and unhelpful. Now `_build_result` passes the filtering model's actual scores (e.g., 3/5 = 60%) as the pass/total, giving the adjustment prompt accurate context.
+
+**Unified adjustment loop** (`pipeline.py`) — The too_easy adjustment path had a separate "Sonnet quick-check" (3 runs, threshold 3) that duplicated the Sonnet filter logic with different parameters. Removed the quick-check entirely. After adjustment, the loop simply continues and calls `evaluate_task` which runs the standard Sonnet filter (5 runs, threshold 3). One code path, one threshold, no divergence. Also removed unused `_run_tb` and `SONNET_FILTER_MODEL` imports from pipeline.py.
+
 ### Early Adjustment with Test-Level Granularity
 
 **Early adjustment after 0/3 parallel batch** (`evaluate.py`, `pipeline.py`) — Major refactor of the evaluation + adjustment loop. Previously, the pipeline ran all 5 Opus trials before adjusting difficulty, wasting 2 expensive Opus runs on clearly-too-hard tasks. Now, after the initial 3-parallel Opus batch:

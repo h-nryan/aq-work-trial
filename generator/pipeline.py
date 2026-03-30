@@ -23,10 +23,9 @@ from config import (
     MAX_GENERATION_RETRIES,
     MAX_SOLUTION_FIRST_RETRIES,
     SONNET_EXAMPLES_DIR,
-    SONNET_FILTER_MODEL,
 )
 from docker_validate import docker_validate
-from evaluate import _run_tb, evaluate_task, run_opus_eval
+from evaluate import evaluate_task, run_opus_eval
 from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
 
 # Max rounds of difficulty adjustment after evaluation
@@ -559,26 +558,9 @@ def run_pipeline(
                 print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
                       f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
-                # For too_easy adjustments: cheap Sonnet check before expensive Opus re-eval
-                if classification == "too_easy":
-                    adjusted = _try_adjustment(
-                        topic, task_dir, classification, pass_rate,
-                        eval_result, adj_round, model, result,
-                    )
-                    if not adjusted:
-                        break
-                    print(f"\n[Sonnet quick-check after too_easy adjustment]")
-                    sonnet_check = _run_tb(
-                        task_dir=task_dir,
-                        model=SONNET_FILTER_MODEL,
-                        n_attempts=3,
-                    )
-                    sonnet_passes = sonnet_check.get("passes", 0)
-                    print(f"  Sonnet solved {sonnet_passes}/3")
-                    if sonnet_passes >= 3:
-                        print(f"  Still too easy for Sonnet — skipping Opus, trying another adjustment")
-                        continue
-                else:
+                # Adjust difficulty and re-evaluate (loop continues with evaluate_task
+                # which runs the full Sonnet filter → Opus pipeline again)
+                if classification == "too_easy" or classification == "too_hard":
                     adjusted = _try_adjustment(
                         topic, task_dir, classification, pass_rate,
                         eval_result, adj_round, model, result,
