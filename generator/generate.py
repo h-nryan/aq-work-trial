@@ -246,6 +246,7 @@ DIFFICULTY — THE MOST IMPORTANT THING:
 Study the examples below. They show EXACTLY the right difficulty. Match them:
 - Put all bugs in ONE source file under 150 lines
 - 3-4 bugs that each produce a clear, distinct test failure
+- task.yaml instruction MUST hint at bug areas (e.g. "the delimiter handling has issues"), not just "fix the bugs"
 - The examples show what "learnable" looks like. Copy their style, not just their format.
 
 OUTPUT FORMAT:
