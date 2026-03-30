@@ -85,6 +85,33 @@ def _cleanup_stale_containers(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int
     return killed
 
 
+def _prune_exited_containers() -> int:
+    """Remove all stopped (exited) Docker containers.
+
+    tb leaves behind exited containers after each eval run. Without pruning,
+    these accumulate (100+ per batch) and clutter Docker Desktop.
+    Returns the number of containers removed.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "container", "prune", "-f"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 0
+
+    # Parse output like "Deleted Containers:\n<id>\n<id>\n\nTotal reclaimed space: 1.2GB"
+    deleted = [
+        line for line in result.stdout.splitlines()
+        if line.strip() and not line.startswith("Deleted") and not line.startswith("Total")
+    ]
+    if deleted:
+        print(f"  Pruned {len(deleted)} exited container(s)")
+    return len(deleted)
+
+
 def _cleanup_stale_tb_processes(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
     """Kill stale `tb run` processes and their orphaned parent evaluators.
 
@@ -198,9 +225,10 @@ def cleanup_stale_resources(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
     Returns total number of resources cleaned up.
     """
     containers = _cleanup_stale_containers(max_age_sec)
+    exited = _prune_exited_containers()
     processes = _cleanup_stale_tb_processes(max_age_sec)
     networks = _cleanup_stale_networks()
-    return containers + processes + networks
+    return containers + exited + processes + networks
 
 
 def _kill_containers_for_task(task_id: str) -> int:
@@ -363,7 +391,7 @@ def _parse_run_results(
             if resolved:
                 passes += 1
             # Count test results
-            parser_results = trial_data.get("parser_results", {})
+            parser_results = trial_data.get("parser_results") or {}
             tests_passed = sum(1 for v in parser_results.values() if v == "passed")
             tests_total = len(parser_results)
 

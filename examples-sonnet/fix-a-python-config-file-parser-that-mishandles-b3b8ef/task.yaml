@@ -1,0 +1,68 @@
+instruction: |-
+  Fix a Python configuration file parser that mishandles default values and type coercion.
+  
+  The config parser at `/app/config_parser.py` is supposed to:
+  1. Parse key=value configuration files
+  2. Apply default values for missing configuration keys
+  3. Coerce string values to appropriate types (int, bool, string)
+  4. Provide getter methods with custom defaults
+  
+  Configuration file format:
+  ```
+  host=example.com
+  port=8080
+  debug=true
+  timeout=30
+  max_connections=100
+  ```
+  
+  Current bugs in the implementation:
+  - Type coercion doesn't properly convert string numbers to integers
+  - Missing configuration keys don't fall back to default values
+  - The get() method ignores custom default parameters
+  - Integer getter doesn't handle string-to-int conversion
+  - Parsed configuration doesn't merge with defaults dictionary
+  
+  Requirements:
+  - Parse configuration files with key=value format
+  - Support comments (lines starting with #) and blank lines
+  - Coerce values to correct types based on defaults:
+    * port, timeout, max_connections should be integers
+    * debug should be boolean (true/false, case-insensitive)
+    * host should be string
+  - Missing keys should use values from defaults dictionary
+  - get() method should respect custom default parameter
+  - get_int() should convert string numbers to integers
+  - get_bool() should handle string boolean values
+  
+  Default values:
+  - host: 'localhost'
+  - port: 8080
+  - debug: False
+  - timeout: 30
+  - max_connections: 100
+  
+  The parser should work correctly with:
+  - Full config files (all keys present)
+  - Partial config files (some keys missing - use defaults)
+  - Empty config files (use all defaults)
+  - Type coercion from strings to int/bool
+  
+  Fix all bugs so the parser correctly handles defaults, type coercion, and custom default parameters.
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - config-parsing
+  - type-coercion
+  - defaults
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small

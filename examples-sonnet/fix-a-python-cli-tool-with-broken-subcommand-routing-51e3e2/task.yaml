@@ -1,0 +1,63 @@
+instruction: |-
+  Fix a Python CLI tool that has broken subcommand routing, output formatting, and exit codes.
+  
+  The CLI tool at `/app/cli_tool.py` implements three subcommands: status, config, and list.
+  It has several bugs affecting command routing, flag handling, and error reporting.
+  
+  The tool should support these commands:
+  
+  Status command:
+  ```
+  python cli_tool.py status [--format text|json]
+  ```
+  - Default format is text
+  - JSON format should output valid JSON with status and uptime fields
+  - Should exit with code 0 on success
+  
+  Config command:
+  ```
+  python cli_tool.py config [--get <key>]
+  ```
+  - Without --get: lists all configuration key=value pairs
+  - With --get: retrieves specific configuration value
+  - Should exit with code 1 if key not found
+  - Should exit with code 2 if --get provided without a key
+  - Should exit with code 0 on success
+  
+  List command:
+  ```
+  python cli_tool.py list [--verbose]
+  ```
+  - Default: simple list of items
+  - With --verbose: numbered list with status information
+  - Should exit with code 0 on success
+  
+  Current bugs:
+  1. The list command's --verbose flag is not working correctly
+  2. The config command returns the wrong exit code when a key is not found (should be 1, not 2)
+  
+  Requirements:
+  - Fix the verbose flag handling in the list command
+  - Fix the exit code for config command when key is not found (should be 1 for operational error)
+  - Use correct exit codes: 0 for success, 1 for operational errors, 2 for usage errors
+  - All existing functionality must continue to work
+  - Output format must match the expected format for each command
+  
+  The tool uses only Python standard library (sys, json) and should not require external dependencies.
+difficulty: medium
+category: cli-tools
+tags:
+  - python
+  - cli
+  - debugging
+  - subcommands
+  - exit-codes
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 20
+resource_class: small

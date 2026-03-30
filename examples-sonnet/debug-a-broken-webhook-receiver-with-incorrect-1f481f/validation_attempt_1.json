@@ -1,0 +1,32 @@
+{
+  "attempt": 1,
+  "passed": true,
+  "issues": [],
+  "tests_fail_without_solution": true,
+  "tests_pass_with_solution": true,
+  "solution_idempotent": null,
+  "execution_times": {
+    "build": 0.43,
+    "test_without_solution": 4.99,
+    "test_with_solution": 5.12
+  },
+  "image_builds": true,
+  "details": {
+    "build": {
+      "success": true,
+      "error": null
+    },
+    "without_solution": {
+      "exit_code": 1,
+      "timed_out": false,
+      "stdout_tail": "erent request IDs are processed independently.\"\"\"\n        payload = {'event': 'user.created', 'data': {'user_id': 123}}\n    \n        response1 = send_webhook(payload, request_id=\"req_1\")\n>       assert response1.status_code == 200\nE       assert 401 == 200\nE        +  where 401 = <Response [401]>.status_code\n\n/mnt/tests/test_outputs.py:115: AssertionError\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475\n  /app/.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /mnt/tests/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/mnt/tests/pytest-cache-files-nwtysr3d'\n    config.cache.set(\"cache/nodeids\", sorted(self.cached_nodeids))\n\n.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:429\n  /app/.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:429: PytestCacheWarning: could not create cache path /mnt/tests/.pytest_cache/v/cache/lastfailed: [Errno 30] Read-only file system: '/mnt/tests/pytest-cache-files-lbmmzjvr'\n    config.cache.set(\"cache/lastfailed\", self.lastfailed)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==================================== PASSES ====================================\n=========================== short test summary info ============================\nPASSED ../mnt/tests/test_outputs.py::test_invalid_signature_rejected\nPASSED ../mnt/tests/test_outputs.py::test_missing_signature_rejected\nPASSED ../mnt/tests/test_outputs.py::test_old_timestamp_rejected\nPASSED ../mnt/tests/test_outputs.py::test_future_timestamp_rejected\nFAILED ../mnt/tests/test_outputs.py::test_valid_webhook_accepted - AssertionE...\nFAILED ../mnt/tests/test_outputs.py::test_duplicate_request_id_rejected - Ass...\nFAILED ../mnt/tests/test_outputs.py::test_different_request_ids_accepted - as...\n=================== 3 failed, 4 passed, 2 warnings in 2.16s ====================\n",
+      "stderr_tail": "Initialized project `app`\nUsing CPython 3.12.3 interpreter at: /usr/bin/python3.12\nCreating virtual environment at: .venv\nResolved 12 packages in 547ms\nDownloading pygments (1.2MiB)\n Downloading pygments\nPrepared 10 packages in 1.56s\nInstalled 10 packages in 7ms\n + certifi==2026.2.25\n + charset-normalizer==3.4.6\n + idna==3.11\n + iniconfig==2.3.0\n + packaging==26.0\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==8.4.1\n + requests==2.31.0\n + urllib3==2.6.3\n"
+    },
+    "with_solution": {
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_tail": "============================= test session starts ==============================\nplatform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0\nrootdir: /mnt/tests\ncollected 7 items\n\n../mnt/tests/test_outputs.py .......                                     [100%]\n\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475\n  /app/.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /mnt/tests/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/mnt/tests/pytest-cache-files-0sbypv50'\n    config.cache.set(\"cache/nodeids\", sorted(self.cached_nodeids))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==================================== PASSES ====================================\n=========================== short test summary info ============================\nPASSED ../mnt/tests/test_outputs.py::test_valid_webhook_accepted\nPASSED ../mnt/tests/test_outputs.py::test_invalid_signature_rejected\nPASSED ../mnt/tests/test_outputs.py::test_missing_signature_rejected\nPASSED ../mnt/tests/test_outputs.py::test_old_timestamp_rejected\nPASSED ../mnt/tests/test_outputs.py::test_future_timestamp_rejected\nPASSED ../mnt/tests/test_outputs.py::test_duplicate_request_id_rejected\nPASSED ../mnt/tests/test_outputs.py::test_different_request_ids_accepted\n========================= 7 passed, 1 warning in 2.36s =========================\n",
+      "stderr_tail": "Initialized project `app`\nUsing CPython 3.12.3 interpreter at: /usr/bin/python3.12\nCreating virtual environment at: .venv\nResolved 12 packages in 508ms\nDownloading pygments (1.2MiB)\n Downloading pygments\nPrepared 10 packages in 1.48s\nInstalled 10 packages in 8ms\n + certifi==2026.2.25\n + charset-normalizer==3.4.6\n + idna==3.11\n + iniconfig==2.3.0\n + packaging==26.0\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==8.4.1\n + requests==2.31.0\n + urllib3==2.6.3\n"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+instruction: |-
+  Fix a broken curl wrapper script with incorrect header and authentication handling.
+  
+  The curl wrapper at `/app/curl_wrapper.py` is supposed to:
+  1. Parse command line arguments to extract URL, headers, method, data, and authentication
+  2. Build and execute curl commands with proper header formatting
+  3. Handle HTTP Basic authentication correctly
+  4. Return appropriate exit codes based on curl's result
+  
+  Current bugs in the implementation:
+  - Headers are not properly formatted when passed to curl (missing -H flag for each header)
+  - Authentication header is constructed incorrectly (should use Basic auth with base64 encoding)
+  - Exit code handling is broken (always returns 0 instead of curl's actual exit code)
+  
+  The wrapper should support:
+  - `-H` or `--header` for custom headers (can be used multiple times)
+  - `-X` or `--request` for HTTP method (GET, POST, etc.)
+  - `-d` or `--data` for request body data
+  - `-u` or `--user` for Basic authentication (format: username:password)
+  - `-o` or `--output` for saving response to file
+  
+  Expected behavior:
+  - `python3 curl_wrapper.py -H "Content-Type: application/json" http://example.com/test` should pass headers correctly
+  - `python3 curl_wrapper.py -u "user:pass" http://example.com/auth` should send proper Basic auth header
+  - `python3 curl_wrapper.py -X POST -d '{"key":"value"}' http://example.com/api` should work for POST requests
+  - Exit code should match curl's exit code (0 for success, non-zero for errors)
+  
+  Requirements:
+  - Fix header formatting to properly pass each header with -H flag
+  - Implement correct Basic authentication (base64 encode username:password)
+  - Return curl's actual exit code instead of always returning 0
+  - Preserve all other functionality (method, data, output file)
+  - Use only Python standard library (subprocess, base64, etc.)
+  
+  The wrapper is used by automation scripts that depend on proper exit codes and authentication.
+difficulty: medium
+category: networking
+tags:
+  - python
+  - curl
+  - http
+  - authentication
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 25
+resource_class: small

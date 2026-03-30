@@ -1,0 +1,56 @@
+instruction: |-
+  Fix a broken Python data pipeline that silently drops records during CSV transformation.
+  
+  The pipeline script at `/app/pipeline.py` is supposed to:
+  1. Read CSV files with columns: id, name, value, status
+  2. Transform each record (convert value to float, preserve other fields)
+  3. Filter out records with negative values (but keep zero values)
+  4. Write output in JSON or CSV format
+  5. Support --no-filter flag to skip filtering
+  
+  Current bugs in the pipeline:
+  - Records are being silently dropped during transformation
+  - Missing return statement causes data loss
+  - Wrong comparison operator in filter (uses > instead of >=)
+  - Filters wrong variable (original instead of transformed records)
+  - None values may be added to output
+  
+  The pipeline should work with these command formats:
+  - `python pipeline.py input.csv output.json` - Default JSON output
+  - `python pipeline.py input.csv output.csv --format csv` - CSV output
+  - `python pipeline.py input.csv output.json --no-filter` - Skip filtering
+  
+  Requirements:
+  - Fix the transform_record function to return transformed data
+  - Fix the filter to include records with value >= 0 (not just > 0)
+  - Ensure transformed records are filtered, not original records
+  - Handle None values correctly
+  - All valid records should be processed without silent data loss
+  - Preserve the existing command-line interface
+  - Support both JSON and CSV output formats
+  
+  Expected behavior:
+  - Input CSV with 3 records should produce 3 output records (if all valid)
+  - Records with value=0 should be included in output
+  - Transformation should convert value field to float
+  - --no-filter should preserve all records including those with value=0
+  - Empty input should produce empty output without errors
+  
+  The pipeline uses Python's csv and json modules from the standard library.
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - csv
+  - data-pipeline
+  - debugging
+  - data-loss
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small

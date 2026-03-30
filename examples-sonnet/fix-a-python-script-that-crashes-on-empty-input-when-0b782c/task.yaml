@@ -1,0 +1,59 @@
+instruction: |-
+  Fix a broken CSV data processor that has issues with filtering, aggregation, and sorting operations.
+  
+  The CSV processor at `/app/csv_processor.py` is supposed to:
+  1. Read CSV files and parse them into structured data
+  2. Filter rows based on column values
+  3. Calculate sums of numeric columns
+  4. Count occurrences of values in columns
+  5. Sort rows by column values (ascending or descending)
+  6. Output results in CSV or JSON format
+  
+  The sample data file `/app/sample_data.csv` contains employee records with columns:
+  - name: Employee name
+  - age: Employee age
+  - department: Department name
+  - salary: Employee salary (with decimal values)
+  
+  Command line usage:
+  - `csv_processor.py <file.csv>` - Display all rows
+  - `csv_processor.py <file.csv> --filter department Engineering` - Filter by department
+  - `csv_processor.py <file.csv> --sum salary` - Calculate total salary
+  - `csv_processor.py <file.csv> --count department` - Count employees per department
+  - `csv_processor.py <file.csv> --sort age` - Sort by age ascending
+  - `csv_processor.py <file.csv> --sort age --reverse` - Sort by age descending
+  - `csv_processor.py <file.csv> --json` - Output in JSON format
+  - Multiple flags can be combined
+  
+  Known Issues:
+  1. Filter operation returns wrong rows (inverted logic)
+  2. Sum operation loses decimal precision
+  3. Sort operation ignores reverse flag
+  
+  Requirements:
+  - Filter should return rows that MATCH the criteria, not rows that DON'T match
+  - Sum should preserve decimal precision for salary calculations
+  - Sort should respect the --reverse flag for descending order
+  - All operations should work correctly with the sample data
+  - Output format must remain unchanged (CSV or JSON)
+  - Do not modify sample_data.csv
+  
+  The script should work correctly with all test cases and produce accurate results.
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - csv
+  - data-processing
+  - filtering
+  - aggregation
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small

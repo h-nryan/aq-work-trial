@@ -1,0 +1,55 @@
+instruction: |-
+  Fix a Python package with broken setup.py configuration and data processing bugs.
+  
+  The project at `/app` is a data processing tool that reads CSV transaction data,
+  filters by date range, aggregates by category, and outputs results in JSON or CSV format.
+  
+  There are several issues:
+  
+  1. Package Discovery: The setup.py has incorrect package discovery configuration.
+     The packages are not being found properly during installation.
+  
+  2. Date Filtering: The date range filter has an off-by-one error. When filtering
+     with --start, it should include records from that date onwards (inclusive),
+     but currently excludes the start date itself.
+  
+  3. Output Formatting: The JSON output is not consistently ordered, making it
+     difficult to compare results. The output should have sorted keys for consistency.
+  
+  The tool should work as follows:
+  - Read CSV files with columns: date, category, amount, description
+  - Filter records by date range using --start and --end flags (both inclusive)
+  - Aggregate amounts by category
+  - Output results in JSON format
+  
+  Command usage:
+  ```
+  python3 src/processor.py <input.csv> [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--format json|csv]
+  ```
+  
+  Requirements:
+  - Fix setup.py to properly discover and include the src package
+  - Fix the date filtering logic to be inclusive of start date
+  - Ensure JSON output has sorted keys for consistency
+  - All existing functionality must continue to work
+  
+  The test data includes transactions from 2024-01-15 to 2024-01-28 across
+  categories: food, transport, entertainment.
+difficulty: medium
+category: software-engineering
+tags:
+  - python
+  - setuptools
+  - package-management
+  - data-processing
+  - csv
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

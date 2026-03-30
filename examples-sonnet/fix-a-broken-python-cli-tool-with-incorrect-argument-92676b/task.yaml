@@ -1,0 +1,63 @@
+instruction: |-
+  Fix a broken Python CLI tool that has incorrect argument parsing and missing help text.
+  
+  The CLI tool at `/app/cli_tool.py` is supposed to:
+  1. Parse command line arguments using proper argument parsing
+  2. Provide comprehensive help text with --help or -h flags
+  3. Support subcommands: 'process' and 'analyze'
+  4. Handle flags with values correctly (e.g., --input file.txt)
+  5. Support boolean flags (e.g., --verbose)
+  
+  Current bugs in the implementation:
+  - Manual argument parsing instead of using argparse properly
+  - No proper help text implementation
+  - Incorrect flag parsing - treats all flags as boolean True
+  - Doesn't handle flag values (e.g., --input <file>)
+  - Missing required argument validation
+  - Help flag doesn't show proper usage information
+  - No command-specific help text
+  
+  The tool should support these commands:
+  
+  Process command:
+  ```
+  python cli_tool.py process --input <file> [--output <file>]
+  ```
+  
+  Analyze command:
+  ```
+  python cli_tool.py analyze --file <file> [--verbose]
+  ```
+  
+  Requirements:
+  - Use argparse for proper argument parsing
+  - Implement comprehensive help text for all commands and options
+  - Handle required arguments correctly
+  - Support both value flags (--input file.txt) and boolean flags (--verbose)
+  - Show proper error messages for missing required arguments
+  - --help should display full usage information
+  - Each command should have its own help text
+  
+  Expected behavior:
+  - `python cli_tool.py --help` shows main help with available commands
+  - `python cli_tool.py process --help` shows process command help
+  - `python cli_tool.py process --input in.txt --output out.txt` works correctly
+  - `python cli_tool.py analyze --file data.txt --verbose` works correctly
+  - Missing required arguments show clear error messages
+difficulty: medium
+category: cli-tools
+tags:
+  - python
+  - cli
+  - argparse
+  - debugging
+  - argument-parsing
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 20
+resource_class: small

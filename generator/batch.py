@@ -210,11 +210,11 @@ def run_batch(
     # Build a lookup of topic → original plan index for progress display.
     topic_plan_index = {t: i for i, t in enumerate(topics)}
     write_lock = threading.Lock()
-
     def _run_one(topic: str) -> dict:
         global_idx = topic_plan_index.get(topic, 0) + 1
         print(f"\n[{global_idx}/{len(topics)}] {topic}")
         task_output_dir = os.path.join(batch_output_dir, _slugify(topic))
+
         try:
             result = run_pipeline(
                 topic=topic,
@@ -583,7 +583,6 @@ if __name__ == "__main__":
         "--hint-style", choices=["none", "soft", "full"], default="none",
         help="Instruction hint style: none, soft (high-level area), or full (specific areas)",
     )
-
     args = parser.parse_args()
 
     # Resolve topics: explicit --topic flags, or prompt bank with filters.

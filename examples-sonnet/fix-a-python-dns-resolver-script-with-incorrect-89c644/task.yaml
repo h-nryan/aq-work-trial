@@ -1,0 +1,57 @@
+instruction: |-
+  Fix a broken DNS resolver script with incorrect record type handling and cache expiry bugs.
+  
+  The DNS resolver at `/app/dns_resolver.py` is supposed to:
+  1. Query DNS servers for various record types (A, AAAA, MX, CNAME, TXT)
+  2. Cache DNS responses with proper TTL-based expiry
+  3. Parse DNS responses correctly for different record types
+  4. Handle DNS protocol format properly
+  
+  Current bugs in the implementation:
+  - Cache expiry logic is inverted - returns expired entries and deletes valid ones
+  - Record type mapping may be incorrect for some query types
+  - Response parsing doesn't correctly extract all record types
+  - Cache key handling may not distinguish between different record types
+  
+  The DNS resolver should:
+  - Accept domain names and record types (A, AAAA, MX, CNAME, TXT)
+  - Build proper DNS queries according to RFC 1035
+  - Parse DNS responses and extract records
+  - Cache results with TTL-based expiry
+  - Return cached results if still valid
+  - Support multiple record types correctly
+  
+  DNS record types:
+  - A: IPv4 address (type 1)
+  - AAAA: IPv6 address (type 28)
+  - MX: Mail exchange (type 15)
+  - CNAME: Canonical name (type 5)
+  - TXT: Text record (type 16)
+  
+  Requirements:
+  - Fix cache expiry logic to properly check timestamps
+  - Ensure record type handling works for all supported types
+  - Cache should store and retrieve records by domain AND type
+  - Expired cache entries should be removed and fresh queries made
+  - Valid cache entries should be returned without re-querying
+  
+  The resolver uses UDP socket communication with DNS servers (default: 8.8.8.8:53).
+  Fix all bugs so that DNS queries work correctly and caching behaves properly.
+difficulty: medium
+category: networking
+tags:
+  - python
+  - dns
+  - networking
+  - caching
+  - protocol
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

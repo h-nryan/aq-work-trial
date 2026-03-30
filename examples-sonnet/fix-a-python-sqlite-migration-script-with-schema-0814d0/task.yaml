@@ -1,0 +1,53 @@
+instruction: |-
+  Fix a broken SQLite database migration script that has schema versioning and data type bugs.
+  
+  The migration script at `/app/migrate_db.py` is supposed to:
+  1. Track schema versions in a schema_version table
+  2. Apply migrations incrementally from version 0 to version 3
+  3. Create a users table with proper column types
+  4. Add columns with appropriate data types and constraints
+  5. Skip already-applied migrations based on current version
+  
+  The script has three migrations:
+  - Version 1: Create initial schema with users table (id, username, email, created_at)
+  - Version 2: Add age column to users table
+  - Version 3: Add status column with default value
+  
+  Current bugs in the implementation:
+  - Wrong data type used for a numeric column
+  
+  Requirements:
+  - All migrations must apply in order when starting from empty database
+  - Age column must be INTEGER type (not TEXT)
+  - Version tracking must correctly skip already-applied migrations
+  - Final schema must have all expected columns with correct types
+  
+  Expected behavior:
+  - `python migrate_db.py test.db` on new database applies all 3 migrations
+  - Final schema has: id, username, email, created_at, age (INTEGER), status (TEXT)
+  - Schema version table correctly tracks which migrations were applied
+  
+  Usage:
+  ```
+  python migrate_db.py <database_path>
+  ```
+  
+  The script should print which migrations are being applied and the final schema.
+difficulty: medium
+category: database
+tags:
+  - python
+  - sqlite
+  - database-migration
+  - schema-versioning
+  - data-types
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

@@ -1,0 +1,51 @@
+instruction: |-
+  Fix a broken Python monitoring script that has issues with metrics collection, alerting thresholds, and stale data filtering.
+  
+  The monitoring script at `/app/monitor.py` is supposed to:
+  1. Read metrics from a CSV file with format: timestamp,metric_name,value
+  2. Filter out stale metrics older than a specified age (default 300 seconds)
+  3. Check if metrics exceed defined thresholds and generate alerts
+  4. Calculate statistics (count, min, max, avg) for each metric type
+  5. Output results in JSON format
+  
+  The CSV format is:
+  ```
+  2024-01-15T10:00:00,cpu_usage,45.5
+  2024-01-15T10:01:00,memory_usage,78.2
+  ```
+  
+  Command line usage:
+  - `monitor.py <file>` - Check for alerts with default thresholds
+  - `monitor.py <file> --thresholds '{"cpu_usage": 90}'` - Custom thresholds
+  - `monitor.py <file> --max-age 600` - Custom staleness window
+  - `monitor.py <file> --stats` - Show statistics instead of alerts
+  
+  Current bugs in the implementation:
+  - Threshold checking uses wrong comparison operator (should trigger only when exceeding, not at threshold)
+  
+  Requirements:
+  - Parse CSV metrics correctly
+  - Filter metrics based on timestamp age (inclusive of boundary)
+  - Alert only when value strictly exceeds threshold (not equal)
+  - Calculate accurate statistics per metric type
+  - Output valid JSON in all cases
+  
+  The script should work correctly with all test cases and produce properly formatted alerts and statistics.
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - monitoring
+  - data-processing
+  - json
+  - datetime
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 350
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

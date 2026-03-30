@@ -1,0 +1,56 @@
+instruction: |-
+  Fix a Makefile with incorrect target dependencies and missing phony declarations.
+  
+  The Makefile at `/app/Makefile` is used to build a simple C program consisting of:
+  - src/main.c (main program that uses utility functions)
+  - src/utils.c (utility functions implementation)
+  - src/utils.h (utility functions header)
+  
+  The Makefile has several issues:
+  1. Missing .PHONY declarations for non-file targets (all, clean, test)
+  2. Incorrect dependencies - 'all' target depends on object files instead of the final executable
+  3. Missing header file dependencies - object files don't list all headers they depend on
+  4. Wrong source file dependency - one object file lists the wrong source file
+  
+  These bugs cause:
+  - Build failures when files named 'clean', 'test', or 'all' exist in the directory
+  - Incomplete builds that don't produce the final executable
+  - Failure to rebuild when header files are modified
+  - Compilation errors due to wrong source file dependencies
+  
+  Requirements:
+  - Add .PHONY declarations for all non-file targets
+  - Fix the 'all' target to depend on the final executable 'program'
+  - Ensure all object file targets list correct source and header dependencies
+  - main.o should depend on src/main.c and src/utils.h
+  - utils.o should depend on src/utils.c and src/utils.h
+  - The program target should link object files to create the executable
+  - Do not modify any C source files (main.c, utils.c, utils.h)
+  
+  Expected behavior:
+  - 'make all' should build the program executable
+  - 'make clean' should remove all build artifacts
+  - 'make test' should build and run the program
+  - Modifying a header file should trigger recompilation of dependent files
+  - Targets should work even when files with target names exist
+  
+  The program should compile without warnings and run successfully, producing output
+  showing the results of add_numbers() and multiply_numbers() functions.
+
+difficulty: medium
+category: build-systems
+tags:
+  - makefile
+  - build-systems
+  - dependencies
+  - c
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small

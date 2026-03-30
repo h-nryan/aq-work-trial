@@ -25,31 +25,31 @@
 </head>
 <body>
 <h1>Task Generation Pipeline Metrics</h1>
-<p class="timestamp">Generated: 2026-03-30 03:22</p>
+<p class="timestamp">Generated: 2026-03-30 12:02</p>
 
 <div class="metrics-grid">
   <div class="metric-card">
-    <div class="metric-value">68</div>
+    <div class="metric-value">160</div>
     <div class="metric-label">Tasks Attempted</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">23</div>
+    <div class="metric-value">49</div>
     <div class="metric-label">Functional Pass</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value metric-highlight">10</div>
+    <div class="metric-value metric-highlight">23</div>
     <div class="metric-label">Learnable</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">15%</div>
+    <div class="metric-value">14%</div>
     <div class="metric-label">Learnable Yield</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">2,237,698</div>
+    <div class="metric-value">4,834,696</div>
     <div class="metric-label">Generation Tokens</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">1811m</div>
+    <div class="metric-value">3056m</div>
     <div class="metric-label">Total Time</div>
   </div>
 </div>
@@ -57,19 +57,19 @@
 <h2>Pipeline Funnel</h2>
 <div class="funnel">
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 87%">Generated: 59</div>
+    <div class="funnel-fill" style="width: 77%">Generated: 123</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 76%">Structural: 52</div>
+    <div class="funnel-fill" style="width: 72%">Structural: 116</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 34%">Functional: 23</div>
+    <div class="funnel-fill" style="width: 31%">Functional: 49</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 38%">Evaluated: 26</div>
+    <div class="funnel-fill" style="width: 27%">Evaluated: 43</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 15%">Learnable: 10</div>
+    <div class="funnel-fill" style="width: 14%">Learnable: 23</div>
   </div>
 </div>
 
@@ -87,9 +87,64 @@
   <td>0</td><td>2</td><td>582m</td>
 </tr>
 <tr>
+  <td>sonnet-batch-12</td><td>12</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>302m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-13-base-image</td><td>5</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>49m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-15</td><td>6</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>13m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-16</td><td>4</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>10m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-17</td><td>12</td><td>8</td>
+  <td>8</td><td><strong>4</strong></td>
+  <td>0</td><td>4</td><td>422m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-18</td><td>2</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>8m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-19-func-only</td><td>12</td><td>9</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>34m</td>
+</tr>
+<tr>
   <td>sonnet-batch-2</td><td>4</td><td>3</td>
   <td>3</td><td><strong>0</strong></td>
   <td>1</td><td>2</td><td>391m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-20</td><td>12</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>0m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-20-freestyle</td><td>5</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>18m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-21</td><td>12</td><td>0</td>
+  <td>0</td><td><strong>0</strong></td>
+  <td>0</td><td>0</td><td>0m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-22</td><td>10</td><td>9</td>
+  <td>9</td><td><strong>9</strong></td>
+  <td>0</td><td>0</td><td>389m</td>
 </tr>
 <tr>
   <td>sonnet-batch-3</td><td>6</td><td>1</td>
@@ -175,6 +230,97 @@
     <small>sonnet-batch-11-data-driven | 1 retries</small>
   </div>
   <div class="pass-rate">20%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a broken Python CLI tool with incorrect argument parsing</strong><br>
+    <small>sonnet-batch-17 | 1 retries</small>
+  </div>
+  <div class="pass-rate">50%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a multi-stage Docker build with broken layer caching, wr</strong><br>
+    <small>sonnet-batch-17 | 0 retries</small>
+  </div>
+  <div class="pass-rate">50%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>debug a broken webhook receiver with incorrect signature ver</strong><br>
+    <small>sonnet-batch-17 | 0 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>repair a Python data pipeline that silently drops records du</strong><br>
+    <small>sonnet-batch-17 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Makefile with incorrect target dependencies and missin</strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python DNS resolver script with incorrect record type </strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a broken curl wrapper script with incorrect header and a</strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python config file parser that mishandles default valu</strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python CLI tool with broken subcommand routing, output</strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python setup.py with wrong package discovery and missi</strong><br>
+    <small>sonnet-batch-22 | 2 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python script that crashes on empty input when reading</strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python SQLite migration script with schema versioning </strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python monitoring script with broken metrics collectio</strong><br>
+    <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
 </div>
 <div class="learnable-item">
   <div>

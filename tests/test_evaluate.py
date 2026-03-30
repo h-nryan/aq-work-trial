@@ -17,6 +17,7 @@ from evaluate import (
     _cleanup_stale_tb_processes,
     _kill_containers_for_task,
     _parse_run_results,
+    _prune_exited_containers,
     _run_filter_tier,
     cleanup_stale_resources,
     evaluate_task,
@@ -213,12 +214,62 @@ class TestCleanupStaleNetworks:
         assert _cleanup_stale_networks() == 1  # only custom-net
 
 
+class TestPruneExitedContainers:
+    def test_prunes_exited_containers(self, monkeypatch):
+        """Counts container IDs from docker container prune output."""
+        def fake_run(cmd, **kwargs):
+            if cmd[:3] == ["docker", "container", "prune"]:
+                output = "Deleted Containers:\nabc123\ndef456\nghi789\n\nTotal reclaimed space: 1.2GB\n"
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _prune_exited_containers() == 3
+
+    def test_no_exited_containers(self, monkeypatch):
+        """Returns 0 when nothing to prune."""
+        def fake_run(cmd, **kwargs):
+            if cmd[:3] == ["docker", "container", "prune"]:
+                output = "Total reclaimed space: 0B\n"
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _prune_exited_containers() == 0
+
+    def test_docker_not_available(self, monkeypatch):
+        """Gracefully handles missing docker."""
+        monkeypatch.setattr(
+            "evaluate.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError("docker")),
+        )
+        assert _prune_exited_containers() == 0
+
+    def test_docker_failure(self, monkeypatch):
+        """Returns 0 on non-zero exit code."""
+        def fake_run(cmd, **kwargs):
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": "error"})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _prune_exited_containers() == 0
+
+    def test_timeout(self, monkeypatch):
+        """Returns 0 on timeout."""
+        import subprocess
+        monkeypatch.setattr(
+            "evaluate.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(subprocess.TimeoutExpired("docker", 30)),
+        )
+        assert _prune_exited_containers() == 0
+
+
 class TestCleanupStaleResources:
     def test_combines_all_cleanups(self, monkeypatch):
         monkeypatch.setattr("evaluate._cleanup_stale_containers", lambda max_age_sec: 2)
+        monkeypatch.setattr("evaluate._prune_exited_containers", lambda: 4)
         monkeypatch.setattr("evaluate._cleanup_stale_tb_processes", lambda max_age_sec: 3)
         monkeypatch.setattr("evaluate._cleanup_stale_networks", lambda: 1)
-        assert cleanup_stale_resources() == 6
+        assert cleanup_stale_resources() == 10
 
 
 class TestKillContainersForTask:

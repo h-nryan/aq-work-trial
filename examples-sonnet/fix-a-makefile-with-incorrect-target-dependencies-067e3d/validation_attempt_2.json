@@ -1,0 +1,32 @@
+{
+  "attempt": 2,
+  "passed": true,
+  "issues": [],
+  "tests_fail_without_solution": true,
+  "tests_pass_with_solution": true,
+  "solution_idempotent": null,
+  "execution_times": {
+    "build": 0.37,
+    "test_without_solution": 4.73,
+    "test_with_solution": 4.29
+  },
+  "image_builds": true,
+  "details": {
+    "build": {
+      "success": true,
+      "error": null
+    },
+    "without_solution": {
+      "exit_code": 1,
+      "timed_out": false,
+      "stdout_tail": "      stdout, stderr, returncode = run_make(\"test\")\n    \n>       assert returncode == 0, f\"Make test failed: {stderr}\"\nE       AssertionError: Make test failed: make: *** No rule to make target 'src/helper.c', needed by 'utils.o'.  Stop.\nE         \nE       assert 2 == 0\n\n/mnt/tests/test_outputs.py:133: AssertionError\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475\n  /app/.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /mnt/tests/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/mnt/tests/pytest-cache-files-8be7zbed'\n    config.cache.set(\"cache/nodeids\", sorted(self.cached_nodeids))\n\n.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:429\n  /app/.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:429: PytestCacheWarning: could not create cache path /mnt/tests/.pytest_cache/v/cache/lastfailed: [Errno 30] Read-only file system: '/mnt/tests/pytest-cache-files-k61w0qc3'\n    config.cache.set(\"cache/lastfailed\", self.lastfailed)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==================================== PASSES ====================================\n=========================== short test summary info ============================\nPASSED ../mnt/tests/test_outputs.py::test_make_clean_removes_artifacts\nFAILED ../mnt/tests/test_outputs.py::test_makefile_builds_successfully - Asse...\nFAILED ../mnt/tests/test_outputs.py::test_program_runs_correctly - FileNotFou...\nFAILED ../mnt/tests/test_outputs.py::test_incremental_build_works - Assertion...\nFAILED ../mnt/tests/test_outputs.py::test_phony_targets_work_with_files - Ass...\nFAILED ../mnt/tests/test_outputs.py::test_header_dependency_triggers_rebuild\nFAILED ../mnt/tests/test_outputs.py::test_make_test_target_runs_program - Ass...\n=================== 6 failed, 1 passed, 2 warnings in 2.12s ====================\n",
+      "stderr_tail": "Initialized project `app`\nUsing CPython 3.12.3 interpreter at: /usr/bin/python3.12\nCreating virtual environment at: .venv\nResolved 7 packages in 820ms\nDownloading pygments (1.2MiB)\n Downloading pygments\nPrepared 5 packages in 1.09s\nInstalled 5 packages in 9ms\n + iniconfig==2.3.0\n + packaging==26.0\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==8.4.1\n"
+    },
+    "with_solution": {
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout_tail": "============================= test session starts ==============================\nplatform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0\nrootdir: /mnt/tests\ncollected 7 items\n\n../mnt/tests/test_outputs.py .......                                     [100%]\n\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475\n  /app/.venv/lib/python3.12/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /mnt/tests/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/mnt/tests/pytest-cache-files-3ro1ntf4'\n    config.cache.set(\"cache/nodeids\", sorted(self.cached_nodeids))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n==================================== PASSES ====================================\n=========================== short test summary info ============================\nPASSED ../mnt/tests/test_outputs.py::test_makefile_builds_successfully\nPASSED ../mnt/tests/test_outputs.py::test_program_runs_correctly\nPASSED ../mnt/tests/test_outputs.py::test_make_clean_removes_artifacts\nPASSED ../mnt/tests/test_outputs.py::test_incremental_build_works\nPASSED ../mnt/tests/test_outputs.py::test_phony_targets_work_with_files\nPASSED ../mnt/tests/test_outputs.py::test_header_dependency_triggers_rebuild\nPASSED ../mnt/tests/test_outputs.py::test_make_test_target_runs_program\n========================= 7 passed, 1 warning in 2.29s =========================\n",
+      "stderr_tail": "Initialized project `app`\nUsing CPython 3.12.3 interpreter at: /usr/bin/python3.12\nCreating virtual environment at: .venv\nResolved 7 packages in 239ms\nDownloading pygments (1.2MiB)\n Downloading pygments\nPrepared 5 packages in 1.10s\nInstalled 5 packages in 6ms\n + iniconfig==2.3.0\n + packaging==26.0\n + pluggy==1.6.0\n + pygments==2.20.0\n + pytest==8.4.1\n"
+    }
+  }
+}

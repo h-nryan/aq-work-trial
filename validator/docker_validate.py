@@ -28,6 +28,10 @@ def _log(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
+TBENCH_BASE_IMAGE = "tbench-base:latest"
+_base_image_checked = False
+
+
 def _docker_available() -> bool:
     """Check if Docker daemon is running."""
     try:
@@ -39,6 +43,177 @@ def _docker_available() -> bool:
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
+
+
+def ensure_base_image() -> bool:
+    """Ensure the tbench-base Docker image exists, building it if needed.
+
+    The base image pre-installs common dependencies (python3, gcc, tmux, uv, etc.)
+    so per-task builds only need to COPY files — reducing build time from ~60s to ~2s.
+    This makes high concurrency (12+ tasks) feasible.
+
+    Returns True if the image is available, False on failure.
+    """
+    global _base_image_checked
+    if _base_image_checked:
+        return True
+
+    # Check if image already exists
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", TBENCH_BASE_IMAGE],
+            capture_output=True, timeout=10,
+        )
+        if result.returncode == 0:
+            _base_image_checked = True
+            return True
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+    # Build from Dockerfile.base
+    base_dockerfile = Path(__file__).parent / "Dockerfile.base"
+    if not base_dockerfile.exists():
+        _log(f"WARNING: {base_dockerfile} not found, cannot build base image")
+        return False
+
+    _log("Building tbench-base image (one-time setup)...")
+    try:
+        result = subprocess.run(
+            ["docker", "build", "-t", TBENCH_BASE_IMAGE, "-f", str(base_dockerfile), "."],
+            cwd=str(base_dockerfile.parent.parent),  # project root
+            capture_output=True, text=True,
+            timeout=600,
+        )
+        if result.returncode == 0:
+            _base_image_checked = True
+            _log("tbench-base image built successfully")
+            return True
+        else:
+            _log(f"WARNING: Failed to build tbench-base: {result.stderr[-500:]}")
+            return False
+    except subprocess.TimeoutExpired:
+        _log("WARNING: tbench-base build timed out")
+        return False
+
+
+def _rewrite_dockerfile_for_base(task_dir: Path) -> bool:
+    """Rewrite a task's Dockerfile to use tbench-base instead of ubuntu.
+
+    Replaces the FROM + apt-get layer with FROM tbench-base, keeping all
+    COPY/WORKDIR/RUN/CMD instructions. Returns True if rewritten.
+    """
+    dockerfile = task_dir / "Dockerfile"
+    if not dockerfile.exists():
+        return False
+
+    content = dockerfile.read_text()
+
+    # Rewrite any standard base image (ubuntu, python, debian) to use our pre-built base
+    rewritable_bases = ("FROM ubuntu:", "FROM python:", "FROM debian:")
+    if not any(
+        any(stripped.startswith(base) for base in rewritable_bases)
+        for stripped in (line.strip() for line in content.splitlines())
+    ):
+        return False
+
+    lines = content.splitlines()
+    new_lines = []
+    skip_apt = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Replace any rewritable base with our base
+        if any(stripped.startswith(base) for base in rewritable_bases):
+            new_lines.append(f"FROM {TBENCH_BASE_IMAGE}")
+            continue
+
+        # Skip apt-get and pip install lines (already in base image)
+        if stripped.startswith("RUN apt-get") or stripped.startswith("RUN pip"):
+            # Only enter multi-line skip if this line has a continuation
+            skip_apt = stripped.endswith("\\")
+            continue
+        if skip_apt:
+            # Multi-line RUN: skip continuation lines (ending with \)
+            if stripped.endswith("\\"):
+                continue
+            else:
+                # Last line of the multi-line RUN
+                skip_apt = False
+                continue
+
+        # Skip DEBIAN_FRONTEND (already in base)
+        if "DEBIAN_FRONTEND" in stripped:
+            continue
+
+        new_lines.append(line)
+
+    # Remove leading blank lines after FROM
+    while len(new_lines) > 1 and new_lines[1].strip() == "":
+        new_lines.pop(1)
+
+    dockerfile.write_text("\n".join(new_lines) + "\n")
+    return True
+
+
+def _rewrite_run_tests_for_base(task_dir: Path) -> bool:
+    """Strip redundant apt-get/pip/uv-install lines from run-tests.sh.
+
+    When using the tbench-base image, curl, uv, python3, pip, gcc, cmake etc.
+    are already installed. The generated run-tests.sh scripts often start with
+    ``apt-get update && apt-get install -y curl`` followed by a uv install,
+    which are slow and cause timeouts under concurrency. This strips those
+    lines (and their continuations) so tests start instantly.
+
+    Returns True if the file was modified.
+    """
+    run_tests = task_dir / "run-tests.sh"
+    if not run_tests.exists():
+        return False
+
+    content = run_tests.read_text()
+
+    lines = content.splitlines()
+    new_lines = []
+    skip_continuation = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Skip continuation lines from a previous multi-line command
+        if skip_continuation:
+            if stripped.endswith("\\"):
+                continue
+            else:
+                skip_continuation = False
+                continue
+
+        # Skip apt-get install/update lines (already in base image)
+        if stripped.startswith("apt-get ") or stripped.startswith("sudo apt-get "):
+            skip_continuation = stripped.endswith("\\")
+            continue
+
+        # Skip curl-based uv installer (uv already in base image)
+        if "astral.sh/uv" in stripped or "curl -LsSf" in stripped and "uv" in stripped:
+            skip_continuation = stripped.endswith("\\")
+            continue
+
+        # Skip pip install lines (deps in base image)
+        if stripped.startswith("pip install") or stripped.startswith("pip3 install"):
+            skip_continuation = stripped.endswith("\\")
+            continue
+
+        # Skip 'source $HOME/.local/bin/env' (uv env setup, not needed with base)
+        if stripped == "source $HOME/.local/bin/env":
+            continue
+
+        new_lines.append(line)
+
+    new_content = "\n".join(new_lines) + "\n"
+    if new_content != content:
+        run_tests.write_text(new_content)
+        return True
+    return False
 
 
 def _build_image(task_dir: Path, tag: str, timeout: int = 300) -> dict:
@@ -334,6 +509,11 @@ def docker_validate(
     tests_deterministic = None
 
     try:
+        # Rewrite Dockerfile to use tbench-base if available (speeds up builds)
+        if ensure_base_image():
+            _rewrite_dockerfile_for_base(task_path)
+            _rewrite_run_tests_for_base(task_path)
+
         # Phase 1: Build the Docker image
         _log(f"[1/{total_phases}] Building Docker image for '{task_name}'...")
         t0 = time.monotonic()
