@@ -1,0 +1,73 @@
+instruction: |-
+  Debug and fix memory corruption issues in a C linked list implementation.
+  
+  The program at `/app/list.c` implements a singly linked list with various operations.
+  It has several critical bugs causing memory leaks, infinite loops, and use-after-free errors.
+  
+  The linked list provides these functions:
+  - `create_node`: Allocates and initializes a new node
+  - `append`: Adds a node to the end of the list
+  - `prepend`: Adds a node to the beginning of the list
+  - `delete_value`: Removes the first node with a given value
+  - `get_length`: Returns the number of nodes in the list
+  - `find_node`: Searches for a node with a specific value
+  - `reverse`: Reverses the entire list in-place
+  - `free_list`: Deallocates all nodes in the list
+  - `print_list`: Displays the list contents
+  
+  Known Issues:
+  1. Memory leak when deleting the head node
+  2. Infinite loop in the reverse function
+  3. Use-after-free error in free_list function
+  4. Program may crash or hang during execution
+  5. Valgrind reports memory errors and leaks
+  
+  Requirements:
+  - Fix all memory corruption bugs
+  - Ensure no memory leaks (must pass valgrind checks)
+  - All list operations must work correctly
+  - Program must compile with: gcc -Wall -Wextra -g
+  - Do not modify list.h or main.c
+  - Output format must remain unchanged
+  
+  Expected program output:
+  ```
+  Testing append operations:
+  10 -> 20 -> 30
+  
+  Testing prepend operation:
+  5 -> 10 -> 20 -> 30
+  
+  List length: 4
+  
+  Testing find operation:
+  Found node with value: 20
+  
+  Testing delete operation (delete 5):
+  10 -> 20 -> 30
+  
+  Testing reverse operation:
+  30 -> 20 -> 10
+  
+  Freeing list...
+  Done.
+  ```
+  
+  The main.c file tests all functions. Focus on fixing the bugs in list.c.
+difficulty: medium
+category: debugging
+tags:
+  - c
+  - memory-management
+  - linked-lists
+  - debugging
+  - valgrind
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small
