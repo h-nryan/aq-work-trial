@@ -33,7 +33,15 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - **Bug annotations** (`_bugs.md`): Every example now has a structured annotation describing each bug's subtlety level (LOW/MODERATE/HIGH), the test-to-bug mapping, and WHY the task falls in its difficulty category. Too-easy and too-hard examples include "patterns to avoid" sections that teach Sonnet the boundaries of good difficulty.
 - *Design decision*: Subtlety ratings teach the QUALITY dimension of difficulty. Telling Sonnet "this is a HIGH subtlety bug because the wrong variable name looks correct at first glance" is more useful than "add 3-5 bugs."
 
-**Prompt calibration** (`generate.py`) — Single fixed system prompt targeting 3-5 interacting bugs, ~40-60% Opus solve rate. Per-difficulty hints (easy/medium/hard) were reverted — they worked against the pipeline's goal since every task should land in the learnable band regardless of topic.
+**Prompt calibration** (`generate.py`) — Prompts recalibrated based on Sonnet→Opus correlation analysis (Sonnet 33% → Opus 0% pattern). Root cause: Sonnet generates bugs that are too clever — cascading failures, hidden cross-file bugs, 5+ interacting bugs. Key changes across SYSTEM_PROMPT, PHASE2_PROMPT, and user prompt:
+- Cap at 3-4 bugs (was 3-5) — 5+ bugs consistently produces Opus 0/5
+- Bugs must be independently discoverable from test output (was "interact with each other")
+- Banned cascading bugs where Bug A must be fixed before Bug B can be diagnosed
+- Single source file only (was "require reading the full codebase")
+- Total source code under 150 lines — agent must read and understand in ~1 minute
+- Clear test failures (wrong output, wrong type) — no undefined behavior or intermittent failures
+- Target 10-20 minute human solve time (was 20-60 minutes)
+- Per-difficulty hints (easy/medium/hard) were reverted earlier — every task should land in the learnable band regardless of topic.
 
 **Targeted repair** (`generate.py`, `pipeline.py`) — On validation failure, analyzes feedback to repair only broken files:
 - "Tests FAILED with solution" → regenerate only `solution.sh`

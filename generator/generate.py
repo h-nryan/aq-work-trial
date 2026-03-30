@@ -236,11 +236,13 @@ Study these reference examples carefully and match their format exactly:
 Now generate a complete, high-quality task for: "{topic}"
 
 Remember:
-- Include realistic source files with subtle, interacting bugs
+- Include 3-4 independently discoverable bugs in a SINGLE source file (<150 lines)
+- Each bug should produce a clear, diagnosable test failure on its own
+- Do NOT create cascading bugs — each should be fixable without fixing others first
 - Tests must fail before solution and pass after
 - Dockerfile should set up a proper environment
 - solution.sh must deterministically fix everything
-- Difficulty should challenge a very capable AI agent (Claude Opus level)
+- Target ~40-60% solve rate for Claude Opus (learnable, not impossible)
 - Return ONLY the JSON object with all files"""
 
 
@@ -404,20 +406,25 @@ Return ONLY the JSON object."""
 
 PHASE2_PROMPT = """\
 You are an expert at creating coding challenges. Given a WORKING program below, \
-introduce 3-5 subtle, interacting bugs to create a debugging challenge.
+introduce exactly 3-4 independently discoverable bugs to create a debugging challenge.
 
 The bugs should:
 - Be realistic (off-by-one, wrong variable, missing edge case, type error, bad config)
-- Interact with each other (fixing bug A might reveal bug B)
-- Require reading the full codebase to find (not just one file)
+- Each be INDEPENDENTLY discoverable — a failing test should point toward the specific \
+bug that caused it, without needing to fix other bugs first
+- Do NOT create cascading bugs where fixing Bug A is a prerequisite to diagnosing Bug B
+- Stay in a SINGLE source file — do not spread bugs across multiple files
 - NOT change tests, Dockerfile, run-tests.sh, or task.yaml
 - Be fixable — the original working code IS the solution
+- Produce CLEAR test failures (wrong output, wrong type, missing value) — avoid bugs \
+that cause undefined behavior, segfaults, or intermittent failures
 
 CRITICAL — VERIFY YOUR WORK:
 After introducing bugs, trace through EACH test function step by step:
 1. Read the test assertion
 2. Trace the code path with your buggy source files
 3. Confirm the test WILL FAIL (wrong return value, exception, etc.)
+4. Confirm each bug can be diagnosed INDEPENDENTLY from its test failure
 
 If a test would still pass with your buggy code, you MUST add another bug \
 that breaks it. The test suite MUST exit non-zero.
@@ -426,6 +433,8 @@ Common mistakes to avoid:
 - Introducing a bug in a code path that no test exercises
 - Changing a variable name that's only used internally (no observable effect)
 - Adding a bug that causes an import error (too obvious, agent fixes instantly)
+- Creating cascading failures where one bug masks or blocks diagnosis of another
+- Adding 5+ bugs (too many for the time limit — cap at 3-4)
 
 Here is the working program:
 ```json
