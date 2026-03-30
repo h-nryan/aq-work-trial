@@ -128,6 +128,17 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - **Cross-group pattern analysis**: Compares averages across classification groups and generates actionable findings ("too-hard tasks average 8 bugs vs 3 for learnable").
 - CLI: `python3.12 generator/analyze.py --learnable <dirs> --too-hard <dirs>` or `--batch-report <json>`
 
+### Pipeline Metrics — Part 3
+
+**Metrics dashboard** (`metrics.py`) — Aggregates results across all batches:
+- Pipeline funnel visualization (attempted → generated → structural → functional → evaluated → learnable)
+- Per-batch breakdown table with functional/learnable/too-easy/too-hard counts
+- Learnable task inventory with Opus pass rates
+- Cost (generation tokens) and time totals
+- HTML dashboard (`--html report.html`) with styled cards, funnel, and tables
+- JSON export for programmatic consumption
+- Current state: 9 batches, 36 tasks, 3 learnable (8% overall yield, 25% of evaluated)
+
 ### Diversity Analysis — Stretch Goal C
 
 **Diversity module** (`diversity.py`) — Analyzes batch reports for:
