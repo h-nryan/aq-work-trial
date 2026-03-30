@@ -896,11 +896,9 @@ def render_pipeline_view():
                 _op, _ot = _get_live_eval_scores(_dn, "claude-opus*", batch_start_ts)
                 if _ot > 0:
                     opus_cell = f'<div class="stage-cell stage-active">{_op}/{_ot}</div>'
-                elif _st > 0:
-                    # Sonnet has results but Opus doesn't — still in Sonnet phase
-                    opus_cell = '<div class="stage-cell stage-pending">—</div>'
                 else:
-                    opus_cell = '<div class="stage-cell stage-active">...</div>'
+                    # No Opus data — either still in Sonnet or no data available
+                    opus_cell = '<div class="stage-cell stage-pending">—</div>'
             else:
                 opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
