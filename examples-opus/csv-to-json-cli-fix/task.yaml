@@ -1,0 +1,43 @@
+instruction: |-
+  You are given a small Python CLI `csv_to_json.py` that converts CSV to JSON.
+  It currently:
+   - Assumes comma delimiter.
+   - Treats all rows as data (no header handling).
+   - Emits a JSON array of lists (not objects).
+  Fix it to meet these requirements:
+
+  Requirements:
+   1) Read delimiter from environment variable DELIM (default ',').
+   2) Treat the FIRST row as a header row. Output records as JSON objects mapping header->value.
+   3) Write UTF-8 JSON to stdout.
+   4) Add optional flag `--pretty` to pretty-print output with indentation.
+   5) Must work with both inputs provided (commas and semicolons).
+  Constraints:
+   - Do not change the interface expected by tests (script name, args).
+   - No network access.
+   - May use only the Python standard library.
+
+  Success criteria:
+   - `python csv_to_json.py inputs/sample_commas.csv` prints a JSON array of objects with keys from the header row.
+   - With `DELIM=';'`, running on semicolon sample prints correct objects.
+   - `--pretty` produces multi-line indented JSON that parses as the same structure.
+   
+  Note: Tests will capture outputs to files (/tmp/out_commas.json, /tmp/out_semicolons.json, 
+  /tmp/out_pretty.json) and validate both file content and direct stdout behavior.
+difficulty: easy
+category: data-processing
+tags:
+  - csv
+  - json
+  - cli
+  - python
+  - data-processing
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 5
+junior_time_estimate_min: 20
+resource_class: small
