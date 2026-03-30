@@ -16,6 +16,7 @@ from openai import OpenAI
 
 API_MAX_RETRIES = 3
 API_RETRY_DELAY = 5  # seconds, doubles each retry
+API_TIMEOUT = 120    # seconds — prevent indefinite hangs on stalled connections
 
 # Standard docker-compose.yaml — identical for every task.
 # The tb harness uses `docker compose` (not raw docker) to build and run tasks.
@@ -76,7 +77,7 @@ def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
     last_error = None
     for attempt in range(API_MAX_RETRIES):
         try:
-            return client.chat.completions.create(**kwargs)
+            return client.chat.completions.create(timeout=API_TIMEOUT, **kwargs)
         except (json.JSONDecodeError, ConnectionError, TimeoutError) as e:
             last_error = e
             delay = API_RETRY_DELAY * (2 ** attempt)
