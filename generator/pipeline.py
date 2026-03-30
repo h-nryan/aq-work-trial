@@ -12,13 +12,43 @@ import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "validator"))
-from config import EVAL_TRIALS, MAX_GENERATION_RETRIES, MAX_SOLUTION_FIRST_RETRIES
+import shutil
+
+from config import EVAL_TRIALS, MAX_GENERATION_RETRIES, MAX_SOLUTION_FIRST_RETRIES, SONNET_EXAMPLES_DIR
 from docker_validate import docker_validate
 from evaluate import evaluate_task
 from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
 
 # Max rounds of difficulty adjustment after evaluation
 MAX_DIFFICULTY_ADJUSTMENTS = 2
+
+
+def _auto_promote(task_dir: str, result: dict) -> None:
+    """Auto-promote a learnable task to examples-sonnet/."""
+    from pathlib import Path
+
+    task_path = Path(task_dir).resolve()
+    task_name = task_path.name
+    dest = Path(SONNET_EXAMPLES_DIR) / task_name
+
+    if dest.exists():
+        print(f"  [Auto-promote] Already exists: {dest}")
+        return
+
+    os.makedirs(SONNET_EXAMPLES_DIR, exist_ok=True)
+    shutil.copytree(str(task_path), str(dest))
+
+    # Clean up pipeline artifacts
+    for pattern in ("_*.txt", "_*.json"):
+        for f in dest.glob(pattern):
+            if f.name != "_meta.yaml" and f.name != "_bugs.md":
+                f.unlink()
+
+    pass_rate = result.get("pass_rate", 0)
+    passes = result.get("passes", "?")
+    total = result.get("total", "?")
+    print(f"  [Auto-promote] LEARNABLE task promoted to {dest}")
+    print(f"  [Auto-promote] Opus {passes}/{total} ({pass_rate:.0%})")
 
 
 def _write_task_meta(task_dir: str, result: dict, category: str | None = None) -> None:
@@ -338,6 +368,10 @@ def run_pipeline(
     # Auto-write _meta.yaml for learnable tasks (feeds back into example selection)
     if result.get("classification") and task_dir:
         _write_task_meta(task_dir, result, target_category)
+
+    # Auto-promote learnable tasks to examples-sonnet/
+    if result.get("classification") == "learnable" and task_dir:
+        _auto_promote(task_dir, result)
 
     print(f"\n{'='*60}")
     print(f"Pipeline complete: {topic}")
