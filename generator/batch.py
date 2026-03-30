@@ -108,6 +108,7 @@ def run_batch(
     seed: int | None = None,
     n_concurrent: int = 1,
     resume_from: str | None = None,
+    solution_first: bool = False,
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 
@@ -202,6 +203,7 @@ def run_batch(
                 skip_eval=skip_eval,
                 skip_functional=skip_functional,
                 skip_filters=skip_filters,
+                solution_first=solution_first,
             )
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -507,6 +509,10 @@ if __name__ == "__main__":
         help="Skip Haiku/Sonnet filter tiers (go straight to Opus)",
     )
     parser.add_argument(
+        "--solution-first", action="store_true",
+        help="Use two-phase generation (write working code first, then introduce bugs)",
+    )
+    parser.add_argument(
         "--resume", metavar="BATCH_ID_OR_PATH", nargs="?", const="auto",
         help=(
             "Resume an interrupted batch. Omit the value to auto-detect the most "
@@ -540,4 +546,5 @@ if __name__ == "__main__":
         seed=args.seed,
         n_concurrent=args.n_concurrent,
         resume_from=args.resume,
+        solution_first=args.solution_first,
     )
