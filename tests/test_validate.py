@@ -163,6 +163,23 @@ EOF
         files = _parse_solution_files(script)
         assert "helper.py" in files
 
+    def test_echo_pattern(self):
+        script = '#!/bin/bash\necho "Hello, world!" > /app/hello.txt\n'
+        files = _parse_solution_files(script)
+        assert "hello.txt" in files
+        assert files["hello.txt"] == "Hello, world!\n"
+
+    def test_skips_shell_variable_paths(self):
+        script = 'cat > "$REPORT" << \'EOF\'\nsome content\nEOF\n'
+        files = _parse_solution_files(script)
+        assert len(files) == 0
+
+    def test_echo_append_ignored(self):
+        """echo >> (append) should not be captured as a file write."""
+        script = '#!/bin/bash\necho "line" >> /app/output.txt\n'
+        files = _parse_solution_files(script)
+        assert len(files) == 0
+
 
 class TestAnalyzeSolutionDiff:
     def _make_task(self, tmp_path, buggy_content, fixed_content, filename="main.py"):

@@ -176,7 +176,7 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - End-to-end integration test (`test_pipeline_e2e.py`) — 15 tests exercising the full `run_pipeline` flow (generate → structural → functional → evaluate) with mocked API/Docker. Covers happy path, solution-first strategy, generation failure, structural/functional retry, infrastructure error detection, difficulty adjustment loop, and regeneration failure.
 - Generator unit tests (`test_generate.py`) — 26 new tests for `_parse_response` (JSON parsing edge cases, markdown fences, embedded backticks), `_load_examples` (three-way classification, opus examples), and `_slugify` (special chars, truncation, hash suffix).
 - Evaluate tests (`test_evaluate.py`) — 32 tests covering stale resource cleanup, result parsing, filter tier early stopping, full evaluate_task orchestration (Haiku/Sonnet filtering, Opus classification, skip_filters, default skip_haiku), and _build_result.
-- 299 tests across 14 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
+- 302 tests across 14 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
 
 ### Scripts
 

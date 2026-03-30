@@ -24,26 +24,34 @@ INFRA_FILES = {"Dockerfile", "docker-compose.yaml", "run-tests.sh", "task.yaml"}
 
 
 def _parse_solution_files(solution_sh: str) -> dict[str, str]:
-    """Extract file contents from a solution.sh heredoc script.
+    """Extract file contents from a solution.sh script.
 
-    Parses patterns like:
-        cat > /app/foo.py << 'EOF'
-        ...content...
-        EOF
+    Parses patterns:
+    1. Heredoc:  cat > /app/foo.py << 'EOF' ... EOF
+    2. Echo:     echo "content" > /app/foo.txt
+    3. Flags sed/perl patches as unparseable (returns empty for those files)
 
     Returns dict mapping filename (basename) to content.
     """
     files: dict[str, str] = {}
-    # Match: cat > <path> << '<DELIM>' or cat > <path> << 'DELIM'
-    # Also handles unquoted delimiters and >> (append)
-    pattern = re.compile(
+
+    # Pattern 1: heredoc — cat > <path> << '<DELIM>'
+    heredoc_pattern = re.compile(
         r"""cat\s+>+\s+(\S+)\s+<<\s*['"]?(\w+)['"]?""",
+    )
+
+    # Pattern 2: echo — echo "content" > <path> (single-line file writes)
+    echo_pattern = re.compile(
+        r"""echo\s+["']([^"']*)["']\s+>\s+(\S+)""",
     )
 
     lines = solution_sh.splitlines(keepends=True)
     i = 0
     while i < len(lines):
-        match = pattern.search(lines[i])
+        line = lines[i]
+
+        # Try heredoc first
+        match = heredoc_pattern.search(line)
         if match:
             filepath = match.group(1)
             delimiter = match.group(2)
@@ -52,9 +60,25 @@ def _parse_solution_files(solution_sh: str) -> dict[str, str]:
             while i < len(lines) and lines[i].rstrip("\n") != delimiter:
                 content_lines.append(lines[i])
                 i += 1
-            # Strip the path prefix (e.g. /app/) to get the basename/relative path
-            filename = filepath.split("/")[-1] if "/" in filepath else filepath
-            files[filename] = "".join(content_lines)
+            # Skip shell variable paths like "$REPORT" or "\"$REPORT\""
+            clean_path = filepath.strip('"').strip("'")
+            if not clean_path.startswith("$"):
+                filename = clean_path.split("/")[-1] if "/" in clean_path else clean_path
+                files[filename] = "".join(content_lines)
+            i += 1
+            continue
+
+        # Try echo pattern (single-line writes)
+        match = echo_pattern.search(line)
+        if match and ">>" not in line:  # skip appends
+            content = match.group(1)
+            filepath = match.group(2)
+            if not filepath.startswith("$"):
+                filename = filepath.split("/")[-1] if "/" in filepath else filepath
+                files[filename] = content + "\n"
+            i += 1
+            continue
+
         i += 1
 
     return files
