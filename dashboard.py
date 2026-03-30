@@ -186,6 +186,46 @@ CUSTOM_CSS = """
 """
 
 
+def _get_batch_start_ts(batch_dir: str) -> int:
+    """Get batch start as unix timestamp from meta file."""
+    for f in glob.glob(os.path.join(batch_dir, "batch-*-meta.json")):
+        try:
+            batch_id = json.load(open(f)).get("batch_id", "")
+            dt = datetime.strptime(batch_id, "%Y%m%d-%H%M%S")
+            return int(dt.timestamp())
+        except Exception:
+            pass
+    return 0
+
+
+def _get_live_eval_scores(task_dirname: str, model_substr: str, batch_start_ts: int) -> tuple[int, int]:
+    """Get live pass/total from runs/ dir for a specific model, filtered to current batch.
+
+    Only counts runs whose timestamp suffix is >= batch_start_ts.
+    Returns (passes, total).
+    """
+    passes, total = 0, 0
+    for run_dir in glob.glob(os.path.join(RUNS_DIR, f"eval-{task_dirname}-{model_substr}-*")):
+        # Extract timestamp from run dir name (last segment after final -)
+        try:
+            ts = int(os.path.basename(run_dir).rsplit("-", 1)[-1])
+        except (ValueError, IndexError):
+            continue
+        if ts < batch_start_ts:
+            continue  # Stale run from previous batch
+        results_file = os.path.join(run_dir, "results.json")
+        if os.path.exists(results_file):
+            try:
+                rdata = json.load(open(results_file))
+                for trial in rdata.get("results", []):
+                    total += 1
+                    if trial.get("is_resolved"):
+                        passes += 1
+            except Exception:
+                pass
+    return passes, total
+
+
 def _get_task_statuses(batch_dir: str) -> list[dict]:
     """Get status of every task in a batch from _status.json files and incremental."""
     tasks = []
@@ -739,6 +779,9 @@ def render_pipeline_view():
     </div>
     """, unsafe_allow_html=True)
 
+    # Batch start timestamp for filtering runs/ to current batch only
+    batch_start_ts = _get_batch_start_ts(batch_dir)
+
     # Task rows with color-coded pipeline + expandable details
     for t in tasks:
         topic = t["topic"][:35] if t["topic"] else "?"
@@ -807,22 +850,9 @@ def render_pipeline_view():
                 else:
                     sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
             elif stage == "evaluating":
-                # Check runs/ for live Sonnet results
-                _dir = t.get("dir")
-                _dn = os.path.basename(_dir) if _dir else ""
-                _sonnet_runs = glob.glob(os.path.join(RUNS_DIR, f"eval-{_dn}-claude-sonnet-*"))
-                _sp, _st = 0, 0
-                for _sr in _sonnet_runs:
-                    _rf = os.path.join(_sr, "results.json")
-                    if os.path.exists(_rf):
-                        try:
-                            _rd = json.load(open(_rf))
-                            for _trial in _rd.get("results", []):
-                                _st += 1
-                                if _trial.get("is_resolved"):
-                                    _sp += 1
-                        except Exception:
-                            pass
+                # Live Sonnet scores from runs/, filtered to current batch
+                _dn = os.path.basename(t.get("dir", ""))
+                _sp, _st = _get_live_eval_scores(_dn, "claude-sonnet*", batch_start_ts)
                 if _st > 0:
                     sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st}</div>'
                 else:
@@ -844,25 +874,12 @@ def render_pipeline_view():
             elif filtered_at in ("sonnet", "haiku") and stage == "completed":
                 opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
             elif stage == "evaluating":
-                # Check runs/ for live Opus results
-                _dir = t.get("dir")
-                _dn = os.path.basename(_dir) if _dir else ""
-                _opus_runs = glob.glob(os.path.join(RUNS_DIR, f"eval-{_dn}-claude-opus-*"))
-                _op, _ot = 0, 0
-                for _or_path in _opus_runs:
-                    _rf = os.path.join(_or_path, "results.json")
-                    if os.path.exists(_rf):
-                        try:
-                            _rd = json.load(open(_rf))
-                            for _trial in _rd.get("results", []):
-                                _ot += 1
-                                if _trial.get("is_resolved"):
-                                    _op += 1
-                        except Exception:
-                            pass
+                # Live Opus scores from runs/, filtered to current batch
+                _dn = os.path.basename(t.get("dir", ""))
+                _op, _ot = _get_live_eval_scores(_dn, "claude-opus*", batch_start_ts)
                 if _ot > 0:
                     opus_cell = f'<div class="stage-cell stage-active">{_op}/{_ot}</div>'
-                elif _sonnet_runs and _st > 0:
+                elif _st > 0:
                     # Sonnet has results but Opus doesn't — still in Sonnet phase
                     opus_cell = '<div class="stage-cell stage-pending">—</div>'
                 else:
