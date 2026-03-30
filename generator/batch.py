@@ -241,23 +241,41 @@ def run_batch(
                 f.write(json.dumps(result, default=str) + "\n")
         return result
 
+    def _write_report(results: list[dict], batch_status: str = "completed") -> dict:
+        """Write the batch report. Called on success AND on crash (via finally)."""
+        batch_duration = time.time() - batch_start
+        metrics = _compute_metrics(results, batch_duration, batch_id)
+        metrics["batch_status"] = batch_status
+        report_path = os.path.join(batch_output_dir, f"batch-{batch_id}-report.json")
+        with open(report_path, "w") as f:
+            json.dump({"metrics": metrics, "results": results}, f, indent=2, default=str)
+        return metrics
+
     new_results: list[dict] = []
-    if remaining:
-        workers = min(n_concurrent, len(remaining))
-        if workers <= 1:
-            for topic in remaining:
-                new_results.append(_run_one(topic))
-        else:
-            print(f"Running {workers} tasks concurrently ({len(remaining)} remaining)")
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(_run_one, topic): i
-                    for i, topic in enumerate(remaining)
-                }
-                new_results = [None] * len(remaining)
-                for future in as_completed(futures):
-                    idx = futures[future]
-                    new_results[idx] = future.result()
+    batch_crashed = False
+    crash_error: BaseException | None = None
+
+    try:
+        if remaining:
+            workers = min(n_concurrent, len(remaining))
+            if workers <= 1:
+                for topic in remaining:
+                    new_results.append(_run_one(topic))
+            else:
+                print(f"Running {workers} tasks concurrently ({len(remaining)} remaining)")
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {
+                        executor.submit(_run_one, topic): i
+                        for i, topic in enumerate(remaining)
+                    }
+                    new_results = [None] * len(remaining)
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        new_results[idx] = future.result()
+    except BaseException as e:
+        batch_crashed = True
+        crash_error = e
+        print(f"\nBatch interrupted: {e}")
 
     # Merge in original topic order: prior results first, then new, preserving
     # the order topics were originally planned so the report is consistent.
@@ -265,21 +283,36 @@ def run_batch(
     completed_map.update({r["topic"]: r for r in new_results if r is not None})
     results = [completed_map[t] for t in topics if t in completed_map]
 
-    batch_duration = time.time() - batch_start
+    # ── Final report (always written, even on crash) ─────────────────────────
+    batch_status = "crashed" if batch_crashed else "completed"
+    if batch_crashed and not results:
+        # If we crashed before any results, reconstruct from incremental file
+        if os.path.exists(incremental_path):
+            for line in open(incremental_path):
+                line = line.strip()
+                if line:
+                    try:
+                        results.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
 
-    # ── Final report ──────────────────────────────────────────────────────────
-    metrics = _compute_metrics(results, batch_duration, batch_id)
-    report_path = os.path.join(batch_output_dir, f"batch-{batch_id}-report.json")
-    with open(report_path, "w") as f:
-        json.dump({"metrics": metrics, "results": results}, f, indent=2, default=str)
+    metrics = _write_report(results, batch_status)
 
     _print_report(metrics, results)
+    report_path = os.path.join(batch_output_dir, f"batch-{batch_id}-report.json")
     print(f"\nFull report saved to: {report_path}")
+    if batch_crashed:
+        print(f"  (batch status: {batch_status} — {len(results)}/{len(topics)} tasks completed)")
 
     # Clean up working files now that the final report is written
     for path in (incremental_path, meta_path):
         if os.path.exists(path):
             os.remove(path)
+
+    # Re-raise if we caught a KeyboardInterrupt or SystemExit
+    if crash_error is not None:
+        if isinstance(crash_error, (KeyboardInterrupt, SystemExit)):
+            raise crash_error
 
     return {"metrics": metrics, "results": results}
 

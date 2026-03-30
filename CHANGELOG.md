@@ -14,6 +14,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Reliability
+
+**Crash-safe batch reports** (`batch.py`) — Batch runs now always produce a report file, even on crash (OOM, KeyboardInterrupt, credit exhaustion). Previously, if a batch died mid-execution, no report was written and the dashboard showed it as perpetually "active". Now the execution is wrapped in try/except with a finally-style report write that captures whatever results completed before the crash, tagged with `batch_status: "crashed"`. KeyboardInterrupt and SystemExit are re-raised after the report is saved.
+
+**Metrics merge for incomplete batches** (`metrics.py`) — The metrics loader now merges incremental JSONL results into report files. When a batch has both a report and incremental file, any task with a null classification in the report is replaced by the real result from the incremental file if available. This fixes a bug where aborted batches with manually-created stub reports hid completed results (e.g., batch 5's learnable template engine task was invisible). Learnable count restored from 2 → 3.
+
 ### Generation
 
 **Pre-batch prompt audit and refinements** (`generate.py`, `prompts.py`) — Systematic audit before committing to a $400-budget batch run:

@@ -23,13 +23,18 @@ from pathlib import Path
 
 
 def _load_batch_results(output_dir: str) -> list[dict]:
-    """Load all batch results from report and incremental files."""
+    """Load all batch results from report and incremental files.
+
+    When both a report and incremental file exist, the report is primary but
+    incremental results are merged in for any topic where the report has
+    null/missing classification but the incremental file has real data.
+    This handles crashed/aborted batches that wrote stub reports.
+    """
     batches = []
 
     for batch_dir in sorted(glob.glob(os.path.join(output_dir, "sonnet-batch-*"))):
         batch_name = os.path.basename(batch_dir)
 
-        # Try report first, fall back to incremental
         report = glob.glob(os.path.join(batch_dir, "batch-*-report.json"))
         incremental = glob.glob(os.path.join(batch_dir, "batch-*-incremental.jsonl"))
 
@@ -40,6 +45,35 @@ def _load_batch_results(output_dir: str) -> list[dict]:
                 results = data.get("results", [])
             except (json.JSONDecodeError, KeyError):
                 pass
+
+            # Merge incremental data for tasks the report missed (crashed/aborted)
+            if incremental:
+                incr_by_topic: dict[str, dict] = {}
+                for line in open(incremental[0]):
+                    line = line.strip()
+                    if line:
+                        try:
+                            r = json.loads(line)
+                            topic = r.get("topic")
+                            if topic and r.get("classification"):
+                                incr_by_topic[topic] = r
+                        except json.JSONDecodeError:
+                            pass
+
+                if incr_by_topic:
+                    report_topics = {r.get("topic") for r in results}
+                    # Replace stub results with real incremental data
+                    results = [
+                        incr_by_topic.get(r.get("topic"), r)
+                        if not r.get("classification") and r.get("topic") in incr_by_topic
+                        else r
+                        for r in results
+                    ]
+                    # Add any incremental results for topics not in report at all
+                    for topic, r in incr_by_topic.items():
+                        if topic not in report_topics:
+                            results.append(r)
+
         elif incremental:
             for line in open(incremental[0]):
                 line = line.strip()
