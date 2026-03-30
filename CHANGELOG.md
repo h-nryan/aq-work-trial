@@ -133,3 +133,8 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - End-to-end integration test (`test_pipeline_e2e.py`) — 15 tests exercising the full `run_pipeline` flow (generate → structural → functional → evaluate) with mocked API/Docker. Covers happy path, solution-first strategy, generation failure, structural/functional retry, infrastructure error detection, difficulty adjustment loop, and regeneration failure.
 - Generator unit tests (`test_generate.py`) — 26 new tests for `_parse_response` (JSON parsing edge cases, markdown fences, embedded backticks), `_load_examples` (three-way classification, opus examples), and `_slugify` (special chars, truncation, hash suffix).
 - 216 tests across 12 modules (~4s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
+
+### Scripts
+
+- **`generate-exemplar.sh`** — Generates a high-quality task using Opus (`--model anthropic/claude-opus-4 --solution-first`), validates structurally + functionally, and prints next-step commands for eval and promotion. Use this to build up `examples-opus/` before running Sonnet batches.
+- **`promote-exemplar.sh`** — Copies a confirmed-learnable task to `examples-opus/`, strips pipeline artifacts, and commits. Takes `--opus-passes` and `--opus-total` for the commit message.
