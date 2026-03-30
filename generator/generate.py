@@ -476,33 +476,35 @@ def generate_task_solution_first(
     print(f"  Phase 1: Generating working code...")
 
     phase1_prompt = PHASE1_PROMPT.format(topic=topic, examples=examples)
-    response1 = _api_call_with_retry(
-        client,
-        model=gen_model,
-        messages=[
-            {"role": "system", "content": "You write correct, well-tested code. Return only JSON."},
-            {"role": "user", "content": phase1_prompt},
-        ],
-        temperature=0.5,  # Lower temp for correctness
-        max_tokens=32000,
-    )
+    phase1_messages = [
+        {"role": "system", "content": "You write correct, well-tested code. Return only JSON."},
+        {"role": "user", "content": phase1_prompt},
+    ]
 
-    if response1.usage:
-        for k in total_usage:
-            total_usage[k] += getattr(response1.usage, k, 0)
-
-    try:
-        working_files = _parse_response(response1.choices[0].message.content)
-    except (json.JSONDecodeError, ValueError) as e:
-        with open(os.path.join(output_dir, "_phase1_raw.txt"), "w") as f:
-            f.write(response1.choices[0].message.content)
-        return {
-            "task_dir": output_dir,
-            "status": f"phase1_parse_error: {e}",
-            "model": gen_model,
-            "usage": total_usage,
-            "duration_sec": round(time.time() - start, 2),
-        }
+    working_files = None
+    for parse_attempt in range(3):
+        response1 = _api_call_with_retry(
+            client, model=gen_model, messages=phase1_messages,
+            temperature=0.5, max_tokens=32000,
+        )
+        if response1.usage:
+            for k in total_usage:
+                total_usage[k] += getattr(response1.usage, k, 0)
+        try:
+            working_files = _parse_response(response1.choices[0].message.content)
+            break
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"  Phase 1 parse error (attempt {parse_attempt + 1}/3): {e}")
+            if parse_attempt == 2:
+                with open(os.path.join(output_dir, "_phase1_raw.txt"), "w") as f:
+                    f.write(response1.choices[0].message.content)
+                return {
+                    "task_dir": output_dir,
+                    "status": f"phase1_parse_error: {e}",
+                    "model": gen_model,
+                    "usage": total_usage,
+                    "duration_sec": round(time.time() - start, 2),
+                }
 
     print(f"  Phase 1 complete: {len(working_files)} files")
 
@@ -526,34 +528,35 @@ def generate_task_solution_first(
 
     working_json = json.dumps({"files": working_files}, indent=2)
     phase2_prompt = PHASE2_PROMPT.format(working_json=working_json)
+    phase2_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": phase2_prompt},
+    ]
 
-    response2 = _api_call_with_retry(
-        client,
-        model=gen_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": phase2_prompt},
-        ],
-        temperature=0.7,  # Higher temp for creative bugs
-        max_tokens=16000,
-    )
-
-    if response2.usage:
-        for k in total_usage:
-            total_usage[k] += getattr(response2.usage, k, 0)
-
-    try:
-        buggy_files = _parse_response(response2.choices[0].message.content)
-    except (json.JSONDecodeError, ValueError) as e:
-        with open(os.path.join(output_dir, "_phase2_raw.txt"), "w") as f:
-            f.write(response2.choices[0].message.content)
-        return {
-            "task_dir": output_dir,
-            "status": f"phase2_parse_error: {e}",
-            "model": gen_model,
-            "usage": total_usage,
-            "duration_sec": round(time.time() - start, 2),
-        }
+    buggy_files = None
+    for parse_attempt in range(3):
+        response2 = _api_call_with_retry(
+            client, model=gen_model, messages=phase2_messages,
+            temperature=0.7, max_tokens=16000,
+        )
+        if response2.usage:
+            for k in total_usage:
+                total_usage[k] += getattr(response2.usage, k, 0)
+        try:
+            buggy_files = _parse_response(response2.choices[0].message.content)
+            break
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"  Phase 2 parse error (attempt {parse_attempt + 1}/3): {e}")
+            if parse_attempt == 2:
+                with open(os.path.join(output_dir, "_phase2_raw.txt"), "w") as f:
+                    f.write(response2.choices[0].message.content)
+                return {
+                    "task_dir": output_dir,
+                    "status": f"phase2_parse_error: {e}",
+                    "model": gen_model,
+                    "usage": total_usage,
+                    "duration_sec": round(time.time() - start, 2),
+                }
 
     print(f"  Phase 2 complete: {len(buggy_files)} buggy files")
 
