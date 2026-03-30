@@ -360,9 +360,12 @@ def _render_task_details(task_dir: str, task_info: dict):
             except Exception:
                 pass
 
-    # Eval results — from batch data (primary) or runs/ dir (fallback)
-    stages = task_info.get("stages", {})
-    eval_data = stages.get("evaluation", {})
+    # Eval results — skip entirely for eval_skipped tasks
+    if task_info.get("classification") == "eval_skipped":
+        eval_data = {}
+    else:
+        stages = task_info.get("stages", {})
+        eval_data = stages.get("evaluation", {})
     opus_tier = eval_data.get("tier_results", {}).get("opus", {})
     opus_trials = opus_tier.get("trials", [])
 
@@ -641,7 +644,10 @@ def render_pipeline_view():
         struct_cell = _render_stage_cell(stage, "structural", fs)
         func_cell = _render_stage_cell(stage, "functional", fs)
 
-        if stage in ("completed", "evaluating") or cl:
+        if cl == "eval_skipped":
+            sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
+            opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
+        elif stage in ("completed", "evaluating") or cl:
             sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
