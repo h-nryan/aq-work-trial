@@ -371,31 +371,36 @@ Remember:
 - Return ONLY the JSON object with all files"""
 
 
+def _strip_fences(text: str) -> str:
+    """Strip leading/trailing markdown code fences from an LLM response.
+
+    Cannot use a simple regex because the JSON content itself may contain
+    triple backticks (e.g. code blocks inside task.yaml instructions).
+    Handles ```json...``` and plain ```...``` wrappers.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+        last_fence = text.rfind("```")
+        if last_fence != -1:
+            text = text[:last_fence]
+        text = text.strip()
+    return text
+
+
 def _parse_response(response_text: str) -> dict:
     """Parse the LLM response to extract files dict.
 
     Handles: raw JSON, JSON in markdown fences (even when content contains ```),
     and JSON embedded in surrounding text.
     """
-    text = response_text.strip()
-
-    # Strategy 1: Strip leading/trailing markdown fences if present.
-    # Can't use regex with .*? because the JSON content may itself contain ```
-    # (e.g. code blocks inside task.yaml instructions).
-    if text.startswith("```"):
-        # Remove opening fence line
-        first_newline = text.index("\n")
-        text = text[first_newline + 1:]
-        # Remove closing fence (last ```)
-        last_fence = text.rfind("```")
-        if last_fence != -1:
-            text = text[:last_fence]
-        text = text.strip()
+    text = _strip_fences(response_text)
 
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        # Strategy 2: find outermost { ... } braces
+        # Fallback: find outermost { ... } braces
         brace_start = text.find("{")
         brace_end = text.rfind("}")
         if brace_start != -1 and brace_end != -1:
@@ -1284,14 +1289,7 @@ IMPORTANT:
 
         try:
             # Parse the surgical edit response
-            text = response_text.strip()
-            if text.startswith("```"):
-                first_nl = text.index("\n")
-                text = text[first_nl + 1:]
-                last_fence = text.rfind("```")
-                if last_fence != -1:
-                    text = text[:last_fence]
-                text = text.strip()
+            text = _strip_fences(response_text)
 
             try:
                 data = json.loads(text)

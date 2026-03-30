@@ -22,6 +22,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Move inline imports to module level** (`pipeline.py`) — Four imports were scattered inside function bodies: `import json` in `_write_adjustment_snapshot` (already at module level — pure redundancy), `from evaluate import run_opus_eval as _run_opus_resume` in `run_pipeline` (already imported at module level as `run_opus_eval`), and `from evaluate import _run_tb` + `from config import SONNET_FILTER_MODEL` inside the too_easy adjustment branch. All moved to module-level imports. The redundant re-import alias is removed; callers now use `run_opus_eval` directly.
 
+**Extract `_strip_fences` helper** (`generate.py`) — The markdown fence-stripping logic (strip ` ```json ` wrappers from LLM responses) was copy-pasted identically in `_parse_response` and `adjust_difficulty`. Extracted into a shared `_strip_fences(text: str) -> str` helper. Both call sites simplified to a single line. The helper comment explains why regex can't be used (JSON content may itself contain triple backticks).
+
 ### Early Adjustment with Test-Level Granularity
 
 **Early adjustment after 0/3 parallel batch** (`evaluate.py`, `pipeline.py`) — Major refactor of the evaluation + adjustment loop. Previously, the pipeline ran all 5 Opus trials before adjusting difficulty, wasting 2 expensive Opus runs on clearly-too-hard tasks. Now, after the initial 3-parallel Opus batch:
