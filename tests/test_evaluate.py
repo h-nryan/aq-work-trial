@@ -12,9 +12,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
 from evaluate import (
     _build_result,
+    _can_stop,
     _cleanup_stale_containers,
     _cleanup_stale_networks,
     _cleanup_stale_tb_processes,
+    _extract_test_stats,
     _kill_containers_for_task,
     _parse_run_results,
     _prune_exited_containers,
@@ -348,7 +350,8 @@ class TestRunTbTimeoutCleanup:
         result = _run_tb(str(task_dir), "anthropic/claude-opus-4", timeout_sec=0.001)
         assert result["status"] == "timeout"
         assert result["passes"] == 0
-        assert killed_task_ids == ["my-test-task"]
+        # With retry logic, kill is called once per attempt (1 + 1 retry)
+        assert killed_task_ids == ["my-test-task", "my-test-task"]
 
 
 class TestParseRunResults:
@@ -617,20 +620,18 @@ class TestEvaluateTask:
         self._mock_filter_tier(monkeypatch,
             sonnet_result=self._make_filter_result("Sonnet", 0, 5, 4, False),
         )
-        # _can_stop(0, 2) → 0+2=2 >= 1 → not too_hard yet
-        # _can_stop(0, 1) → 0+1=1 >= 1 → not too_hard yet
-        # _can_stop(0, 0) → 0+0=0 < 1 → too_hard
+        # With early adjustment: 0/3 + low test rate → recommend_early_adjust
+        # run_opus_eval returns after batch of 3 with early adjust recommendation
         mock = _MockRunTb([
-            _make_tb_result(0, 3),  # batch: 0/3
-            _make_tb_result(0, 1),  # seq: 0/4
-            _make_tb_result(0, 1),  # seq: 0/5 → too_hard
+            _make_tb_result(0, 3),  # batch: 0/3 → early adjust recommended
         ])
         monkeypatch.setattr("evaluate._run_tb", mock)
 
         result = evaluate_task(str(tmp_path), skip_haiku=True)
         assert result["classification"] == "too_hard"
         assert result["passes"] == 0
-        assert result["total"] == 5
+        assert result["total"] == 3  # stops at 3 due to early adjustment
+        assert result.get("recommend_early_adjust") is True
 
     def test_reaches_opus_too_easy(self, tmp_path, monkeypatch):
         """Sonnet 3/5 → proceed. Opus 3/3 batch + 1/1 seq → 4/4 > LEARNABLE_MAX → too_easy."""
@@ -722,7 +723,27 @@ class TestBuildResult:
         assert result["task_name"] == "test-task"
         assert result["filtered_at"] is None
 
-    def test_too_easy_filtered_at_sonnet(self):
+    def test_too_easy_filtered_at_sonnet_passes_scores(self):
+        """Sonnet-filtered results should carry Sonnet's scores as pass/total."""
+        result = _build_result(
+            task_dir="/tmp/easy-task",
+            classification="too_easy",
+            filtered_at="sonnet",
+            tier_results={"sonnet": {
+                "model_label": "Sonnet", "passes": 3, "total": 5, "should_skip": True,
+            }},
+            opus_passes=3,
+            opus_total=5,
+        )
+        assert result["classification"] == "too_easy"
+        assert result["filtered_at"] == "sonnet"
+        assert result["passes"] == 3
+        assert result["total"] == 5
+        assert result["pass_rate"] == 0.6  # Sonnet's actual rate, not None
+        assert result["tier_results"]["sonnet"]["model"] == "Sonnet"
+
+    def test_too_easy_filtered_at_sonnet_no_scores(self):
+        """Sonnet-filtered without explicit scores should have None pass_rate."""
         result = _build_result(
             task_dir="/tmp/easy-task",
             classification="too_easy",
@@ -733,8 +754,23 @@ class TestBuildResult:
         )
         assert result["classification"] == "too_easy"
         assert result["filtered_at"] == "sonnet"
-        assert result["pass_rate"] is None  # no Opus data
-        assert result["tier_results"]["sonnet"]["model"] == "Sonnet"
+        assert result["pass_rate"] is None  # no scores passed explicitly
+
+    def test_too_easy_filtered_at_haiku_passes_scores(self):
+        """Haiku-filtered results should carry Haiku's scores."""
+        result = _build_result(
+            task_dir="/tmp/easy-task",
+            classification="too_easy",
+            filtered_at="haiku",
+            tier_results={"haiku": {
+                "model_label": "Haiku", "passes": 4, "total": 5, "should_skip": True,
+            }},
+            opus_passes=4,
+            opus_total=5,
+        )
+        assert result["passes"] == 4
+        assert result["total"] == 5
+        assert result["pass_rate"] == 0.8
 
     def test_zero_opus_total(self):
         result = _build_result(
@@ -746,3 +782,73 @@ class TestBuildResult:
             opus_total=0,
         )
         assert result["pass_rate"] is None
+
+
+class TestCanStop:
+    """Tests for the early-stop classification logic."""
+
+    def test_learnable_certain(self):
+        # 2 passes, 1 remaining → max possible is 3 (still learnable)
+        assert _can_stop(2, 1) == "learnable"
+
+    def test_learnable_exact(self):
+        # 1 pass, 0 remaining → exactly 1/5, learnable
+        assert _can_stop(1, 0) == "learnable"
+
+    def test_too_easy(self):
+        # 4 passes → already over LEARNABLE_MAX (3)
+        assert _can_stop(4, 1) == "too_easy"
+
+    def test_too_hard_certain(self):
+        # 0 passes, 0 remaining → 0/5, too_hard
+        assert _can_stop(0, 0) == "too_hard"
+
+    def test_still_uncertain(self):
+        # 0 passes, 2 remaining → could still get 1-2, uncertain
+        assert _can_stop(0, 2) is None
+
+    def test_one_pass_two_remaining(self):
+        # 1 pass, 2 remaining → max 3 (learnable), already >= 1, certain
+        assert _can_stop(1, 2) == "learnable"
+
+
+class TestExtractTestStats:
+    """Tests for per-test pass rate extraction."""
+
+    def test_empty_trials(self):
+        stats = _extract_test_stats([])
+        assert stats["avg_test_pass_rate"] == 0.0
+        assert stats["trials"] == []
+
+    def test_single_trial_all_pass(self):
+        trials = [{"trials": [
+            {"tests_passed": 5, "tests_total": 5},
+        ]}]
+        stats = _extract_test_stats(trials)
+        assert stats["avg_test_pass_rate"] == 1.0
+
+    def test_single_trial_partial(self):
+        trials = [{"trials": [
+            {"tests_passed": 3, "tests_total": 6},
+        ]}]
+        stats = _extract_test_stats(trials)
+        assert stats["avg_test_pass_rate"] == 0.5
+
+    def test_multiple_trials_averaged(self):
+        trials = [{"trials": [
+            {"tests_passed": 2, "tests_total": 4},  # 50%
+            {"tests_passed": 4, "tests_total": 4},  # 100%
+            {"tests_passed": 0, "tests_total": 4},  # 0%
+        ]}]
+        stats = _extract_test_stats(trials)
+        assert abs(stats["avg_test_pass_rate"] - 0.5) < 0.01
+
+    def test_zero_total_tests_skipped(self):
+        """Trials with 0 total tests should be excluded from average."""
+        trials = [{"trials": [
+            {"tests_passed": 3, "tests_total": 5},
+            {"tests_passed": 0, "tests_total": 0},  # skip
+        ]}]
+        stats = _extract_test_stats(trials)
+        assert stats["avg_test_pass_rate"] == 0.6
+        assert len(stats["trials"]) == 1  # only 1 counted
