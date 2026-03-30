@@ -21,6 +21,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - Phase 2 requires majority of tests to fail, not all — some passing tests give the agent useful debugging signal
 - Higher retry budget (`MAX_SOLUTION_FIRST_RETRIES=6` vs default 2) since each targeted repair gets closer to passing
 - Source-only repair now includes test function code so the LLM can see what each test checks and introduce bugs that break those specific checks (previously guessed blindly)
+- **Phase 2 self-verification**: Prompt now requires the LLM to trace each test function against its buggy code and output a per-test verification ("test_X: WILL FAIL because..."). Forces chain-of-thought about test-to-bug mapping. Motivated by first Sonnet batch where 0/3 tasks passed functional validation because Phase 2 bugs didn't break tests.
 - Usage: `python3.12 pipeline.py "topic" --solution-first`
 
 **Few-shot example curation** (`generate.py`) — Three-way classification of reference examples:
