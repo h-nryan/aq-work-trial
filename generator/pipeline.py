@@ -14,9 +14,17 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "validator"))
 import shutil
 
-from config import EVAL_TRIALS, LEARNABLE_MAX, LEARNABLE_MIN, MAX_GENERATION_RETRIES, MAX_SOLUTION_FIRST_RETRIES, SONNET_EXAMPLES_DIR
+from config import (
+    EVAL_TRIALS,
+    LEARNABLE_MAX,
+    LEARNABLE_MIN,
+    MAX_GENERATION_RETRIES,
+    MAX_SOLUTION_FIRST_RETRIES,
+    SONNET_EXAMPLES_DIR,
+    SONNET_FILTER_MODEL,
+)
 from docker_validate import docker_validate
-from evaluate import evaluate_task, run_opus_eval
+from evaluate import _run_tb, evaluate_task, run_opus_eval
 from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
 
 # Max rounds of difficulty adjustment after evaluation
@@ -115,7 +123,6 @@ def _write_adjustment_snapshot(
     Captures what the task looked like before adjustment, why it was adjusted,
     and the eval results that triggered the adjustment.
     """
-    import json
     meta = {
         "adjustment_round": adj_round,
         "pre_adjustment_classification": classification,
@@ -509,8 +516,7 @@ def run_pipeline(
                     _write_status(task_dir, "evaluating",
                                   f"Opus remaining {remaining_runs} runs (post-adjustment)")
                     opus_prior = eval_result.get("opus_prior", {})
-                    from evaluate import run_opus_eval as _run_opus_resume
-                    resume_result = _run_opus_resume(
+                    resume_result = run_opus_eval(
                         task_dir=task_dir,
                         n_trials=n_eval_trials,
                         prior_passes=opus_prior.get("passes", 0),
@@ -549,8 +555,6 @@ def run_pipeline(
 
                 # For too_easy adjustments: cheap Sonnet check before expensive Opus re-eval
                 if classification == "too_easy":
-                    from evaluate import _run_tb
-                    from config import SONNET_FILTER_MODEL
                     adjusted = _try_adjustment(
                         topic, task_dir, classification, pass_rate,
                         eval_result, adj_round, model, result,
