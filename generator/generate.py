@@ -497,7 +497,7 @@ def generate_task(
     for parse_attempt in range(3):
         response = _api_call_with_retry(
             client, model=gen_model, messages=messages,
-            temperature=0.7, max_tokens=32000,
+            temperature=0.7, max_tokens=8192,
         )
 
         response_text = response.choices[0].message.content
@@ -703,7 +703,7 @@ def generate_task_solution_first(
     for parse_attempt in range(3):
         response1 = _api_call_with_retry(
             client, model=gen_model, messages=phase1_messages,
-            temperature=0.5, max_tokens=32000,
+            temperature=0.5, max_tokens=8192,
         )
         if response1.usage:
             for k in total_usage:
@@ -756,7 +756,7 @@ def generate_task_solution_first(
     for parse_attempt in range(3):
         response2 = _api_call_with_retry(
             client, model=gen_model, messages=phase2_messages,
-            temperature=0.7, max_tokens=16000,
+            temperature=0.7, max_tokens=8192,
         )
         if response2.usage:
             for k in total_usage:
@@ -992,7 +992,7 @@ Return ONLY the JSON object."""
             model=gen_model,
             messages=messages,
             temperature=0.3,  # Lower temp for repairs — we want precision
-            max_tokens=32000,
+            max_tokens=4096,
         )
 
         response_text = response.choices[0].message.content
@@ -1282,7 +1282,7 @@ IMPORTANT:
     for parse_attempt in range(3):
         response = _api_call_with_retry(
             client, model=gen_model, messages=messages,
-            temperature=0.3, max_tokens=16000,
+            temperature=0.3, max_tokens=4096,
         )
 
         response_text = response.choices[0].message.content

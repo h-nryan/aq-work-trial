@@ -20,6 +20,20 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Validated with retest on 3 previously-failing topics** — Ran generation-only (no eval) on the 3 topics that failed functional validation in batch 24 with 5 examples: backup rotation (0% pass rate across batches 22-24), curl wrapper (tests pass without solution), DNS resolver (solution doesn't fix bugs). With 9 examples, all 3 passed functional validation (backup rotation on attempt 3, curl wrapper on attempt 2, DNS resolver on attempt 3). The backup rotation topic had never passed functional validation in any prior batch — this is a direct improvement from more examples giving Sonnet better structural patterns for test/solution alignment.
 
+### Lower max_tokens to avoid OpenRouter token-rate-limit 402s
+
+**Reduce max_tokens across all generate.py API calls** — OpenRouter enforces a per-model token-rate-limit bucket. With `max_tokens=32000`, each request consumed a large chunk of the bucket even when actual output was ~4,700 tokens (generation) or ~400-500 tokens (repairs/adjustments). This caused 402 errors mid-batch as the bucket depleted, manifesting as `"can only afford N"` with N decreasing across successive requests.
+
+| Call | Old | New | Typical actual |
+|---|---|---|---|
+| Phase 1 generation | 32000 | 8192 | ~4700 |
+| Phase 2 bug intro | 32000 | 8192 | ~500 |
+| Phase 2 phase | 16000 | 8192 | ~500 |
+| Repair | 32000 | 4096 | ~400–500 |
+| Adjust difficulty | 16000 | 4096 | ~400–500 |
+
+8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
+
 ### Dashboard: Fix Sonnet/Opus Cell Rendering Inconsistencies
 
 **Remove broken `runs/` fallback from main row SONNET and OPUS cells** (`dashboard.py`) — Both cells had a `runs/` directory fallback that was doubly broken: (1) it read stale dirs from previous pipeline runs, and (2) the `results.json` path was wrong — it looked for `runs/{run_id}/results.json` but the actual structure is `runs/{run_id}/{task_id}/{trial_dir}/results.json`. This caused "..." to appear for completed tasks whenever a stale `runs/` dir existed.
