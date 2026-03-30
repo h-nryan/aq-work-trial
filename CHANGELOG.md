@@ -50,6 +50,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Dashboard: Durable Eval Tier Scores
+
+**Persist Sonnet filter scores in `_status.json`** (`evaluate.py`) — Sonnet filter run artifacts get cleaned up after parsing, so the dashboard couldn't show Sonnet scores for tasks that had already moved to Opus. Added `_write_eval_status()` which writes `eval_tiers.sonnet.{passes, total, filtered}` to `_status.json` after the filter completes. The dashboard reads this as the primary source, falling back to live `runs/` dir (filtered by batch start timestamp to prevent cross-batch collisions).
+
+**Write `_status.json` at every pipeline exit point** (`pipeline.py`) — Previously, several early returns (structural validation failure, retry generation failure, functional validation failure, infrastructure error, adjustment failure, adjustment rounds exhausted) did not update `_status.json`. Killed batches would leave tasks showing stale "evaluating" or "functional" status. Now every exit path writes the final status before returning.
+
 ### Dashboard: Fix Sonnet/Opus Cell Rendering Inconsistencies
 
 **Remove broken `runs/` fallback from main row SONNET and OPUS cells** (`dashboard.py`) — Both cells had a `runs/` directory fallback that was doubly broken: (1) it read stale dirs from previous pipeline runs, and (2) the `results.json` path was wrong — it looked for `runs/{run_id}/results.json` but the actual structure is `runs/{run_id}/{task_id}/{trial_dir}/results.json`. This caused "..." to appear for completed tasks whenever a stale `runs/` dir existed.
