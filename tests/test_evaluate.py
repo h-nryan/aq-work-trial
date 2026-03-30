@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -852,3 +853,127 @@ class TestExtractTestStats:
         stats = _extract_test_stats(trials)
         assert stats["avg_test_pass_rate"] == 0.6
         assert len(stats["trials"]) == 1  # only 1 counted
+
+
+class TestWriteEvalStatus:
+    """Tests for _write_eval_status persistence."""
+
+    def test_writes_sonnet_tier(self, tmp_path):
+        from evaluate import _write_eval_status
+        task_dir = tmp_path / "test-task"
+        task_dir.mkdir()
+        # Write initial status
+        (task_dir / "_status.json").write_text('{"stage": "evaluating"}')
+
+        _write_eval_status(str(task_dir), "sonnet", 2, 5, filtered=False)
+
+        status = json.loads((task_dir / "_status.json").read_text())
+        assert status["eval_tiers"]["sonnet"]["passes"] == 2
+        assert status["eval_tiers"]["sonnet"]["total"] == 5
+        assert status["eval_tiers"]["sonnet"]["filtered"] is False
+
+    def test_writes_opus_tier(self, tmp_path):
+        from evaluate import _write_eval_status
+        task_dir = tmp_path / "test-task"
+        task_dir.mkdir()
+        (task_dir / "_status.json").write_text('{"stage": "evaluating"}')
+
+        _write_eval_status(str(task_dir), "opus", 1, 3, filtered=False)
+
+        status = json.loads((task_dir / "_status.json").read_text())
+        assert status["eval_tiers"]["opus"]["passes"] == 1
+        assert status["eval_tiers"]["opus"]["total"] == 3
+
+    def test_preserves_existing_tiers(self, tmp_path):
+        from evaluate import _write_eval_status
+        task_dir = tmp_path / "test-task"
+        task_dir.mkdir()
+        (task_dir / "_status.json").write_text('{"stage": "evaluating"}')
+
+        _write_eval_status(str(task_dir), "sonnet", 2, 5, filtered=False)
+        _write_eval_status(str(task_dir), "opus", 1, 3, filtered=False)
+
+        status = json.loads((task_dir / "_status.json").read_text())
+        assert "sonnet" in status["eval_tiers"]
+        assert "opus" in status["eval_tiers"]
+        assert status["eval_tiers"]["sonnet"]["passes"] == 2
+        assert status["eval_tiers"]["opus"]["passes"] == 1
+
+    def test_filtered_flag(self, tmp_path):
+        from evaluate import _write_eval_status
+        task_dir = tmp_path / "test-task"
+        task_dir.mkdir()
+        (task_dir / "_status.json").write_text('{"stage": "evaluating"}')
+
+        _write_eval_status(str(task_dir), "sonnet", 3, 5, filtered=True)
+
+        status = json.loads((task_dir / "_status.json").read_text())
+        assert status["eval_tiers"]["sonnet"]["filtered"] is True
+        assert "too easy" in status["detail"].lower()
+
+    def test_no_status_file_creates_one(self, tmp_path):
+        from evaluate import _write_eval_status
+        task_dir = tmp_path / "test-task"
+        task_dir.mkdir()
+
+        _write_eval_status(str(task_dir), "opus", 0, 5, filtered=False)
+
+        status = json.loads((task_dir / "_status.json").read_text())
+        assert status["eval_tiers"]["opus"]["passes"] == 0
+
+    def test_updates_detail_for_sonnet_pass(self, tmp_path):
+        from evaluate import _write_eval_status
+        task_dir = tmp_path / "test-task"
+        task_dir.mkdir()
+        (task_dir / "_status.json").write_text('{"stage": "evaluating"}')
+
+        _write_eval_status(str(task_dir), "sonnet", 1, 5, filtered=False)
+
+        status = json.loads((task_dir / "_status.json").read_text())
+        assert "proceeding to Opus" in status["detail"]
+
+
+class TestRunOpusEvalResume:
+    """Tests for run_opus_eval with prior results."""
+
+    def test_resume_with_prior_passes(self, tmp_path, monkeypatch):
+        """Resuming with 1/3 prior passes + 0 remaining = done."""
+        from evaluate import run_opus_eval
+        monkeypatch.setattr("evaluate.cleanup_stale_resources", lambda: 0)
+
+        result = run_opus_eval(
+            task_dir=str(tmp_path),
+            n_trials=3,
+            prior_passes=1,
+            prior_total=3,
+            prior_trials=[],
+        )
+        assert result["passes"] == 1
+        assert result["total"] == 3
+        assert result["classification"] == "learnable"
+
+    def test_resume_no_remaining_too_hard(self, tmp_path, monkeypatch):
+        from evaluate import run_opus_eval
+        monkeypatch.setattr("evaluate.cleanup_stale_resources", lambda: 0)
+
+        result = run_opus_eval(
+            task_dir=str(tmp_path),
+            n_trials=5,
+            prior_passes=0,
+            prior_total=5,
+            prior_trials=[],
+        )
+        assert result["classification"] == "too_hard"
+
+    def test_resume_no_remaining_too_easy(self, tmp_path, monkeypatch):
+        from evaluate import run_opus_eval
+        monkeypatch.setattr("evaluate.cleanup_stale_resources", lambda: 0)
+
+        result = run_opus_eval(
+            task_dir=str(tmp_path),
+            n_trials=5,
+            prior_passes=4,
+            prior_total=5,
+            prior_trials=[],
+        )
+        assert result["classification"] == "too_easy"
