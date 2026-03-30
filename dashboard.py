@@ -648,7 +648,15 @@ def render_pipeline_view():
             sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
         elif stage in ("completed", "evaluating") or cl:
-            sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
+            # Check if Sonnet filter actually ran from eval data
+            eval_stages = t.get("stages", {}).get("evaluation", {})
+            sonnet_tier = eval_stages.get("tier_results", {}).get("sonnet", {})
+            if sonnet_tier:
+                sp = sonnet_tier.get("passes", 0)
+                st_total = sonnet_tier.get("total", 0)
+                sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
+            else:
+                sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
             sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
