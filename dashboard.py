@@ -326,14 +326,28 @@ def render_pipeline_view():
     n_running = sum(1 for t in tasks if t["stage"] in ("generating", "structural", "functional", "evaluating"))
     n_completed = sum(1 for t in tasks if t["stage"] == "completed")
 
-    # Batch total runtime
-    total_duration = sum(t.get("duration_sec") or 0 for t in tasks)
-    if total_duration >= 60:
-        duration_str = f"{total_duration/60:.0f}m"
-    elif total_duration > 0:
-        duration_str = f"{total_duration:.0f}s"
+    # Batch wall clock time (from report), not sum of individual durations
+    batch_wall_time = None
+    for f in glob.glob(os.path.join(batch_dir, "batch-*-report.json")):
+        try:
+            data = json.load(open(f))
+            batch_wall_time = data.get("metrics", {}).get("total_duration_sec")
+        except Exception:
+            pass
+
+    if batch_wall_time and batch_wall_time >= 60:
+        duration_str = f"{batch_wall_time/60:.0f}m wall"
+    elif batch_wall_time:
+        duration_str = f"{batch_wall_time:.0f}s wall"
     else:
-        duration_str = "—"
+        # Fallback for running batches: show sum of completed tasks
+        total_duration = sum(t.get("duration_sec") or 0 for t in tasks)
+        if total_duration >= 60:
+            duration_str = f"~{total_duration/60:.0f}m cumulative"
+        elif total_duration > 0:
+            duration_str = f"~{total_duration:.0f}s cumulative"
+        else:
+            duration_str = "—"
 
     st.markdown(f"""
     <div class="pipeline-header">
