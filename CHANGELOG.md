@@ -18,6 +18,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Fix `_run_tb` timeout scaling for concurrent runs** (`evaluate.py`) — The subprocess timeout was set to `timeout_sec * n_attempts` (e.g. 5 × 900s = 75 min for 5 trials). But `tb run` executes trials with `--n-concurrent min(n,4)`, so actual wall time is `ceil(n / concurrent) × timeout_sec` (e.g. 2 waves × 900s = 30 min for 5 trials). The old formula was 2-5× too large, masking genuinely hung runs — a stuck agent could block a task slot for 45-75 min instead of 15-30 min. Fixed with `math.ceil(n_attempts / min(n_attempts, 4)) * timeout_sec`. Also promoted the hardcoded `max_tb_retries = 1` local variable to a module-level constant `_MAX_TB_RETRIES`.
 
+**Remove dead `previous_json` variable in `regenerate_task`** (`generate.py`) — `previous_json = json.dumps(...)` was computed from all task files on every repair call but never referenced; the actual prompt uses `context_json` built from the targeted subset of files. Silent JSON serialization waste on every retry.
+
 ### Early Adjustment with Test-Level Granularity
 
 **Early adjustment after 0/3 parallel batch** (`evaluate.py`, `pipeline.py`) — Major refactor of the evaluation + adjustment loop. Previously, the pipeline ran all 5 Opus trials before adjusting difficulty, wasting 2 expensive Opus runs on clearly-too-hard tasks. Now, after the initial 3-parallel Opus batch:

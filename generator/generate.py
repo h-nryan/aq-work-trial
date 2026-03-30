@@ -861,8 +861,6 @@ def regenerate_task(
             except UnicodeDecodeError:
                 continue
 
-    previous_json = json.dumps({"files": previous_files}, indent=2)
-
     # Determine repair strategy from feedback
     feedback_lower = feedback.lower()
     if "docker" in feedback_lower and ("build failed" in feedback_lower or "build error" in feedback_lower):
