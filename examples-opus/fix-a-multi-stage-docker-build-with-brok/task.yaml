@@ -1,0 +1,58 @@
+instruction: |-
+  Fix a broken Python data processing script that reads JSONL (JSON Lines) files and computes statistics.
+  
+  The script `/app/app.py` is supposed to:
+  1. Read a JSONL file (one JSON object per line)
+  2. Extract numeric values from the 'value' field in each record
+  3. Compute average, total, and count statistics
+  4. Write results to an output JSON file
+  
+  Current bugs in the script:
+  - Uses json.load() instead of reading JSONL format line-by-line
+  - Doesn't handle string numbers (needs type conversion)
+  - Produces incorrect output format
+  - Doesn't preserve unicode characters in output
+  - May fail on edge cases (empty values, missing fields)
+  
+  The script should work with JSONL input format:
+  ```
+  {"id": 1, "value": 10}
+  {"id": 2, "value": 20}
+  {"id": 3, "value": 30}
+  ```
+  
+  And produce JSON output:
+  ```json
+  {
+    "average": 20.0,
+    "total": 60.0,
+    "count": 3
+  }
+  ```
+  
+  Fix all bugs so that:
+  - JSONL files are read correctly (one JSON object per line)
+  - String numbers like "15.5" are converted to floats
+  - Records without 'value' field are skipped
+  - Unicode characters are preserved in output
+  - Empty input produces {"average": 0, "total": 0, "count": 0}
+  - Output is valid, well-formatted JSON
+  
+  Usage: `python app.py <input.jsonl> <output.json>`
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - json
+  - jsonl
+  - data-processing
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small

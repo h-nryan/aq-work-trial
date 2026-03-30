@@ -1,0 +1,57 @@
+instruction: |-
+  You are given a Python CLI tool `xml_parser.py` that converts XML files to JSON format.
+  It currently has several bugs that prevent it from working correctly:
+  
+  Current Issues:
+  1. Text content includes unwanted whitespace and newlines
+  2. When multiple XML elements have the same tag name, only the last one is kept
+  3. The root element tag name is lost in the output
+  4. Compact JSON output is not truly compact (has unnecessary spaces)
+  5. The --pretty flag works but the compact output should use no spaces
+  
+  Requirements:
+  1. Strip whitespace from text content (@text fields)
+  2. When multiple child elements have the same tag, create a JSON array containing all of them
+  3. Preserve the root element tag name by wrapping the output in an object with the root tag as key
+  4. Compact JSON output should use separators=(',', ':') for minimal spacing
+  5. The --pretty flag should produce indented output with indent=2
+  6. Handle XML attributes by storing them in '@attributes' key
+  7. Store element text content in '@text' key
+  
+  Expected behavior:
+  - `python xml_parser.py sample_data/simple.xml` outputs compact JSON with root element
+  - `python xml_parser.py sample_data/duplicates.xml` outputs array for duplicate 'item' tags
+  - `python xml_parser.py --pretty sample_data/simple.xml` outputs indented JSON
+  - `python xml_parser.py sample_data/attributes.xml` preserves attributes in '@attributes'
+  - `python xml_parser.py sample_data/nested.xml` handles nested structures correctly
+  
+  Constraints:
+  - Use only Python standard library (xml.etree.ElementTree, json)
+  - Do not change the command-line interface
+  - Maintain the existing file structure
+  - All test files in sample_data/ must parse correctly
+  
+  Success criteria:
+  - All XML files parse without errors
+  - Duplicate elements become arrays in JSON
+  - Root element tag is preserved
+  - Text content has no extra whitespace
+  - Compact output has no unnecessary spaces
+  - Pretty output is properly indented
+difficulty: medium
+category: data-processing
+tags:
+  - xml
+  - json
+  - parsing
+  - python
+  - cli
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small

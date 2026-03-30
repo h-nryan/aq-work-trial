@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<book isbn="978-0-123456-78-9" lang="en">
+  <title>Python Programming</title>
+  <author nationality="US">John Doe</author>
+  <price currency="USD">29.99</price>
+</book>
