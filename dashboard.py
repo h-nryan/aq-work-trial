@@ -288,13 +288,38 @@ def render_live_status():
     active_evals = _get_active_evals()
     batch_progress = _get_batch_progress()
 
-    if not active_evals and not batch_progress:
+    # Also find completed batches that only have report files (incremental cleaned up)
+    report_only_batches = []
+    for batch_dir in sorted(glob.glob(os.path.join(OUTPUT_DIR, "sonnet-batch-*"))):
+        batch_name = os.path.basename(batch_dir)
+        # Skip if already in batch_progress (has incremental)
+        if any(bp["name"] == batch_name for bp in batch_progress):
+            continue
+        reports = glob.glob(os.path.join(batch_dir, "batch-*-report.json"))
+        if reports:
+            try:
+                data = json.load(open(reports[0]))
+                m = data.get("metrics", {})
+                report_only_batches.append({
+                    "name": batch_name,
+                    "completed": m.get("total_topics", 0),
+                    "total": m.get("total_topics", 0),
+                    "learnable": m.get("learnable", 0),
+                    "too_hard": m.get("too_hard", 0),
+                    "too_easy": m.get("too_easy", 0),
+                    "functional": m.get("functional_pass", 0),
+                    "failed": m.get("total_topics", 0) - m.get("functional_pass", 0),
+                })
+            except Exception:
+                pass
+
+    if not active_evals and not batch_progress and not report_only_batches:
         st.info("No active runs. Use the **Launch Batch** page to start one.")
         return
 
     # Separate active (incremental file exists, no report) from completed (report exists)
     active_batches = []
-    completed_batches = []
+    completed_batches = list(report_only_batches)  # Start with report-only batches
     for bp in batch_progress:
         report = glob.glob(os.path.join(OUTPUT_DIR, bp["name"], "batch-*-report.json"))
         if report:
