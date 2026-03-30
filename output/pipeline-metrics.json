@@ -1,18 +1,18 @@
 {
   "aggregate": {
-    "total_tasks": 60,
-    "generated": 51,
-    "structural_pass": 44,
-    "functional_pass": 16,
-    "evaluated": 19,
-    "learnable": 5,
+    "total_tasks": 68,
+    "generated": 59,
+    "structural_pass": 52,
+    "functional_pass": 23,
+    "evaluated": 26,
+    "learnable": 10,
     "too_easy": 1,
-    "too_hard": 13,
-    "learnable_yield": 0.0833,
-    "functional_rate": 0.3137,
-    "learnable_of_evaluated": 0.2632,
-    "total_gen_tokens": 1916393,
-    "total_duration_sec": 80875.8,
+    "too_hard": 15,
+    "learnable_yield": 0.1471,
+    "functional_rate": 0.3898,
+    "learnable_of_evaluated": 0.3846,
+    "total_gen_tokens": 2237698,
+    "total_duration_sec": 108684.9,
     "num_batches": 10
   },
   "per_batch": [
@@ -28,13 +28,13 @@
     },
     {
       "name": "sonnet-batch-11-data-driven",
-      "total": 4,
-      "functional": 2,
-      "evaluated": 2,
-      "learnable": 2,
+      "total": 12,
+      "functional": 9,
+      "evaluated": 9,
+      "learnable": 7,
       "too_easy": 0,
-      "too_hard": 0,
-      "duration_min": 118.2
+      "too_hard": 2,
+      "duration_min": 581.7
     },
     {
       "name": "sonnet-batch-2",
@@ -129,6 +129,36 @@
       "topic": "debug a broken webhook receiver with incorrect signature verification, replay protection, and retry handling",
       "pass_rate": 0.6,
       "retries": 0
+    },
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "fix a broken disk usage analyzer script with incorrect recursive traversal and size calculations",
+      "pass_rate": 0.25,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "fix a broken Python CLI tool with incorrect argument parsing and missing help text",
+      "pass_rate": 0.5,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "repair a Python data pipeline that silently drops records during CSV transformation",
+      "pass_rate": 0.3333,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "fix a Python unit test suite where fixtures have scoping and teardown bugs",
+      "pass_rate": 0.3333,
+      "retries": 0
+    },
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "fix a broken curl wrapper script with incorrect header and authentication handling",
+      "pass_rate": 0.2,
+      "retries": 1
     },
     {
       "batch": "sonnet-batch-5-variant-B",
