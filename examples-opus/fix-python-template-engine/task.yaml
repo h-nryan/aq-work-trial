@@ -1,0 +1,54 @@
+instruction: |-
+  Fix a broken Python template engine that has bugs in variable substitution and HTML escaping.
+  
+  The template engine at `/app/template_engine.py` is supposed to:
+  1. Replace `{{ variable_name }}` placeholders with actual values
+  2. Handle whitespace around variable names (e.g., `{{ name }}` or `{{name}}`)
+  3. Properly escape HTML special characters in substituted values
+  4. Preserve undefined variable placeholders instead of removing them
+  5. Merge context dictionaries with existing variables without losing data
+  
+  Current bugs in the implementation:
+  - Variable substitution regex doesn't handle whitespace correctly
+  - Missing whitespace stripping from captured variable names
+  - Using html.unescape() instead of html.escape() for output
+  - Undefined variables are replaced with empty strings instead of being preserved
+  - render_with_context() replaces all variables instead of merging
+  - Manual HTML escaping is incomplete (missing single quote)
+  
+  Template syntax:
+  - Variables: `{{ variable_name }}` (with optional whitespace)
+  - HTML content should be escaped to prevent XSS
+  - Undefined variables should remain as `{{ undefined_var }}`
+  
+  Requirements:
+  - Fix variable substitution to handle whitespace properly
+  - Ensure HTML special characters are escaped: & < > " '
+  - Preserve undefined variable placeholders in output
+  - Merge context dictionaries without losing existing variables
+  - All template files in /app/templates/ should render correctly
+  
+  The engine should work with:
+  ```python
+  engine = TemplateEngine()
+  engine.set_variable('name', '<script>alert(1)</script>')
+  output = engine.render('Hello {{ name }}!')
+  # Should output: Hello &lt;script&gt;alert(1)&lt;/script&gt;!
+  ```
+difficulty: medium
+category: software-engineering
+tags:
+  - python
+  - debugging
+  - templating
+  - security
+  - html-escaping
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 400
+expert_time_estimate_min: 10
+junior_time_estimate_min: 25
+resource_class: small
