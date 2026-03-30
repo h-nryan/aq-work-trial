@@ -292,66 +292,92 @@ def render_live_status():
         st.info("No active runs. Use the **Launch Batch** page to start one.")
         return
 
-    # Running batches with progress
+    # Separate active (incremental file exists, no report) from completed (report exists)
+    active_batches = []
+    completed_batches = []
     for bp in batch_progress:
-        total = bp["total"] if isinstance(bp["total"], int) else 6
-        completed = bp["completed"]
-        pct = completed / total if total > 0 else 0
+        report = glob.glob(os.path.join(OUTPUT_DIR, bp["name"], "batch-*-report.json"))
+        if report:
+            completed_batches.append(bp)
+        else:
+            active_batches.append(bp)
 
-        st.subheader(bp["name"])
+    # ── Active batches (top, prominent) ──
+    if active_batches:
+        for bp in active_batches:
+            total = bp["total"] if isinstance(bp["total"], int) else 6
+            completed = bp["completed"]
+            pct = completed / total if total > 0 else 0
 
-        # Progress bar
-        st.progress(pct, text=f"**{completed}/{total}** tasks completed")
+            st.subheader(f"🔄 {bp['name']}")
+            st.progress(pct, text=f"**{completed}/{total}** tasks completed")
 
-        # Result summary so far
-        cols = st.columns(5)
-        cols[0].metric("Functional", bp["functional"])
-        cols[1].metric("Learnable", bp["learnable"])
-        cols[2].metric("Too Hard", bp["too_hard"])
-        cols[3].metric("Too Easy", bp["too_easy"])
-        cols[4].metric("Failed", bp["failed"])
+            # Result summary so far
+            cols = st.columns(5)
+            cols[0].metric("Functional", bp["functional"])
+            cols[1].metric("Learnable", bp["learnable"])
+            cols[2].metric("Too Hard", bp["too_hard"])
+            cols[3].metric("Too Easy", bp["too_easy"])
+            cols[4].metric("Failed", bp["failed"])
 
-        # Per-task status cards
-        for r in bp["results"]:
-            topic = r.get("topic", "?")[:55]
-            status = r.get("status", "?")
-            cl = r.get("classification")
-            pr = r.get("pass_rate")
+            # Per-task cards — completed results
+            for r in bp["results"]:
+                topic = r.get("topic", "?")[:55]
+                status = r.get("status", "?")
+                cl = r.get("classification")
+                pr = r.get("pass_rate")
 
-            if cl == "learnable":
-                card_class = "task-card"
-                badge = f'<span class="stage-badge badge-learnable">LEARNABLE {pr:.0%}</span>'
-            elif cl == "too_hard":
-                card_class = "task-card-hard"
-                badge = '<span class="stage-badge badge-too-hard">TOO HARD</span>'
-            elif cl == "too_easy":
-                card_class = "task-card-easy"
-                badge = '<span class="stage-badge badge-too-easy">TOO EASY</span>'
-            elif "failed" in status or "error" in status:
-                card_class = "task-card-hard"
-                badge_text = status.replace("_", " ").title()[:25]
-                badge = f'<span class="stage-badge badge-failed">{badge_text}</span>'
-            else:
-                card_class = "task-card-running"
-                badge = '<span class="stage-badge badge-generating">IN PROGRESS</span>'
+                if cl == "learnable":
+                    card_class = "task-card"
+                    badge = f'<span class="stage-badge badge-learnable">LEARNABLE {pr:.0%}</span>'
+                elif cl == "too_hard":
+                    card_class = "task-card-hard"
+                    badge = '<span class="stage-badge badge-too-hard">TOO HARD</span>'
+                elif cl == "too_easy":
+                    card_class = "task-card-easy"
+                    badge = '<span class="stage-badge badge-too-easy">TOO EASY</span>'
+                elif "failed" in status or "error" in status:
+                    card_class = "task-card-hard"
+                    badge_text = status.replace("_", " ").title()[:25]
+                    badge = f'<span class="stage-badge badge-failed">{badge_text}</span>'
+                else:
+                    card_class = "task-card-running"
+                    badge = '<span class="stage-badge badge-generating">IN PROGRESS</span>'
 
-            st.markdown(f"""
-            <div class="{card_class}">
-                <strong>{topic}</strong><br>
-                {badge}
-            </div>
-            """, unsafe_allow_html=True)
-
-        # Show pending tasks (not yet in results)
-        if isinstance(bp["total"], int) and completed < bp["total"]:
-            remaining = bp["total"] - completed
-            for _ in range(remaining):
-                st.markdown("""
-                <div class="task-card-running">
-                    <strong>Pending...</strong><br>
-                    <span class="stage-badge badge-generating">QUEUED</span>
+                st.markdown(f"""
+                <div class="{card_class}">
+                    <strong>{topic}</strong><br>
+                    {badge}
                 </div>
                 """, unsafe_allow_html=True)
+
+            # Pending/queued tasks
+            if isinstance(bp["total"], int) and completed < bp["total"]:
+                remaining = bp["total"] - completed
+                for _ in range(remaining):
+                    st.markdown("""
+                    <div class="task-card-running">
+                        <strong>Pending...</strong><br>
+                        <span class="stage-badge badge-generating">QUEUED</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.divider()
+    else:
+        st.info("No batches currently running.")
+
+    # ── Completed batches (collapsed) ──
+    if completed_batches:
+        with st.expander(f"Completed batches ({len(completed_batches)})"):
+            for bp in completed_batches:
+                total = bp["total"] if isinstance(bp["total"], int) else len(bp["results"])
+                st.write(
+                    f"**{bp['name']}** — {total} tasks | "
+                    f"{bp['learnable']} learnable | "
+                    f"{bp['too_hard']} hard | "
+                    f"{bp['too_easy']} easy | "
+                    f"{bp['failed']} failed"
+                )
 
     # Active evaluations (from tb run processes)
     if active_evals:
