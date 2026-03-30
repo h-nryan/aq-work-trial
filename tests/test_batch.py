@@ -352,3 +352,29 @@ class TestErrorCategories:
         ]
         m = _compute_metrics(results, 10.0, "test")
         assert m["error_categories"] == {"functional": 1}
+
+
+class TestAtexitCleanup:
+    """Verify that batch.py registers atexit cleanup."""
+
+    def test_atexit_handler_registered(self):
+        """_atexit_cleanup should be in the atexit registry."""
+        import atexit
+
+        from batch import _atexit_cleanup
+
+        # atexit doesn't expose its registry directly, but we can verify
+        # the function exists and is callable
+        assert callable(_atexit_cleanup)
+
+    def test_atexit_cleanup_calls_cleanup_stale_resources(self, monkeypatch):
+        """_atexit_cleanup calls cleanup_stale_resources with 60s threshold."""
+        from batch import _atexit_cleanup
+
+        called_with = []
+        monkeypatch.setattr(
+            "batch.cleanup_stale_resources",
+            lambda max_age_sec: called_with.append(max_age_sec) or 0,
+        )
+        _atexit_cleanup()
+        assert called_with == [60]

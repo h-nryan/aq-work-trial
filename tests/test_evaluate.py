@@ -14,6 +14,7 @@ from evaluate import (
     _build_result,
     _cleanup_stale_containers,
     _cleanup_stale_tb_processes,
+    _kill_containers_for_task,
     _parse_run_results,
     _run_filter_tier,
     cleanup_stale_resources,
@@ -177,6 +178,85 @@ class TestCleanupStaleResources:
         monkeypatch.setattr("evaluate._cleanup_stale_containers", lambda max_age_sec: 2)
         monkeypatch.setattr("evaluate._cleanup_stale_tb_processes", lambda max_age_sec: 3)
         assert cleanup_stale_resources() == 5
+
+
+class TestKillContainersForTask:
+    def test_kills_matching_containers(self, monkeypatch):
+        killed_ids = []
+
+        def fake_run(cmd, **kwargs):
+            if cmd[0] == "docker" and cmd[1] == "ps":
+                output = (
+                    "abc123 my-task-abc-1-of-3-eval-run\n"
+                    "def456 my-task-abc-2-of-3-eval-run\n"
+                    "ghi789 other-task-xyz-1-of-3-eval-run\n"
+                )
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            if cmd[0] == "docker" and cmd[1] == "kill":
+                killed_ids.append(cmd[2])
+                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _kill_containers_for_task("my-task-abc") == 2
+        assert sorted(killed_ids) == ["abc123", "def456"]
+
+    def test_no_matching_containers(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            if cmd[0] == "docker" and cmd[1] == "ps":
+                output = "abc123 other-task-1-of-3-eval-run\n"
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _kill_containers_for_task("nonexistent-task") == 0
+
+    def test_docker_ps_failure(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": "error"})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _kill_containers_for_task("any-task") == 0
+
+    def test_docker_ps_timeout(self, monkeypatch):
+        import subprocess
+
+        def fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 10)
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _kill_containers_for_task("any-task") == 0
+
+
+class TestRunTbTimeoutCleanup:
+    """Verify that _run_tb kills orphaned containers on timeout."""
+
+    def test_timeout_kills_containers(self, monkeypatch, tmp_path):
+        """When subprocess.run raises TimeoutExpired, _kill_containers_for_task is called."""
+        import subprocess as sp
+
+        from evaluate import _run_tb
+
+        killed_task_ids = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            raise sp.TimeoutExpired(cmd, 1)
+
+        def fake_kill_containers(task_id):
+            killed_task_ids.append(task_id)
+            return 1
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_subprocess_run)
+        monkeypatch.setattr("evaluate._kill_containers_for_task", fake_kill_containers)
+        monkeypatch.setattr("evaluate.cleanup_stale_resources", lambda: 0)
+
+        task_dir = tmp_path / "my-test-task"
+        task_dir.mkdir()
+
+        result = _run_tb(str(task_dir), "anthropic/claude-opus-4", timeout_sec=0.001)
+        assert result["status"] == "timeout"
+        assert result["passes"] == 0
+        assert killed_task_ids == ["my-test-task"]
 
 
 class TestParseRunResults:
