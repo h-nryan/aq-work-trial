@@ -1,0 +1,64 @@
+instruction: |-
+  Fix a Python test fixture manager that has scoping and teardown bugs.
+  
+  The fixture manager at `/app/fixture_manager.py` provides three fixture classes:
+  1. DatabaseFixture - manages database connections with setup/teardown
+  2. FileFixture - manages temporary test files
+  3. CacheFixture - manages a shared cache with session scope
+  
+  Current bugs in the implementation:
+  - DatabaseFixture: teardown doesn't properly clean up when db_path is provided externally
+  - FileFixture: missing proper cleanup in teardown when file operations fail
+  - CacheFixture: singleton pattern doesn't reset properly between test sessions
+  - DatabaseFixture: setup can be called multiple times without proper state management
+  - FileFixture: teardown doesn't verify file exists before attempting cleanup
+  - CacheFixture: teardown doesn't properly reset the _initialized flag
+  
+  Requirements:
+  - DatabaseFixture should clean up temp_dir only if it created it
+  - DatabaseFixture should track setup/teardown state to prevent double-setup
+  - FileFixture teardown should be idempotent (safe to call multiple times)
+  - CacheFixture should properly reset between test sessions
+  - CacheFixture singleton should be clearable for test isolation
+  - All fixtures should handle cleanup even if setup partially failed
+  
+  The fixture manager should support:
+  ```python
+  # Database fixture with external path
+  db = DatabaseFixture(db_path='/tmp/mydb.db')
+  db.setup()
+  db.teardown()  # Should not delete /tmp directory
+  
+  # File fixture with multiple teardowns
+  file_fix = FileFixture(content='test')
+  file_fix.setup()
+  file_fix.teardown()
+  file_fix.teardown()  # Should not crash
+  
+  # Cache fixture session scope
+  cache1 = CacheFixture()
+  cache2 = CacheFixture()
+  assert cache1 is cache2  # Same instance
+  cache1.setup()
+  cache1.set('key', 'value')
+  cache1.teardown()
+  cache3 = CacheFixture()  # Should be fresh after teardown
+  ```
+difficulty: medium
+category: testing
+tags:
+  - python
+  - pytest
+  - fixtures
+  - testing
+  - cleanup
+  - scoping
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 350
+expert_time_estimate_min: 8
+junior_time_estimate_min: 25
+resource_class: small
