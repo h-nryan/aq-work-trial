@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import glob
 import os
+import re
 import subprocess
 import sys
 import time
@@ -179,7 +180,8 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
         # Find matching dir
         matched_dir = None
         for dirname, dirpath in task_dirs.items():
-            if topic[:20].lower().replace(" ", "-").replace(",", "") in dirname:
+            slug = re.sub(r"[^a-z0-9-]", "", topic[:30].lower().replace(" ", "-"))
+            if slug in dirname:
                 matched_dir = dirpath
                 break
 
@@ -191,6 +193,7 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             "classification": None,
             "pass_rate": None,
             "duration_sec": None,
+            "failed_stage": "",
         }
 
         # Check if in completed results
@@ -199,6 +202,15 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             cl = r.get("classification")
             status = r.get("status", "")
             task_info["duration_sec"] = r.get("duration_sec")
+            task_info["failed_stage"] = r.get("failed_stage", "")
+            # Infer failed_stage from status if not explicitly set
+            if not task_info["failed_stage"] and "functional" in status:
+                task_info["failed_stage"] = "functional"
+            elif not task_info["failed_stage"] and "structural" in status:
+                task_info["failed_stage"] = "structural"
+            elif not task_info["failed_stage"] and ("generation" in status or "retry_generation" in status):
+                task_info["failed_stage"] = "generation"
+
             if cl:
                 task_info["stage"] = "completed"
                 task_info["classification"] = cl
@@ -230,14 +242,35 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
     return tasks
 
 
-def _render_stage_cell(current_stage: str, cell_stage: str) -> str:
-    """Render a single stage cell with appropriate styling."""
+def _render_stage_cell(current_stage: str, cell_stage: str, failed_stage: str = "") -> str:
+    """Render a single stage cell with appropriate styling.
+
+    failed_stage indicates WHICH stage actually failed — prior stages passed.
+    """
     stage_idx = STAGE_ORDER.index(current_stage) if current_stage in STAGE_ORDER else -1
     cell_idx = STAGE_ORDER.index(cell_stage) if cell_stage in STAGE_ORDER else -1
 
-    if current_stage == "failed":
-        if cell_idx <= 2:  # generating/structural/functional could have been reached
+    if current_stage == "failed" and failed_stage:
+        # Map failed_stage string to a stage index
+        fail_map = {
+            "generation": 0, "generating": 0,
+            "structural": 1,
+            "functional": 2,
+            "evaluating": 3, "evaluation": 3,
+        }
+        fail_idx = fail_map.get(failed_stage, -1)
+
+        if cell_idx < fail_idx:
+            # Stages before the failure passed
+            return '<div class="stage-cell stage-done">✓</div>'
+        elif cell_idx == fail_idx:
             return '<div class="stage-cell stage-failed">FAIL</div>'
+        else:
+            return '<div class="stage-cell stage-pending">—</div>'
+    elif current_stage == "failed":
+        # No failed_stage info — show ambiguous
+        if cell_idx <= 2:
+            return '<div class="stage-cell stage-failed">?</div>'
         return '<div class="stage-cell stage-pending">—</div>'
 
     if cell_idx < stage_idx:
@@ -267,12 +300,12 @@ def render_pipeline_view():
         selected = st.selectbox("Batch", batch_names, index=len(batch_names) - 1)
         batch_dir = os.path.join(OUTPUT_DIR, selected)
 
+        if st.button("Refresh"):
+            st.rerun()
+
         auto_refresh = st.checkbox("Auto-refresh (10s)")
         if auto_refresh:
             time.sleep(10)
-            st.rerun()
-
-        if st.button("Refresh"):
             st.rerun()
 
         st.divider()
@@ -360,15 +393,16 @@ def render_pipeline_view():
         else:
             row_class = ""
 
-        # Stage cells
-        gen_cell = _render_stage_cell(stage, "generating")
-        struct_cell = _render_stage_cell(stage, "structural")
-        func_cell = _render_stage_cell(stage, "functional")
+        # Stage cells — pass failed_stage so prior stages show as passed
+        fs = t.get("failed_stage", "")
+        gen_cell = _render_stage_cell(stage, "generating", fs)
+        struct_cell = _render_stage_cell(stage, "structural", fs)
+        func_cell = _render_stage_cell(stage, "functional", fs)
 
         # Sonnet/Opus depend on skip_filters
         if stage in ("completed", "evaluating") or cl:
             sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
-            opus_cell = _render_stage_cell(stage, "evaluating")
+            opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
             sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
             opus_cell = '<div class="stage-cell stage-pending">—</div>'
