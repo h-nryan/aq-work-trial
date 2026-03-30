@@ -1,0 +1,72 @@
+instruction: |-
+  Fix a Python dependency resolver that has bugs in circular dependency detection and version conflict handling.
+  
+  The dependency resolver at `/app/resolver.py` is supposed to:
+  1. Read a package registry (JSON file with package names, versions, and dependencies)
+  2. Resolve dependencies for requested packages
+  3. Detect circular dependencies and report errors
+  4. Handle version constraints correctly
+  5. Output a resolved dependency tree
+  
+  The resolver takes two JSON files as input:
+  - Registry file: maps package names to versions to dependencies
+  - Requirements file: specifies which packages to install
+  
+  Example registry format:
+  ```json
+  {
+    "pkg-a": {
+      "1.0.0": {"pkg-b": "1.0.0"},
+      "2.0.0": {"pkg-b": "2.0.0"}
+    },
+    "pkg-b": {
+      "1.0.0": {},
+      "2.0.0": {}
+    }
+  }
+  ```
+  
+  Example requirements format:
+  ```json
+  {
+    "pkg-a": "1.0.0"
+  }
+  ```
+  
+  Current bugs:
+  1. Version selection doesn't respect version constraints properly
+  2. Circular dependency detection fails to catch cycles
+  3. The resolver may enter infinite loops on circular dependencies
+  4. Version conflicts are not properly detected
+  
+  Requirements:
+  - Detect circular dependencies and exit with error message
+  - Respect version constraints when resolving dependencies
+  - Handle transitive dependencies correctly
+  - Output resolved packages as JSON: {"pkg-name": "version", ...}
+  - Exit with non-zero code on errors (circular deps, missing packages)
+  - Do not modify the command-line interface
+  
+  Usage:
+  ```
+  python3 resolver.py resolve <registry.json> <requirements.json>
+  ```
+  
+  The resolver should successfully resolve simple dependency trees, detect circular dependencies, and handle version constraints.
+difficulty: medium
+category: algorithms
+tags:
+  - python
+  - dependency-resolution
+  - graph-algorithms
+  - circular-dependencies
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

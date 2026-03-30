@@ -1,0 +1,20 @@
+{
+  "attempt": 1,
+  "passed": false,
+  "issues": [
+    "Docker image build failed: Docker build failed (exit 1):\n#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 135B done\n#1 DONE 0.0s\n\n#2 [internal] load metadata for docker.io/library/tbench-base:latest\n#2 DONE 0.0s\n\n#3 [internal] load .dockerignore\n#3 transferring context: 2B done\n#3 DONE 0.0s\n\n#4 [1/4] FROM docker.io/library/tbench-base:latest\n#4 DONE 0.0s\n\n#5 [internal] load build context\n#5 transferring context: 3.06kB done\n#5 DONE 0.0s\n\n#6 [2/4] WORKDIR /app\n#6 CACHED\n\n#7 [4/4] COPY sample_data /app/sample_data\n#7 ERROR: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::a2cfcf6sh8g8y6ro698of913j: \"/sample_data\": not found\n\n#8 [3/4] COPY xml_to_json.py /app/\n#8 CANCELED\n------\n > [4/4] COPY sample_data /app/sample_data:\n------\nDockerfile:5\n--------------------\n   3 |     \n   4 |     COPY xml_to_json.py /app/\n   5 | >>> COPY sample_data /app/sample_data\n   6 |     \n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::a2cfcf6sh8g8y6ro698of913j: \"/sample_data\": not found\n"
+  ],
+  "tests_fail_without_solution": false,
+  "tests_pass_with_solution": false,
+  "solution_idempotent": null,
+  "execution_times": {
+    "build": 0.38
+  },
+  "image_builds": false,
+  "details": {
+    "build": {
+      "success": false,
+      "error": "Docker build failed (exit 1):\n#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 135B done\n#1 DONE 0.0s\n\n#2 [internal] load metadata for docker.io/library/tbench-base:latest\n#2 DONE 0.0s\n\n#3 [internal] load .dockerignore\n#3 transferring context: 2B done\n#3 DONE 0.0s\n\n#4 [1/4] FROM docker.io/library/tbench-base:latest\n#4 DONE 0.0s\n\n#5 [internal] load build context\n#5 transferring context: 3.06kB done\n#5 DONE 0.0s\n\n#6 [2/4] WORKDIR /app\n#6 CACHED\n\n#7 [4/4] COPY sample_data /app/sample_data\n#7 ERROR: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::a2cfcf6sh8g8y6ro698of913j: \"/sample_data\": not found\n\n#8 [3/4] COPY xml_to_json.py /app/\n#8 CANCELED\n------\n > [4/4] COPY sample_data /app/sample_data:\n------\nDockerfile:5\n--------------------\n   3 |     \n   4 |     COPY xml_to_json.py /app/\n   5 | >>> COPY sample_data /app/sample_data\n   6 |     \n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::a2cfcf6sh8g8y6ro698of913j: \"/sample_data\": not found\n"
+    }
+  }
+}

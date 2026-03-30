@@ -25,31 +25,31 @@
 </head>
 <body>
 <h1>Task Generation Pipeline Metrics</h1>
-<p class="timestamp">Generated: 2026-03-30 13:12</p>
+<p class="timestamp">Generated: 2026-03-30 14:39</p>
 
 <div class="metrics-grid">
   <div class="metric-card">
-    <div class="metric-value">162</div>
+    <div class="metric-value">168</div>
     <div class="metric-label">Tasks Attempted</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">51</div>
+    <div class="metric-value">55</div>
     <div class="metric-label">Functional Pass</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value metric-highlight">23</div>
+    <div class="metric-value metric-highlight">27</div>
     <div class="metric-label">Learnable</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">14%</div>
+    <div class="metric-value">16%</div>
     <div class="metric-label">Learnable Yield</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">4,914,278</div>
+    <div class="metric-value">5,174,770</div>
     <div class="metric-label">Generation Tokens</div>
   </div>
   <div class="metric-card">
-    <div class="metric-value">3276m</div>
+    <div class="metric-value">3396m</div>
     <div class="metric-label">Total Time</div>
   </div>
 </div>
@@ -57,19 +57,19 @@
 <h2>Pipeline Funnel</h2>
 <div class="funnel">
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 77%">Generated: 125</div>
+    <div class="funnel-fill" style="width: 78%">Generated: 131</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 73%">Structural: 118</div>
+    <div class="funnel-fill" style="width: 74%">Structural: 124</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 31%">Functional: 51</div>
+    <div class="funnel-fill" style="width: 33%">Functional: 55</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 28%">Evaluated: 45</div>
+    <div class="funnel-fill" style="width: 29%">Evaluated: 49</div>
   </div>
   <div class="funnel-bar">
-    <div class="funnel-fill" style="width: 14%">Learnable: 23</div>
+    <div class="funnel-fill" style="width: 16%">Learnable: 27</div>
   </div>
 </div>
 
@@ -145,6 +145,11 @@
   <td>sonnet-batch-22</td><td>12</td><td>11</td>
   <td>11</td><td><strong>9</strong></td>
   <td>0</td><td>2</td><td>608m</td>
+</tr>
+<tr>
+  <td>sonnet-batch-23</td><td>6</td><td>4</td>
+  <td>4</td><td><strong>4</strong></td>
+  <td>0</td><td>0</td><td>120m</td>
 </tr>
 <tr>
   <td>sonnet-batch-3</td><td>6</td><td>1</td>
@@ -319,6 +324,34 @@
   <div>
     <strong>fix a Python config file parser that mishandles default valu</strong><br>
     <small>sonnet-batch-22 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python monitoring script with broken metrics collectio</strong><br>
+    <small>sonnet-batch-23 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python script that crashes on empty input when reading</strong><br>
+    <small>sonnet-batch-23 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python dependency resolver with circular dependency de</strong><br>
+    <small>sonnet-batch-23 | 1 retries</small>
+  </div>
+  <div class="pass-rate">33%</div>
+</div>
+<div class="learnable-item">
+  <div>
+    <strong>fix a Python XML-to-JSON converter with namespace handling a</strong><br>
+    <small>sonnet-batch-23 | 2 retries</small>
   </div>
   <div class="pass-rate">33%</div>
 </div>

@@ -1,0 +1,91 @@
+instruction: |-
+  Fix a broken XML-to-JSON converter that has bugs in namespace handling and attribute mapping.
+  
+  The converter at `/app/xml_to_json.py` is supposed to:
+  1. Parse XML files and convert them to JSON format
+  2. Map XML attributes to JSON keys with '@' prefix (e.g., @id, @category)
+  3. Handle XML namespaces correctly (strip namespace URIs when requested)
+  4. Support multiple child elements with the same tag name (convert to JSON arrays)
+  5. Preserve text content in '#text' keys
+  6. Support pretty-printing with --pretty flag
+  7. Support namespace stripping with --strip-namespace flag
+  
+  Current bugs in the implementation:
+  - Attributes are mapped with wrong prefix (uses 'attr_' instead of '@')
+  - Namespace handling is broken (doesn't strip {namespace}tag format correctly)
+  - The --strip-namespace flag is accepted but doesn't actually work
+  - Namespace stripping logic only checks for ':' separator, not '{namespace}' format
+  
+  Expected XML to JSON mappings:
+  
+  Input XML:
+  ```xml
+  <book id="123" category="fiction">
+    <title>The Great Adventure</title>
+  </book>
+  ```
+  
+  Expected JSON:
+  ```json
+  {
+    "book": {
+      "@id": "123",
+      "@category": "fiction",
+      "title": {"#text": "The Great Adventure"}
+    }
+  }
+  ```
+  
+  Input XML with namespace:
+  ```xml
+  <ns:catalog xmlns:ns="http://example.com/catalog">
+    <ns:product ns:id="P001">
+      <ns:name>Widget</ns:name>
+    </ns:product>
+  </ns:catalog>
+  ```
+  
+  With --strip-namespace, expected JSON:
+  ```json
+  {
+    "catalog": {
+      "product": {
+        "@id": "P001",
+        "name": {"#text": "Widget"}
+      }
+    }
+  }
+  ```
+  
+  Requirements:
+  - Fix attribute mapping to use '@' prefix
+  - Fix namespace stripping to handle {namespace}tag format
+  - Make --strip-namespace flag actually work
+  - Handle multiple children with same tag (convert to arrays)
+  - Preserve all text content
+  - Support both compact and pretty JSON output
+  
+  The converter should handle:
+  - Simple XML with attributes
+  - XML with namespaces (xmlns declarations)
+  - Nested structures
+  - Multiple children with same tag name
+  - Mixed content (text and child elements)
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - xml
+  - json
+  - parsing
+  - namespaces
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

@@ -1,19 +1,19 @@
 {
   "aggregate": {
-    "total_tasks": 162,
-    "generated": 125,
-    "structural_pass": 118,
-    "functional_pass": 51,
-    "evaluated": 45,
-    "learnable": 23,
+    "total_tasks": 168,
+    "generated": 131,
+    "structural_pass": 124,
+    "functional_pass": 55,
+    "evaluated": 49,
+    "learnable": 27,
     "too_easy": 1,
     "too_hard": 21,
-    "learnable_yield": 0.142,
-    "functional_rate": 0.408,
-    "learnable_of_evaluated": 0.5111,
-    "total_gen_tokens": 4914278,
-    "total_duration_sec": 196548.8,
-    "num_batches": 21
+    "learnable_yield": 0.1607,
+    "functional_rate": 0.4198,
+    "learnable_of_evaluated": 0.551,
+    "total_gen_tokens": 5174770,
+    "total_duration_sec": 203736.8,
+    "num_batches": 22
   },
   "per_batch": [
     {
@@ -155,6 +155,16 @@
       "too_easy": 0,
       "too_hard": 2,
       "duration_min": 608.2
+    },
+    {
+      "name": "sonnet-batch-23",
+      "total": 6,
+      "functional": 4,
+      "evaluated": 4,
+      "learnable": 4,
+      "too_easy": 0,
+      "too_hard": 0,
+      "duration_min": 119.8
     },
     {
       "name": "sonnet-batch-3",
@@ -347,6 +357,30 @@
       "topic": "fix a Python config file parser that mishandles default values and type coercion",
       "pass_rate": 0.3333,
       "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-23",
+      "topic": "fix a Python monitoring script with broken metrics collection, alerting thresholds, and stale data",
+      "pass_rate": 0.3333,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-23",
+      "topic": "fix a Python script that crashes on empty input when reading a CSV file",
+      "pass_rate": 0.3333,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-23",
+      "topic": "fix a Python dependency resolver with circular dependency detection and version conflict bugs",
+      "pass_rate": 0.3333,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-23",
+      "topic": "fix a Python XML-to-JSON converter with namespace handling and attribute mapping bugs",
+      "pass_rate": 0.3333,
+      "retries": 2
     },
     {
       "batch": "sonnet-batch-5-variant-B",
