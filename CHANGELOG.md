@@ -20,13 +20,19 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Metrics merge for incomplete batches** (`metrics.py`) — The metrics loader now merges incremental JSONL results into report files. When a batch has both a report and incremental file, any task with a null classification in the report is replaced by the real result from the incremental file if available. This fixes a bug where aborted batches with manually-created stub reports hid completed results (e.g., batch 5's learnable template engine task was invisible). Learnable count restored from 2 → 3.
 
+**Difficulty adjustment snapshots** (`pipeline.py`) — Pre-adjustment task snapshots are now always preserved (as `.pre_adj{N}` directories) instead of being deleted on success. Each snapshot includes `_adj_snapshot.json` with the classification, pass rate, and per-trial results that triggered the adjustment. This enables before/after analysis of how adjust_difficulty changes tasks and whether those changes improve learnability.
+
+**Prune exited Docker containers** (`evaluate.py`) — Added `_prune_exited_containers()` to `cleanup_stale_resources()`. The `tb` harness leaves stopped containers behind after each eval run; without pruning these accumulate (130+ in batch 11 alone). Now pruned automatically alongside stale container kills and network cleanup.
+
 ### Generation
 
 **Pre-batch prompt audit and refinements** (`generate.py`, `prompts.py`) — Systematic audit before committing to a $400-budget batch run:
 - Fixed Phase 1 test count mismatch: was "6-10 test functions", now "5-7" matching the rest of the pipeline. This was likely producing too-hard tasks.
 - Added Phase 1 guidance: source code <150 lines in a single file, modular structure to support clean bug injection
 - Fixed `adjust_difficulty()` too_easy prompt: was telling Sonnet to "make symptoms misleading" and "point error messages to wrong location", directly contradicting the independently-discoverable principle. Now focuses on subtlety within discoverability bounds.
-- Replaced `EXCLUDED_CATEGORIES` (blanket ban on 3 categories) with `EXCLUDED_TOPICS` (15 specific topics). Restores software-engineering and data-processing categories (both had learnable tasks) while pruning topics that violate pipeline constraints (server-based, concurrency, Node.js, Docker-in-Docker, /proc/systemd).
+- Replaced `EXCLUDED_CATEGORIES` (blanket ban on 3 categories) with `EXCLUDED_TOPICS` (17 specific topics). Restores software-engineering and data-processing categories (both had learnable tasks) while pruning topics that violate pipeline constraints (server-based, concurrency, Node.js, Docker-in-Docker, /proc/systemd, infrastructure/packaging).
+
+**Application-logic-only constraint** (`generate.py`, `prompts.py`) — Analysis of all 12 learnable tasks showed zero have bugs outside application logic, and all functional validation failures in batch 11 involved infrastructure/packaging bugs (pip install, CI/CD orchestration, environment scaffolding). Added Phase 1 prompt constraint: bugs must be in application logic only, tests must verify program behavior not infrastructure state. Excluded 2 more topics (`pyproject.toml` package build, CI/CD pipeline script) from the prompt bank.
 
 **Metadata-driven example selection** (`generate.py`, `pipeline.py`) — Replaced hardcoded example classification with `_meta.yaml` metadata files on each example directory. New `select_examples()` function picks examples within a token budget (~20k tokens) using deterministic criteria:
 - Category diversity: one example per category first, then fill by score
@@ -250,3 +256,5 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 
 - **Token tracking on timeout**: When the agent times out (`failure_mode=agent_timeout`), the harness returns 0 input/output tokens even though the agent may have made multiple LLM calls and partially fixed the task. The `AgentResult` partial result constructed on timeout doesn't pull token counts from the chat history. This means: (1) cost estimates are underreported for timed-out trials, (2) `resolved=True` with 0 tokens is valid — the agent fixed the code before timing out, and tests passed on the modified container.
 - **4/7 tests pass on buggy webhook code**: The webhook receiver task has 4 tests passing without any fixes applied, meaning only 3 tests actually verify bug fixes. Tasks should aim for majority of tests failing on buggy code to properly measure agent capability.
+
+- **Docker concurrency limit**: `--n-concurrent 12` caused all 12 tasks to fail functional validation — 36 simultaneous Docker containers triggered OOM kills (exit 137) and timeouts. Safe limit is `--n-concurrent 6` (18 containers peak). Batch 12 was a total loss; batch 13 reverts to 6 concurrent.
