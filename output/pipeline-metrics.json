@@ -1,19 +1,19 @@
 {
   "aggregate": {
-    "total_tasks": 56,
-    "generated": 47,
-    "structural_pass": 40,
-    "functional_pass": 14,
-    "evaluated": 17,
-    "learnable": 3,
+    "total_tasks": 60,
+    "generated": 51,
+    "structural_pass": 44,
+    "functional_pass": 16,
+    "evaluated": 19,
+    "learnable": 5,
     "too_easy": 1,
     "too_hard": 13,
-    "learnable_yield": 0.0536,
-    "functional_rate": 0.2979,
-    "learnable_of_evaluated": 0.1765,
-    "total_gen_tokens": 1762485,
-    "total_duration_sec": 73783.2,
-    "num_batches": 9
+    "learnable_yield": 0.0833,
+    "functional_rate": 0.3137,
+    "learnable_of_evaluated": 0.2632,
+    "total_gen_tokens": 1916393,
+    "total_duration_sec": 80875.8,
+    "num_batches": 10
   },
   "per_batch": [
     {
@@ -25,6 +25,16 @@
       "too_easy": 0,
       "too_hard": 0,
       "duration_min": 24.1
+    },
+    {
+      "name": "sonnet-batch-11-data-driven",
+      "total": 4,
+      "functional": 2,
+      "evaluated": 2,
+      "learnable": 2,
+      "too_easy": 0,
+      "too_hard": 0,
+      "duration_min": 118.2
     },
     {
       "name": "sonnet-batch-2",
@@ -108,6 +118,18 @@
     }
   ],
   "learnable": [
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "debug a C program with memory corruption in a linked list implementation",
+      "pass_rate": 0.5,
+      "retries": 1
+    },
+    {
+      "batch": "sonnet-batch-11-data-driven",
+      "topic": "debug a broken webhook receiver with incorrect signature verification, replay protection, and retry handling",
+      "pass_rate": 0.6,
+      "retries": 0
+    },
     {
       "batch": "sonnet-batch-5-variant-B",
       "topic": "fix a broken Python template engine with incorrect variable substitution and escaping",
