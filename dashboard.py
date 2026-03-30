@@ -73,6 +73,7 @@ CUSTOM_CSS = """
     .stage-cell {
         text-align: center; padding: 4px 8px; border-radius: 6px;
         font-size: 0.75em; font-weight: 600;
+        min-width: 40px;
     }
     .stage-done { background: #22543d; color: #68d391; }
     .stage-active { background: #2a4365; color: #63b3ed; animation: pulse 2s infinite; }
@@ -680,7 +681,7 @@ def render_pipeline_view():
                     if sonnet_total > 0:
                         sonnet_cell = f'<div class="stage-cell stage-done">{sonnet_pass}/{sonnet_total}</div>'
                     else:
-                        sonnet_cell = '<div class="stage-cell stage-active">🧪</div>'
+                        sonnet_cell = '<div class="stage-cell stage-active">...</div>'
                 else:
                     sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             # Opus cell — show partial results from runs/ if in progress
@@ -716,7 +717,7 @@ def render_pipeline_view():
                 if opus_total_r > 0:
                     opus_cell = f'<div class="stage-cell stage-active">{opus_pass}/{opus_total_r}</div>'
                 else:
-                    opus_cell = '<div class="stage-cell stage-active">🧪</div>'
+                    opus_cell = '<div class="stage-cell stage-active">...</div>'
             else:
                 opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
