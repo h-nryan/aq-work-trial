@@ -198,13 +198,14 @@ def _get_batch_start_ts(batch_dir: str) -> int:
     return 0
 
 
-def _get_live_eval_scores(task_dirname: str, model_substr: str, batch_start_ts: int) -> tuple[int, int]:
+def _get_live_eval_scores(task_dirname: str, model_substr: str, batch_start_ts: int) -> tuple[int, int, bool]:
     """Get live pass/total from runs/ dir for a specific model, filtered to current batch.
 
     Only counts runs whose timestamp suffix is >= batch_start_ts.
-    Returns (passes, total).
+    Returns (passes, total, has_active_run).
     """
     passes, total = 0, 0
+    has_active_run = False
     for run_dir in glob.glob(os.path.join(RUNS_DIR, f"eval-{task_dirname}-{model_substr}-*")):
         # Extract timestamp from run dir name (last segment after final -)
         try:
@@ -213,6 +214,7 @@ def _get_live_eval_scores(task_dirname: str, model_substr: str, batch_start_ts: 
             continue
         if ts < batch_start_ts:
             continue  # Stale run from previous batch
+        has_active_run = True
         results_file = os.path.join(run_dir, "results.json")
         if os.path.exists(results_file):
             try:
@@ -223,7 +225,7 @@ def _get_live_eval_scores(task_dirname: str, model_substr: str, batch_start_ts: 
                         passes += 1
             except Exception:
                 pass
-    return passes, total
+    return passes, total, has_active_run
 
 
 def _get_task_statuses(batch_dir: str) -> list[dict]:
@@ -869,7 +871,7 @@ def render_pipeline_view():
                 else:
                     # Fallback: live scores from runs/
                     _dn = os.path.basename(t.get("dir", ""))
-                    _sp, _st = _get_live_eval_scores(_dn, "claude-sonnet*", batch_start_ts)
+                    _sp, _st, _s_active = _get_live_eval_scores(_dn, "claude-sonnet*", batch_start_ts)
                     if _st > 0:
                         sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st}</div>'
                     else:
@@ -893,11 +895,14 @@ def render_pipeline_view():
             elif stage == "evaluating":
                 # Live Opus scores from runs/, filtered to current batch
                 _dn = os.path.basename(t.get("dir", ""))
-                _op, _ot = _get_live_eval_scores(_dn, "claude-opus*", batch_start_ts)
+                _op, _ot, _o_active = _get_live_eval_scores(_dn, "claude-opus*", batch_start_ts)
                 if _ot > 0:
                     opus_cell = f'<div class="stage-cell stage-active">{_op}/{_ot}</div>'
+                elif _o_active:
+                    # Opus run exists but no results yet — actively running
+                    opus_cell = '<div class="stage-cell stage-active">...</div>'
                 else:
-                    # No Opus data — either still in Sonnet or no data available
+                    # No Opus run at all — still in Sonnet or not reached
                     opus_cell = '<div class="stage-cell stage-pending">—</div>'
             else:
                 opus_cell = _render_stage_cell(stage, "evaluating", fs)
