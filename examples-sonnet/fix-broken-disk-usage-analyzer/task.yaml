@@ -1,0 +1,59 @@
+instruction: |-
+  Fix a broken disk usage analyzer script that has bugs in recursive directory traversal and size calculations.
+  
+  The script `/app/disk_analyzer.py` is supposed to:
+  1. Recursively traverse a directory tree and calculate sizes
+  2. Handle symlinks correctly without following them
+  3. Respect the --max-depth parameter to limit traversal depth
+  4. Handle permission errors gracefully
+  5. Format file sizes in human-readable format (B, KB, MB, GB, TB)
+  6. Support both human-readable and JSON output formats
+  
+  Current bugs in the script:
+  - Uses os.path.getsize() which doesn't work correctly for directories
+  - Doesn't handle permission errors during directory traversal
+  - The max_depth parameter is parsed but never actually used
+  - Always recurses into subdirectories regardless of depth limit
+  - Integer division in format_size() causes incorrect size formatting
+  - Symlinks may be followed incorrectly, causing double-counting
+  
+  The script should work with these command formats:
+  - `python disk_analyzer.py <directory>` - Human-readable output
+  - `python disk_analyzer.py <directory> --json` - JSON output
+  - `python disk_analyzer.py <directory> --max-depth N` - Limit depth
+  - `python disk_analyzer.py <directory> --json --max-depth N` - Both options
+  
+  Requirements:
+  - Fix recursive size calculation to work correctly for all file types
+  - Handle permission errors without crashing
+  - Implement max-depth limiting correctly (depth 0 = root only, depth 1 = root + direct children)
+  - Use float division for accurate size formatting
+  - Don't follow symlinks when calculating sizes
+  - Preserve the existing command-line interface
+  - Output should be sorted by size (largest first) in human-readable mode
+  - JSON output should include path, size (in bytes), and depth for each entry
+  
+  Success criteria:
+  - All test files are analyzed correctly
+  - Sizes are calculated accurately
+  - max-depth parameter works as expected
+  - No crashes on permission errors
+  - Human-readable sizes are formatted correctly
+  - JSON output is valid and contains all required fields
+difficulty: medium
+category: debugging
+tags:
+  - python
+  - filesystem
+  - recursion
+  - debugging
+  - disk-usage
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small
