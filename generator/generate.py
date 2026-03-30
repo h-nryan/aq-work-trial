@@ -592,6 +592,13 @@ Create a fully functional implementation with:
 The code should be modular enough that 3-4 realistic bugs can be introduced independently \
 (e.g., separate functions, clear data flow, distinct code paths for different features).
 
+IMPORTANT constraints:
+- All bugs must be in APPLICATION LOGIC only (the .py, .c, .sh source files)
+- Do NOT put bugs in Dockerfiles, config files, build scripts, or infrastructure setup
+- Do NOT require pip install, package building, or system-level tooling changes
+- Tests should verify program behavior (output values, return codes, file contents), \
+not infrastructure state (directories exist, packages installed, services running)
+
 The code must be CORRECT — all tests must pass when run against this code.
 
 {examples}
@@ -1055,13 +1062,14 @@ def adjust_difficulty(
         adjustment_instruction = (
             f"This task is TOO HARD. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
             f"(0 out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
-            "Make the task EASIER — focus on bug DISCOVERABILITY, not quantity:\n"
-            "- Make bug symptoms more obvious (clear error messages, stack traces that point to the right file)\n"
-            "- Move bugs from edge cases to common code paths (fail on normal inputs, not just corner cases)\n"
-            "- Reduce indirection — bugs should be in the same file as the symptoms, not hidden across files\n"
-            "- Replace subtle logic bugs (operator precedence, off-by-one) with more obvious ones (wrong variable, missing check)\n"
-            "- Keep the same number of bugs if they're now individually easier to find\n"
-            "- Update solution.sh to match any changes\n"
+            "Make the task EASIER with STRUCTURAL simplification (not just bug changes):\n"
+            "- REDUCE source code to under 80 lines — flatten classes into simple functions, "
+            "remove abstractions, inline helpers, delete code that isn't related to bugs\n"
+            "- REDUCE tests to 5-6 focused tests — each test maps to one bug clearly\n"
+            "- IMPROVE instruction — name the exact function with each bug and describe the symptom\n"
+            "- KEEP the same topic and the same 3 bugs — but in simpler, flatter code\n"
+            "- KEEP it as a single Python file in /app/\n"
+            "- Update solution.sh to match the simplified code\n"
             "- Tests must still FAIL before solution and PASS after\n\n"
             "Return the complete adjusted task as a JSON object with ALL files."
         )
