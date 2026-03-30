@@ -301,12 +301,26 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
                     if s.get("classification"):
                         task_info["classification"] = s["classification"]
                         task_info["pass_rate"] = s.get("pass_rate")
+                    if s.get("category"):
+                        task_info["category"] = s["category"]
                 except Exception:
                     task_info["stage"] = "generating"
             else:
                 # Has dir but no status — probably generating
                 has_yaml = os.path.exists(os.path.join(matched_dir, "task.yaml"))
                 task_info["stage"] = "generating" if not has_yaml else "structural"
+
+        # Category: _meta.yaml is authoritative for completed tasks; _status.json for in-progress
+        if matched_dir and "category" not in task_info:
+            meta_path = os.path.join(matched_dir, "_meta.yaml")
+            if os.path.exists(meta_path):
+                try:
+                    import yaml as _yaml
+                    m = _yaml.safe_load(open(meta_path))
+                    if m and m.get("category"):
+                        task_info["category"] = m["category"]
+                except Exception:
+                    pass
 
         tasks.append(task_info)
 
@@ -923,19 +937,11 @@ def render_pipeline_view():
 
             # Category diversity across current batch
             st.markdown("**Category diversity (current batch)**")
-            import yaml
             cat_counts: dict[str, int] = {}
             for t in tasks:
-                task_dir_c = t.get("dir")
-                if task_dir_c:
-                    meta_path = os.path.join(task_dir_c, "_meta.yaml")
-                    if os.path.exists(meta_path):
-                        try:
-                            meta = yaml.safe_load(open(meta_path))
-                            cat = meta.get("category", "unknown")
-                            cat_counts[cat] = cat_counts.get(cat, 0) + 1
-                        except Exception:
-                            pass
+                cat = t.get("category")
+                if cat:
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
             if cat_counts:
                 st.bar_chart(cat_counts, y_label="Tasks")
             else:

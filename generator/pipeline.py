@@ -353,7 +353,8 @@ def run_pipeline(
     print(f"{'='*60}")
 
     if output_dir:
-        _write_status(output_dir, "generating", "Phase 1 + Phase 2" if solution_first else "Single phase")
+        _write_status(output_dir, "generating", "Phase 1 + Phase 2" if solution_first else "Single phase",
+                      **({"category": target_category} if target_category else {}))
 
     try:
         if solution_first:
@@ -410,11 +411,13 @@ def run_pipeline(
                 if retry_result["status"] != "success":
                     result["status"] = "retry_generation_failed"
                     result["failed_stage"] = "structural"
+                    _write_status(task_dir, "failed", "retry generation failed (structural)")
                     result["duration_sec"] = round(time.time() - start, 2)
                     return result
                 continue  # re-validate
             result["status"] = "structural_validation_failed"
             result["failed_stage"] = "structural"
+            _write_status(task_dir, "failed", "structural validation failed")
             result["duration_sec"] = round(time.time() - start, 2)
             return result
 
@@ -448,16 +451,19 @@ def run_pipeline(
                     if retry_result["status"] != "success":
                         result["status"] = "retry_generation_failed"
                         result["failed_stage"] = "functional"
+                        _write_status(task_dir, "failed", "retry generation failed (functional)")
                         result["duration_sec"] = round(time.time() - start, 2)
                         return result
                     continue  # re-validate from structural
                 if is_environment_error:
                     result["status"] = "infrastructure_error"
                     result["failed_stage"] = "functional"
+                    _write_status(task_dir, "failed", f"infrastructure error: {issues[0][:50] if issues else '?'}")
                     print(f"  True infrastructure error — skipping retries")
                 else:
                     result["status"] = "functional_validation_failed"
                     result["failed_stage"] = "functional"
+                    _write_status(task_dir, "failed", "functional validation failed")
                 result["duration_sec"] = round(time.time() - start, 2)
                 return result
         else:
@@ -566,10 +572,18 @@ def run_pipeline(
                         eval_result, adj_round, model, result,
                     )
                     if not adjusted:
+                        _write_status(task_dir, "completed",
+                                      f"{classification} (adjustment failed)",
+                                      classification=classification, pass_rate=pass_rate)
                         break
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
+                cl_final = eval_result["classification"]
+                pr_final = eval_result.get("pass_rate") or 0.0
+                _write_status(task_dir, "completed",
+                              f"{cl_final} (adjustments exhausted)",
+                              classification=cl_final, pass_rate=pr_final)
     else:
         print(f"\n[Evaluation] Skipped")
 
