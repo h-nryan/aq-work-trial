@@ -43,6 +43,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - Target 10-20 minute human solve time (was 20-60 minutes)
 - Per-difficulty hints (easy/medium/hard) were reverted earlier — every task should land in the learnable band regardless of topic.
 
+**Prompt variant A/B testing** (`generate.py`, `pipeline.py`, `batch.py`) — Infrastructure for comparing verbose vs trimmed prompts. Variant A is the current full prompt (~35-40 constraints across SYSTEM_PROMPT, PHASE2_PROMPT, user prompt reminders). Variant B collapses the difficulty section to 3 core points ("match the examples"), removes redundant user-prompt reminders, and lets examples do the teaching instead of explicit rules. Hypothesis: Sonnet may internalize constraints better when not overloaded with rules that partly overlap the examples.
+- `--prompt-variant B` flag on pipeline.py and batch.py
+- Selects `SYSTEM_PROMPT_B`, `PHASE2_PROMPT_B`, and trimmed user prompt
+- A/B comparison requires same seed/topics — use `--seed` flag in batch.py
+- *Design decision*: Examples consume 80-95% of prompt tokens. If Sonnet already learns difficulty from examples, verbose constraint lists may cause attention dilution rather than reinforcement.
+
 **Targeted repair** (`generate.py`, `pipeline.py`) — On validation failure, analyzes feedback to repair only broken files:
 - "Tests FAILED with solution" → regenerate only `solution.sh`
 - "Tests PASSED without solution" → regenerate only source files (with test code included so LLM knows what to break)

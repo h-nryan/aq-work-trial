@@ -91,6 +91,7 @@ def run_pipeline(
     model: str | None = None,
     solution_first: bool = False,
     include_haiku: bool = False,
+    prompt_variant: str = "A",
 ) -> dict:
     """Run the full pipeline for a single topic.
 
@@ -130,9 +131,13 @@ def run_pipeline(
     print(f"{'='*60}")
 
     if solution_first:
-        gen_result = generate_task_solution_first(topic, output_dir=output_dir, model=model)
+        gen_result = generate_task_solution_first(
+            topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
+        )
     else:
-        gen_result = generate_task(topic, output_dir=output_dir, model=model)
+        gen_result = generate_task(
+            topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
+        )
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]
 

@@ -41,7 +41,7 @@ def _write_valid_task(task_dir: str) -> None:
 
 def _mock_generate(task_dir: str):
     """Return a mock generate function that writes valid fixture files."""
-    def generate(topic, output_dir=None, model=None):
+    def generate(topic, output_dir=None, model=None, **kwargs):
         out = output_dir or task_dir
         os.makedirs(out, exist_ok=True)
         _write_valid_task(out)
@@ -55,7 +55,7 @@ def _mock_generate(task_dir: str):
     return generate
 
 
-def _mock_generate_fail(topic, output_dir=None, model=None):
+def _mock_generate_fail(topic, output_dir=None, model=None, **kwargs):
     """Mock generate that returns a failure."""
     out = output_dir or "/tmp/mock-fail"
     os.makedirs(out, exist_ok=True)
@@ -201,7 +201,7 @@ class TestStructuralValidation:
         """Task missing required files fails structural validation."""
         task_dir = str(tmp_path / "bad-struct")
 
-        def generate_bad(topic, output_dir=None, model=None):
+        def generate_bad(topic, output_dir=None, model=None, **kwargs):
             out = output_dir or task_dir
             os.makedirs(out, exist_ok=True)
             # Write incomplete task — missing Dockerfile, tests/
@@ -226,7 +226,7 @@ class TestStructuralValidation:
         task_dir = str(tmp_path / "retry-struct")
         call_count = [0]
 
-        def generate_first_bad(topic, output_dir=None, model=None):
+        def generate_first_bad(topic, output_dir=None, model=None, **kwargs):
             out = output_dir or task_dir
             os.makedirs(out, exist_ok=True)
             # Missing Dockerfile
@@ -375,7 +375,7 @@ class TestRetryRegenFailure:
     def test_structural_retry_regen_fails(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "regen-fail")
 
-        def generate_bad(topic, output_dir=None, model=None):
+        def generate_bad(topic, output_dir=None, model=None, **kwargs):
             out = output_dir or task_dir
             os.makedirs(out, exist_ok=True)
             # Missing everything except task.yaml

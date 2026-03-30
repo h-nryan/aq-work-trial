@@ -207,6 +207,9 @@ Avoid bugs that only show up in valgrind, cause undefined behavior, or produce i
 - The task should take a skilled human 10-20 minutes (NOT 30-60 minutes)
 - Do NOT make it impossible — a capable agent should solve it ~40-60% of the time
 
+STUDY THE EXAMPLES CAREFULLY. The examples below show the exact difficulty level and bug \
+style to target. Match them closely — they are more important than the rules above.
+
 OUTPUT FORMAT:
 Return your response as a JSON object with this structure:
 {
@@ -223,10 +226,66 @@ Return your response as a JSON object with this structure:
 
 IMPORTANT: Return ONLY raw JSON. Do NOT wrap it in ```json``` markdown fences or any other formatting. Start your response with { and end with }."""
 
+# Variant B: trimmed prompt — fewer explicit constraints, relies on examples
+SYSTEM_PROMPT_B = """\
+You are an expert at creating coding tasks for evaluating AI agents. You generate \
+Terminal Bench tasks — self-contained coding challenges that run in Docker containers \
+and are verified by pytest.
 
-def _build_user_prompt(topic: str) -> str:
+REQUIRED FILES: task.yaml, Dockerfile, run-tests.sh, solution.sh, tests/test_outputs.py, plus buggy source files.
+- solution.sh uses `cat > filename << 'EOF'` heredocs to write complete fixed files.
+- Dockerfile MUST install tmux and asciinema. Prefer Python/Bash/C stacks.
+- Tests MUST FAIL before solution.sh and PASS after.
+- run-tests.sh installs uv + pytest. Follow the boilerplate from examples.
+
+DIFFICULTY — THE MOST IMPORTANT THING:
+Study the examples below. They show EXACTLY the right difficulty. Match them:
+- Put all bugs in ONE source file under 150 lines
+- 3-4 bugs that each produce a clear, distinct test failure
+- The examples show what "learnable" looks like. Copy their style, not just their format.
+
+OUTPUT FORMAT:
+Return ONLY a raw JSON object: {{"files": {{"filename": "content", ...}}}}
+Start with {{ and end with }}. No markdown fences."""
+
+PHASE2_PROMPT_B = """\
+Given this WORKING program, introduce exactly 3-4 bugs in the source file(s) only.
+
+Rules:
+- Bugs must be realistic (off-by-one, wrong variable, missing edge case, wrong operator)
+- Do NOT change tests, Dockerfile, run-tests.sh, or task.yaml
+- Each bug should cause at least one test to fail with a clear error message
+- The original working code IS the solution
+
+VERIFY: For each test, confirm it WILL FAIL with your buggy code. If any test still \
+passes, add another bug that breaks it.
+
+Here is the working program:
+```json
+{working_json}
+```
+
+Return JSON with two keys:
+1. "verification" — one line per test: "test_name: WILL FAIL because [reason]"
+2. "files" — ONLY the modified source files (buggy versions)"""
+
+
+def _build_user_prompt(topic: str, variant: str = "A") -> str:
     """Build the user prompt with topic and examples."""
     examples = _load_examples()
+
+    if variant == "B":
+        # Trimmed variant: examples do the teaching, minimal reminders
+        return f"""Generate a Terminal Bench task for this topic: "{topic}"
+
+Study these examples — they define the target difficulty and format:
+
+{examples}
+
+Generate a task for: "{topic}"
+Match the examples' difficulty closely. Return ONLY the JSON object."""
+
+    # Variant A: verbose reminders (default)
     return f"""Generate a Terminal Bench task for this topic: "{topic}"
 
 Study these reference examples carefully and match their format exactly:
@@ -305,13 +364,19 @@ def _write_task_files(files: dict, output_dir: str) -> None:
             os.chmod(full_path, 0o755)
 
 
-def generate_task(topic: str, output_dir: str | None = None, model: str | None = None) -> dict:
+def generate_task(
+    topic: str,
+    output_dir: str | None = None,
+    model: str | None = None,
+    prompt_variant: str = "A",
+) -> dict:
     """Generate a Terminal Bench task for the given topic.
 
     Args:
         topic: A short description of the task to generate.
         output_dir: Where to write the generated task files.
         model: Override the generator model.
+        prompt_variant: "A" (verbose constraints) or "B" (trimmed, example-driven).
 
     Returns:
         dict with task_dir, status, usage, and duration.
@@ -329,10 +394,11 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
     )
 
     gen_model = model or GENERATOR_MODEL
-    user_prompt = _build_user_prompt(topic)
+    sys_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
+    user_prompt = _build_user_prompt(topic, variant=prompt_variant)
 
     print(f"Generating task for: {topic}")
-    print(f"  Model: {gen_model}")
+    print(f"  Model: {gen_model}  |  Prompt variant: {prompt_variant}")
     print(f"  Output: {output_dir}")
 
     start = time.time()
@@ -341,7 +407,7 @@ def generate_task(topic: str, output_dir: str | None = None, model: str | None =
         client,
         model=gen_model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.7,
@@ -453,6 +519,7 @@ def generate_task_solution_first(
     topic: str,
     output_dir: str | None = None,
     model: str | None = None,
+    prompt_variant: str = "A",
 ) -> dict:
     """Generate a task using solution-first strategy (two-phase).
 
@@ -465,6 +532,8 @@ def generate_task_solution_first(
 
     This approach has much higher functional validation pass rates because
     the solution is guaranteed correct — it was written first.
+
+    prompt_variant: "A" (verbose constraints) or "B" (trimmed, example-driven).
     """
     slug = _slugify(topic)
 
@@ -540,9 +609,11 @@ def generate_task_solution_first(
     print(f"  Phase 2: Introducing bugs...")
 
     working_json = json.dumps({"files": working_files}, indent=2)
-    phase2_prompt = PHASE2_PROMPT.format(working_json=working_json)
+    p2_template = PHASE2_PROMPT_B if prompt_variant == "B" else PHASE2_PROMPT
+    phase2_prompt = p2_template.format(working_json=working_json)
+    sys_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
     phase2_messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": sys_prompt},
         {"role": "user", "content": phase2_prompt},
     ]
 

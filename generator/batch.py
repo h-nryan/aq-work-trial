@@ -126,6 +126,7 @@ def run_batch(
     n_concurrent: int = 1,
     resume_from: str | None = None,
     solution_first: bool = False,
+    prompt_variant: str = "A",
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 
@@ -221,6 +222,7 @@ def run_batch(
                 skip_functional=skip_functional,
                 skip_filters=skip_filters,
                 solution_first=solution_first,
+                prompt_variant=prompt_variant,
             )
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -537,6 +539,10 @@ if __name__ == "__main__":
             "(e.g. 20240101-120000) or path to a *-incremental.jsonl file."
         ),
     )
+    parser.add_argument(
+        "--prompt-variant", choices=["A", "B"], default="A",
+        help="Prompt variant: A (verbose constraints) or B (trimmed, example-driven)",
+    )
 
     args = parser.parse_args()
 
@@ -564,4 +570,5 @@ if __name__ == "__main__":
         n_concurrent=args.n_concurrent,
         resume_from=args.resume,
         solution_first=args.solution_first,
+        prompt_variant=args.prompt_variant,
     )
