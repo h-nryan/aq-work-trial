@@ -464,6 +464,11 @@ def _write_task_files(files: dict, output_dir: str) -> None:
     for filepath, content in files.items():
         full_path = os.path.join(output_dir, filepath)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        # Guard against LLM returning list instead of string for file content
+        if isinstance(content, list):
+            content = "\n".join(str(line) for line in content)
+        elif not isinstance(content, str):
+            content = str(content)
         with open(full_path, "w") as f:
             f.write(content)
 
@@ -783,6 +788,17 @@ def generate_task_solution_first(
                 }
 
     print(f"  Phase 2 complete: {len(buggy_files)} buggy files")
+
+    # Validate Phase 2 actually changed something — if buggy files are identical
+    # to working files, Phase 2 didn't introduce real bugs. Retry immediately
+    # without burning a Docker validation.
+    actually_changed = False
+    for filepath, content in buggy_files.items():
+        if filepath in working_files and content != working_files[filepath]:
+            actually_changed = True
+            break
+    if not actually_changed:
+        print(f"  WARNING: Phase 2 returned identical files — no bugs introduced")
 
     # Merge: infrastructure + tests from phase 1, buggy source from phase 2
     final_files = dict(working_files)  # start with everything from phase 1
