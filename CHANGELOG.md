@@ -8,7 +8,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Stretch goals implemented**: A (cost-efficient evaluation), B (difficulty tuning), C (diversity analysis), D (human-likeness comparison).
 
-**Current state**: 175 tests across 10 test modules, ~3,400 lines of generator code across 9 modules. Evaluating hand-crafted examples against Opus to calibrate few-shot prompts before running production batches.
+**Current state**: 305+ tests across 14+ modules. First Sonnet-generated learnable task achieved (template engine, Opus 25%). 4 learnable exemplars total (1 hand-crafted, 2 Opus-generated, 1 Sonnet-generated). Opus difficulty rating pre-filter shows promise (2/2 correct predictions in initial test).
 
 ---
 
