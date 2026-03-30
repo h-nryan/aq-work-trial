@@ -66,7 +66,9 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Opus early stopping with hybrid parallelism** — First 3 Opus runs execute in parallel for speed. If classification is determined (e.g., 0/3 → too_hard, 3/3 → too_easy), stop. Otherwise run attempts 4-5 sequentially with early-stop checks. Saves ~$0.40-1.00 per skipped run; most tasks classify after 3 parallel runs.
 
-**Early stopping on all tiers** — The hybrid parallel+sequential early-stop strategy now applies to Haiku and Sonnet filter tiers too (not just Opus). For filters, the decision is simpler (skip vs proceed): after 3 parallel runs, if passes + remaining < threshold → proceed immediately. Haiku 0/3 with threshold 4 → can't reach 4 even if remaining 2 pass → stop, saved 2 runs.
+**Haiku filter disabled by default** — Haiku scored 0/5 on every task tested, including the trivially easy config-manifest-validator (Opus 5/5, Sonnet 3/3). The terminus-1 agent with Haiku via OpenRouter is too weak to solve anything through the harness, making the tier pure overhead (5 API calls + 5 Docker runs returning 0/5). Now opt-in via `--include-haiku`. The evaluation pipeline goes Sonnet → Opus by default.
+
+**Early stopping on all tiers** — The hybrid parallel+sequential early-stop strategy applies to Sonnet filter and Opus eval tiers (and Haiku if enabled). For filters, the decision is simpler (skip vs proceed): after 3 parallel runs, if passes + remaining < threshold → proceed immediately.
 
 **`--solution-first` in batch CLI** — Batch runs now support `--solution-first` flag, passing it through to each `run_pipeline` call. Kept as a flag (not default) to allow A/B comparison of generation strategies on learnable yield.
 
