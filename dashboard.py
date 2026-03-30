@@ -27,6 +27,7 @@ from metrics import (
 )
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
+RUNS_DIR = os.path.join(os.path.dirname(__file__), "runs")
 
 # ── Model pricing ($ per token) ──────────────────────────────────────────────
 _SONNET_IN  = 3.00  / 1_000_000
@@ -806,7 +807,26 @@ def render_pipeline_view():
                 else:
                     sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
             elif stage == "evaluating":
-                sonnet_cell = '<div class="stage-cell stage-active">...</div>'
+                # Check runs/ for live Sonnet results
+                _dir = t.get("dir")
+                _dn = os.path.basename(_dir) if _dir else ""
+                _sonnet_runs = glob.glob(os.path.join(RUNS_DIR, f"eval-{_dn}-claude-sonnet-*"))
+                _sp, _st = 0, 0
+                for _sr in _sonnet_runs:
+                    _rf = os.path.join(_sr, "results.json")
+                    if os.path.exists(_rf):
+                        try:
+                            _rd = json.load(open(_rf))
+                            for _trial in _rd.get("results", []):
+                                _st += 1
+                                if _trial.get("is_resolved"):
+                                    _sp += 1
+                        except Exception:
+                            pass
+                if _st > 0:
+                    sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st}</div>'
+                else:
+                    sonnet_cell = '<div class="stage-cell stage-active">...</div>'
             else:
                 sonnet_cell = '<div class="stage-cell stage-skipped">—</div>'
 
@@ -824,7 +844,29 @@ def render_pipeline_view():
             elif filtered_at in ("sonnet", "haiku") and stage == "completed":
                 opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
             elif stage == "evaluating":
-                opus_cell = '<div class="stage-cell stage-active">...</div>'
+                # Check runs/ for live Opus results
+                _dir = t.get("dir")
+                _dn = os.path.basename(_dir) if _dir else ""
+                _opus_runs = glob.glob(os.path.join(RUNS_DIR, f"eval-{_dn}-claude-opus-*"))
+                _op, _ot = 0, 0
+                for _or_path in _opus_runs:
+                    _rf = os.path.join(_or_path, "results.json")
+                    if os.path.exists(_rf):
+                        try:
+                            _rd = json.load(open(_rf))
+                            for _trial in _rd.get("results", []):
+                                _ot += 1
+                                if _trial.get("is_resolved"):
+                                    _op += 1
+                        except Exception:
+                            pass
+                if _ot > 0:
+                    opus_cell = f'<div class="stage-cell stage-active">{_op}/{_ot}</div>'
+                elif _sonnet_runs and _st > 0:
+                    # Sonnet has results but Opus doesn't — still in Sonnet phase
+                    opus_cell = '<div class="stage-cell stage-pending">—</div>'
+                else:
+                    opus_cell = '<div class="stage-cell stage-active">...</div>'
             else:
                 opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
