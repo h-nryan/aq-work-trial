@@ -393,10 +393,14 @@ def render_live_status():
             else:
                 badge = f'<span class="stage-badge badge-generating">{model}</span>'
 
-            # Find trial pass rate from run results
-            run_dirs = glob.glob(f"runs/*{ev['task_id']}*{model.replace('claude-', '')}*")
+            # Find trial pass rate from two sources:
+            # 1. Run dirs (may be cleaned up)
+            # 2. Pipeline's internal eval stage in incremental results
             trials_passed = 0
             trials_total = 0
+
+            # Source 1: run dirs (live, may be partial)
+            run_dirs = glob.glob(f"runs/*{ev['task_id']}*{model.replace('claude-', '')}*")
             for rd in sorted(run_dirs):
                 rf = os.path.join(rd, "results.json")
                 if os.path.exists(rf):
@@ -408,6 +412,31 @@ def render_live_status():
                                 trials_total += 1
                                 if resolved:
                                     trials_passed += 1
+                    except Exception:
+                        pass
+
+            # Source 2: check eval stages in all active batch incrementals
+            # (captures data from cleaned-up runs)
+            if trials_total == 0:
+                for inc in glob.glob(os.path.join(OUTPUT_DIR, "sonnet-batch-*", "batch-*-incremental.jsonl")):
+                    try:
+                        for line in open(inc):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            r = json.loads(line)
+                            # Match by task_id in the task_dir path
+                            task_dir = r.get("task_dir", "")
+                            if ev["task_id"] not in task_dir:
+                                continue
+                            eval_data = r.get("stages", {}).get("evaluation", {})
+                            opus_data = eval_data.get("tier_results", {}).get("opus", {})
+                            if opus_data:
+                                trials_passed = opus_data.get("passes", 0) or 0
+                                trials_total = opus_data.get("total", 0) or 0
+                            elif eval_data.get("passes") is not None:
+                                trials_passed = eval_data.get("passes", 0) or 0
+                                trials_total = eval_data.get("total", 0) or 0
                     except Exception:
                         pass
 
