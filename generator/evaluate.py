@@ -85,6 +85,78 @@ def _cleanup_stale_containers(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int
     return killed
 
 
+def _cleanup_stale_tb_processes(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
+    """Kill stale `tb run` processes and their orphaned parent evaluators.
+
+    tb run processes that outlive their containers become zombies waiting
+    on subprocess.run() that will never return. This also catches parent
+    Python processes that spawned evaluate_task() calls and are stuck
+    waiting on a dead tb run child.
+
+    Returns the number of processes killed.
+    """
+    import signal
+
+    try:
+        # Find all tb run processes with their PIDs and start times
+        result = subprocess.run(
+            ["ps", "-eo", "pid,etimes,args"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 0
+
+    killed = 0
+    my_pid = os.getpid()
+
+    for line in result.stdout.strip().splitlines()[1:]:  # skip header
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+            elapsed_sec = int(parts[1])
+            cmd = parts[2]
+        except (ValueError, IndexError):
+            continue
+
+        # Don't kill ourselves or our parent
+        if pid == my_pid or pid == os.getppid():
+            continue
+
+        if elapsed_sec <= max_age_sec:
+            continue
+
+        # Kill stale tb run processes
+        is_stale_tb = "tb run" in cmd and "eval-" in cmd
+        # Kill stale evaluate_task parent processes (the python -c wrappers)
+        is_stale_eval_parent = "from evaluate import" in cmd
+
+        if is_stale_tb or is_stale_eval_parent:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed += 1
+            except ProcessLookupError:
+                pass
+
+    if killed:
+        print(f"  Cleaned up {killed} stale process(es) (>{max_age_sec}s old)")
+    return killed
+
+
+def cleanup_stale_resources(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
+    """Kill stale Docker containers and orphaned tb/evaluator processes.
+
+    Call this before starting new eval runs to prevent resource accumulation.
+    Returns total number of resources cleaned up.
+    """
+    containers = _cleanup_stale_containers(max_age_sec)
+    processes = _cleanup_stale_tb_processes(max_age_sec)
+    return containers + processes
+
+
 def _run_tb(
     task_dir: str,
     model: str,
@@ -107,8 +179,8 @@ def _run_tb(
     Returns:
         dict with passes, total, results_dir, and raw trial data.
     """
-    # Kill any hung containers before starting new trials
-    _cleanup_stale_containers()
+    # Kill any hung containers/processes before starting new trials
+    cleanup_stale_resources()
 
     dataset_path = str(Path(task_dir).resolve().parent)
     task_id = Path(task_dir).name
