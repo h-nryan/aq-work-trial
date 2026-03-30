@@ -686,7 +686,12 @@ def render_pipeline_view():
         elif cl == "eval_skipped":
             result_cell = '<div class="result-cell result-learnable">✓ func</div>'
         elif cl == "too_hard":
-            result_cell = '<div class="result-cell result-hard">TOO HARD</div>'
+            task_dir_h = t.get("dir")
+            has_adj_h = bool(glob.glob((task_dir_h or "") + ".pre_adj*")) if task_dir_h else False
+            if has_adj_h and stage == "evaluating":
+                result_cell = '<div class="result-cell result-easy">ADJUSTING</div>'
+            else:
+                result_cell = '<div class="result-cell result-hard">TOO HARD</div>'
         elif cl == "too_easy":
             # Check if this was Sonnet-filtered (no Opus ran) vs Opus-confirmed
             eval_stages_r = t.get("stages", {}).get("evaluation", {})
