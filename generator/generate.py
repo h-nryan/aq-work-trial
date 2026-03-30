@@ -871,51 +871,63 @@ Return ONLY the JSON object."""
     print(f"  Model: {gen_model}")
 
     start = time.time()
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": feedback_prompt},
+    ]
 
-    response = _api_call_with_retry(
-        client,
-        model=gen_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": feedback_prompt},
-        ],
-        temperature=0.3,  # Lower temp for repairs — we want precision
-        max_tokens=32000,
-    )
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    status = None
+
+    for parse_attempt in range(3):
+        response = _api_call_with_retry(
+            client,
+            model=gen_model,
+            messages=messages,
+            temperature=0.3,  # Lower temp for repairs — we want precision
+            max_tokens=32000,
+        )
+
+        response_text = response.choices[0].message.content
+        if response.usage:
+            for k in usage:
+                usage[k] += getattr(response.usage, k, 0)
+
+        try:
+            files = _parse_response(response_text)
+
+            if repair_target == "full":
+                # Clear old files and write all new ones
+                for item in task_path.iterdir():
+                    if item.name.startswith("_"):
+                        continue
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                _write_task_files(files, task_dir)
+            else:
+                # Targeted repair: only overwrite the returned files
+                _write_task_files(files, task_dir)
+
+            status = "success"
+            break
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            if parse_attempt < 2:
+                # Ask Sonnet to fix its JSON
+                print(f"  Parse attempt {parse_attempt + 1} failed: {e} — retrying...")
+                messages.append({"role": "assistant", "content": response_text})
+                messages.append({"role": "user", "content": (
+                    f"Your response was not valid JSON. Error: {e}\n"
+                    "Return ONLY a raw JSON object starting with { and ending with }. "
+                    "No markdown fences, no explanation, just the JSON."
+                )})
+            else:
+                status = f"parse_error: {e}"
+                with open(os.path.join(task_dir, "_retry_raw_response.txt"), "w") as f:
+                    f.write(response_text)
 
     duration = time.time() - start
-    response_text = response.choices[0].message.content
-
-    usage = {}
-    if response.usage:
-        usage = {
-            "prompt_tokens": response.usage.prompt_tokens,
-            "completion_tokens": response.usage.completion_tokens,
-            "total_tokens": response.usage.total_tokens,
-        }
-
-    try:
-        files = _parse_response(response_text)
-
-        if repair_target == "full":
-            # Clear old files and write all new ones
-            for item in task_path.iterdir():
-                if item.name.startswith("_"):
-                    continue
-                if item.is_dir():
-                    shutil.rmtree(item)
-                else:
-                    item.unlink()
-            _write_task_files(files, task_dir)
-        else:
-            # Targeted repair: only overwrite the returned files
-            _write_task_files(files, task_dir)
-
-        status = "success"
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        status = f"parse_error: {e}"
-        with open(os.path.join(task_dir, "_retry_raw_response.txt"), "w") as f:
-            f.write(response_text)
 
     result = {
         "task_dir": task_dir,
