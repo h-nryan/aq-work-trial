@@ -36,8 +36,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Targeted repair** (`generate.py`, `pipeline.py`) — On validation failure, analyzes feedback to repair only broken files:
 - "Tests FAILED with solution" → regenerate only `solution.sh`
-- "Tests PASSED without solution" → regenerate only source files
+- "Tests PASSED without solution" → regenerate only source files (with test code included so LLM knows what to break)
+- "Docker build failed" → regenerate only Dockerfile (conflicting packages, wrong base image)
 - Structural issues → full rebuild (rare)
+- Difficulty adjustment focuses on bug **subtlety/discoverability** not quantity — making bugs more/less obvious rather than adding/removing them
 - *Design decision*: Full-rebuild retries caused "whack-a-mole" — fixing one file broke others. Targeted repair cut retry cost ~80%.
 
 **JSON parse robustness** (`generate.py`) — Handles markdown fences, embedded JSON, and triple-backtick content within JSON values.
