@@ -533,6 +533,164 @@ def _run_filter_tier(
     }
 
 
+def _can_stop(passes: int, remaining: int) -> str | None:
+    """Check if we can classify early based on passes and remaining runs."""
+    if passes >= LEARNABLE_MIN and passes + remaining <= LEARNABLE_MAX:
+        return "learnable"
+    if passes > LEARNABLE_MAX:
+        return "too_easy"
+    if passes + remaining < LEARNABLE_MIN:
+        return "too_hard"
+    return None
+
+
+def _extract_test_stats(trials: list[dict]) -> dict:
+    """Extract per-test pass rates from trial data.
+
+    Returns dict with avg_test_pass_rate (0.0-1.0) and per-trial counts.
+    """
+    test_counts = []
+    for batch in trials:
+        for trial in batch.get("trials", []):
+            tp = trial.get("tests_passed", 0)
+            tt = trial.get("tests_total", 0)
+            if tt > 0:
+                test_counts.append({"passed": tp, "total": tt, "rate": tp / tt})
+    if not test_counts:
+        return {"avg_test_pass_rate": 0.0, "trials": test_counts}
+    avg = sum(t["rate"] for t in test_counts) / len(test_counts)
+    return {"avg_test_pass_rate": avg, "trials": test_counts}
+
+
+def run_opus_eval(
+    task_dir: str,
+    n_trials: int = EVAL_TRIALS,
+    output_path: str = "runs",
+    prior_passes: int = 0,
+    prior_total: int = 0,
+    prior_trials: list | None = None,
+) -> dict:
+    """Run Opus evaluation with early stopping.
+
+    Supports resuming from prior results (e.g., after early adjustment).
+    First batch runs in parallel, then sequential with early-stop checks.
+
+    Returns dict with passes, total, trials, classification, and test_stats.
+    """
+    opus_passes = prior_passes
+    opus_total = prior_total
+    opus_trials = list(prior_trials or [])
+    remaining = n_trials - opus_total
+
+    if remaining <= 0:
+        # Already have enough data
+        if LEARNABLE_MIN <= opus_passes <= LEARNABLE_MAX:
+            classification = "learnable"
+        elif opus_passes > LEARNABLE_MAX:
+            classification = "too_easy"
+        else:
+            classification = "too_hard"
+        return {
+            "passes": opus_passes,
+            "total": opus_total,
+            "trials": opus_trials,
+            "classification": classification,
+            "test_stats": _extract_test_stats(opus_trials),
+        }
+
+    # If no prior results, run first batch in parallel
+    if opus_total == 0:
+        parallel_batch = min(3, remaining)
+        batch_result = _run_tb(
+            task_dir=task_dir,
+            model=EVAL_MODEL,
+            n_attempts=parallel_batch,
+            output_path=output_path,
+        )
+        opus_passes = batch_result["passes"]
+        opus_total = batch_result["total"] or parallel_batch
+        opus_trials.append(batch_result)
+        remaining = n_trials - opus_total
+
+        print(f"    Batch 1-{parallel_batch}: {opus_passes}/{opus_total} passes")
+
+        early_class = _can_stop(opus_passes, remaining)
+        if early_class:
+            print(f"    → {early_class} (early stop after {opus_total} runs, saved {remaining})")
+            test_stats = _extract_test_stats(opus_trials)
+
+            # Signal early adjustment opportunity: 0 passes + low test pass rate
+            recommend_early_adj = (
+                opus_passes == 0
+                and remaining > 0
+                and test_stats["avg_test_pass_rate"] < 0.3
+            )
+
+            return {
+                "passes": opus_passes,
+                "total": opus_total,
+                "trials": opus_trials,
+                "classification": early_class,
+                "test_stats": test_stats,
+                "recommend_early_adjust": recommend_early_adj,
+                "remaining_runs": remaining,
+            }
+
+        # Check if early adjustment is recommended (0/3 + low test rate)
+        test_stats = _extract_test_stats(opus_trials)
+        if opus_passes == 0 and test_stats["avg_test_pass_rate"] < 0.3:
+            print(f"    0/{opus_total} passes, avg test rate {test_stats['avg_test_pass_rate']:.0%}"
+                  f" — recommending early adjustment")
+            return {
+                "passes": opus_passes,
+                "total": opus_total,
+                "trials": opus_trials,
+                "classification": "too_hard",
+                "test_stats": test_stats,
+                "recommend_early_adjust": True,
+                "remaining_runs": remaining,
+            }
+
+    # Sequential runs with early-stop checks
+    for run_idx in range(remaining):
+        single_result = _run_tb(
+            task_dir=task_dir,
+            model=EVAL_MODEL,
+            n_attempts=1,
+            output_path=output_path,
+        )
+        opus_total += 1
+        if single_result["passes"] > 0:
+            opus_passes += 1
+        opus_trials.append(single_result)
+
+        runs_left = n_trials - opus_total
+        early_class = _can_stop(opus_passes, runs_left)
+        if early_class:
+            print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
+                  f"{early_class} (early stop, saved {runs_left} runs)")
+            break
+        else:
+            print(f"    Run {opus_total}/{n_trials}: {opus_passes}/{opus_total} passes")
+
+    if LEARNABLE_MIN <= opus_passes <= LEARNABLE_MAX:
+        classification = "learnable"
+    elif opus_passes > LEARNABLE_MAX:
+        classification = "too_easy"
+    else:
+        classification = "too_hard"
+
+    return {
+        "passes": opus_passes,
+        "total": opus_total,
+        "trials": opus_trials,
+        "classification": classification,
+        "test_stats": _extract_test_stats(opus_trials),
+        "recommend_early_adjust": False,
+        "remaining_runs": 0,
+    }
+
+
 def evaluate_task(
     task_dir: str,
     n_trials: int = EVAL_TRIALS,
@@ -608,60 +766,15 @@ def evaluate_task(
     # with early-stop checks for cost efficiency.
     print(f"\n  [Tier: Opus x{n_trials}] Running on {task_name}...")
 
-    PARALLEL_BATCH = min(3, n_trials)
-    opus_passes = 0
-    opus_total = 0
-    opus_trials = []
-
-    # Phase A: parallel batch of 3
-    batch_result = _run_tb(
+    opus_result = run_opus_eval(
         task_dir=task_dir,
-        model=EVAL_MODEL,
-        n_attempts=PARALLEL_BATCH,
+        n_trials=n_trials,
         output_path=output_path,
     )
-    opus_passes = batch_result["passes"]
-    opus_total = batch_result["total"] or PARALLEL_BATCH
-    opus_trials.append(batch_result)
-    remaining = n_trials - opus_total
-
-    print(f"    Batch 1-{PARALLEL_BATCH}: {opus_passes}/{opus_total} passes")
-
-    # Check if we can classify already
-    def _can_stop(passes: int, remaining: int) -> str | None:
-        if passes >= LEARNABLE_MIN and passes + remaining <= LEARNABLE_MAX:
-            return "learnable"
-        if passes > LEARNABLE_MAX:
-            return "too_easy"
-        if passes + remaining < LEARNABLE_MIN:
-            return "too_hard"
-        return None
-
-    early_class = _can_stop(opus_passes, remaining)
-    if early_class:
-        print(f"    → {early_class} (early stop after {opus_total} runs, saved {remaining})")
-    else:
-        # Phase B: sequential runs with early-stop checks
-        for run_idx in range(remaining):
-            single_result = _run_tb(
-                task_dir=task_dir,
-                model=EVAL_MODEL,
-                n_attempts=1,
-                output_path=output_path,
-            )
-            opus_total += 1
-            if single_result["passes"] > 0:
-                opus_passes += 1
-            opus_trials.append(single_result)
-
-            runs_left = n_trials - opus_total
-            early_class = _can_stop(opus_passes, runs_left)
-            if early_class:
-                print(f"    Run {opus_total}/{n_trials}: {opus_passes} passes — "
-                      f"{early_class} (early stop, saved {runs_left} runs)")
-                break
-            else:
-                print(f"    Run {opus_total}/{n_trials}: {opus_passes}/{opus_total} passes")
+    opus_passes = opus_result["passes"]
+    opus_total = opus_result["total"]
+    opus_trials = opus_result["trials"]
+    early_class = opus_result.get("classification")
 
     tier_results["opus"] = {
         "model": EVAL_MODEL,
@@ -670,28 +783,30 @@ def evaluate_task(
         "total": opus_total,
         "early_stopped": opus_total < n_trials,
         "trials": opus_trials,
+        "test_stats": opus_result.get("test_stats"),
     }
 
-    passes = opus_passes
-    total = opus_total
+    classification = opus_result["classification"]
 
-    if LEARNABLE_MIN <= passes <= LEARNABLE_MAX:
-        classification = "learnable"
-    elif passes > LEARNABLE_MAX:
-        classification = "too_easy"
-    else:
-        classification = "too_hard"
+    print(f"\n  Opus result: {opus_passes}/{opus_total} → {classification}")
 
-    print(f"\n  Opus result: {passes}/{total} → {classification}")
-
-    return _build_result(
+    result = _build_result(
         task_dir=task_dir,
         classification=classification,
         filtered_at=None,
         tier_results=tier_results,
-        opus_passes=passes,
-        opus_total=total,
+        opus_passes=opus_passes,
+        opus_total=opus_total,
     )
+    # Pass through early adjustment signal from run_opus_eval
+    result["recommend_early_adjust"] = opus_result.get("recommend_early_adjust", False)
+    result["remaining_runs"] = opus_result.get("remaining_runs", 0)
+    result["opus_prior"] = {
+        "passes": opus_passes,
+        "total": opus_total,
+        "trials": opus_trials,
+    }
+    return result
 
 
 def _build_result(

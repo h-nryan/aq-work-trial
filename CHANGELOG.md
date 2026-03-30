@@ -14,6 +14,20 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Early Adjustment with Test-Level Granularity
+
+**Early adjustment after 0/3 parallel batch** (`evaluate.py`, `pipeline.py`) — Major refactor of the evaluation + adjustment loop. Previously, the pipeline ran all 5 Opus trials before adjusting difficulty, wasting 2 expensive Opus runs on clearly-too-hard tasks. Now, after the initial 3-parallel Opus batch:
+
+1. If 0/3 passes AND average test pass rate < 30%, the task is "clearly too hard" — adjust difficulty immediately before running the remaining 2 trials
+2. If 0/3 passes but test pass rate >= 30%, the task is "close" — let it play out (Opus is fixing most tests, just not all)
+3. After early adjustment, resume Opus eval with only the remaining 2 runs, carrying forward the 0/3 prior results
+
+**Test-level difficulty signal** (`evaluate.py`) — New `_extract_test_stats()` function aggregates per-test pass/fail data from `parser_results` across all trials. Returns average test pass rate (0.0-1.0), enabling granular difficulty assessment. A task where Opus fixes 5/7 tests consistently (71% test rate) but never fully solves is fundamentally different from one where Opus fixes 0/7 tests (0% test rate) — the former needs a small nudge, the latter needs aggressive adjustment.
+
+**Refactored Opus evaluation** (`evaluate.py`) — Extracted `run_opus_eval()` as a reusable function that supports resuming from prior results. This enables the early-adjustment pattern: run 3 trials → adjust → resume with 2 more trials passing in the prior 3 as context. Also extracted `_can_stop()` for early-stop classification logic.
+
+**Refactored adjustment logic** (`pipeline.py`) — Extracted `_try_adjustment()` helper that handles snapshot creation, adjustment call, functional re-validation, and snapshot restoration on failure. Eliminates duplication between early adjustment, normal too_hard adjustment, and too_easy adjustment paths.
+
 ### Retry and Error Handling Hardening
 
 Comprehensive audit of all error paths in the pipeline. Previously, several failure modes would silently abandon a task with no retry. Now every error path either retries with context or logs diagnostics.

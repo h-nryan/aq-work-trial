@@ -14,9 +14,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "validator"))
 import shutil
 
-from config import EVAL_TRIALS, MAX_GENERATION_RETRIES, MAX_SOLUTION_FIRST_RETRIES, SONNET_EXAMPLES_DIR
+from config import EVAL_TRIALS, LEARNABLE_MAX, LEARNABLE_MIN, MAX_GENERATION_RETRIES, MAX_SOLUTION_FIRST_RETRIES, SONNET_EXAMPLES_DIR
 from docker_validate import docker_validate
-from evaluate import evaluate_task
+from evaluate import evaluate_task, run_opus_eval
 from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
 
 # Max rounds of difficulty adjustment after evaluation
@@ -234,6 +234,55 @@ def _build_feedback(struct_result: dict | None, func_result: dict | None) -> str
     return "\n\n".join(parts) if parts else "Validation failed (no details available)."
 
 
+def _try_adjustment(
+    topic: str,
+    task_dir: str,
+    classification: str,
+    pass_rate: float,
+    eval_result: dict,
+    adj_round: int,
+    model: str | None,
+    result: dict,
+) -> bool:
+    """Attempt a difficulty adjustment. Returns True if adjustment succeeded.
+
+    Handles: snapshot, adjust_difficulty call, functional re-validation,
+    and restoring from snapshot on failure.
+    """
+    snapshot_dir = task_dir + f".pre_adj{adj_round + 1}"
+    if os.path.exists(snapshot_dir):
+        shutil.rmtree(snapshot_dir)
+    shutil.copytree(task_dir, snapshot_dir)
+
+    _write_adjustment_snapshot(
+        snapshot_dir, adj_round + 1, classification, pass_rate, eval_result,
+    )
+
+    adj_result = adjust_difficulty(
+        topic, task_dir, classification, pass_rate, model=model,
+    )
+    result["stages"][f"difficulty_adj_{adj_round + 1}"] = adj_result
+
+    if adj_result["status"] != "success":
+        print(f"  Difficulty adjustment failed: {adj_result['status']}")
+        shutil.rmtree(task_dir)
+        shutil.copytree(snapshot_dir, task_dir)
+        print(f"  Restored pre-adjustment snapshot")
+        return False
+
+    # Re-validate before re-evaluating
+    print(f"\n[Re-validation after adjustment]")
+    func_result = validate_functional(task_dir)
+    result["stages"]["functional"] = func_result
+    if not func_result["passed"]:
+        print(f"  Adjusted task failed functional validation — restoring snapshot")
+        shutil.rmtree(task_dir)
+        shutil.copytree(snapshot_dir, task_dir)
+        return False
+
+    return True
+
+
 def run_pipeline(
     topic: str,
     output_dir: str | None = None,
@@ -406,8 +455,19 @@ def run_pipeline(
         break
 
     # Stage 4+5+6: Tiered evaluation with difficulty adjustment loop
+    #
+    # Early adjustment: after the initial 3-parallel Opus batch, if 0/3 passes
+    # AND average test pass rate < 30%, adjust before burning 2 more Opus runs.
+    # This saves cost on clearly-too-hard tasks while preserving accuracy for
+    # "close" tasks (high test pass rate but 0 full solves).
     if not skip_eval:
         _write_status(task_dir, "evaluating", "Opus trials running")
+
+        # Track prior Opus results for resume after early adjustment
+        opus_prior_passes = 0
+        opus_prior_total = 0
+        opus_prior_trials = []
+
         for adj_round in range(1 + MAX_DIFFICULTY_ADJUSTMENTS):
             eval_result = evaluate_task(
                 task_dir=task_dir,
@@ -425,53 +485,78 @@ def run_pipeline(
             if eval_result["classification"] == "learnable":
                 break
 
-            # If not learnable and we have adjustment budget, adjust difficulty
+            # Early adjustment: 0/3 with low test pass rate — adjust before
+            # spending on remaining 2 runs
+            recommend_early = eval_result.get("recommend_early_adjust", False)
+            remaining_runs = eval_result.get("remaining_runs", 0)
+
+            if recommend_early and adj_round < MAX_DIFFICULTY_ADJUSTMENTS:
+                test_stats = eval_result.get("tier_results", {}).get("opus", {}).get("test_stats", {})
+                avg_rate = test_stats.get("avg_test_pass_rate", 0) if test_stats else 0
+                print(f"\n[Early Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
+                      f"0/{eval_result['total']} passes, avg test rate {avg_rate:.0%} "
+                      f"— adjusting before remaining {remaining_runs} runs")
+
+                adjusted = _try_adjustment(
+                    topic, task_dir, "too_hard", eval_result.get("pass_rate", 0),
+                    eval_result, adj_round, model, result,
+                )
+                if not adjusted:
+                    # Adjustment failed — run remaining Opus trials on original task
+                    pass
+                else:
+                    # Re-eval with only the remaining runs, using prior results
+                    _write_status(task_dir, "evaluating",
+                                  f"Opus remaining {remaining_runs} runs (post-adjustment)")
+                    opus_prior = eval_result.get("opus_prior", {})
+                    from evaluate import run_opus_eval as _run_opus_resume
+                    resume_result = _run_opus_resume(
+                        task_dir=task_dir,
+                        n_trials=n_eval_trials,
+                        prior_passes=opus_prior.get("passes", 0),
+                        prior_total=opus_prior.get("total", 0),
+                        prior_trials=opus_prior.get("trials", []),
+                    )
+
+                    # Update eval result with combined data
+                    passes = resume_result["passes"]
+                    total = resume_result["total"]
+                    if LEARNABLE_MIN <= passes <= LEARNABLE_MAX:
+                        classification = "learnable"
+                    elif passes > LEARNABLE_MAX:
+                        classification = "too_easy"
+                    else:
+                        classification = "too_hard"
+
+                    result["classification"] = classification
+                    result["passes"] = passes
+                    result["total"] = total
+                    result["pass_rate"] = round(passes / total, 4) if total else 0
+
+                    print(f"\n  Post-adjustment result: {passes}/{total} → {classification}")
+
+                    if classification == "learnable":
+                        break
+                    # If still not learnable, fall through to normal adjustment loop
+                    continue
+
+            # Normal adjustment: full eval complete, task is too_hard or too_easy
             if adj_round < MAX_DIFFICULTY_ADJUSTMENTS:
                 classification = eval_result["classification"]
                 pass_rate = eval_result.get("pass_rate") or 0.0
                 print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
                       f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
-                # Snapshot task files before adjustment — always kept for analysis
-                import shutil
-                snapshot_dir = task_dir + f".pre_adj{adj_round + 1}"
-                if os.path.exists(snapshot_dir):
-                    shutil.rmtree(snapshot_dir)
-                shutil.copytree(task_dir, snapshot_dir)
-
-                # Write adjustment metadata into the snapshot
-                _write_adjustment_snapshot(
-                    snapshot_dir, adj_round + 1, classification, pass_rate, eval_result,
-                )
-
-                adj_result = adjust_difficulty(
-                    topic, task_dir, classification, pass_rate, model=model,
-                )
-                result["stages"][f"difficulty_adj_{adj_round + 1}"] = adj_result
-
-                if adj_result["status"] != "success":
-                    print(f"  Difficulty adjustment failed: {adj_result['status']}")
-                    # Restore from snapshot
-                    shutil.rmtree(task_dir)
-                    shutil.copytree(snapshot_dir, task_dir)
-                    print(f"  Restored pre-adjustment snapshot")
-                    break
-
-                # Re-validate before re-evaluating
-                print(f"\n[Re-validation after adjustment]")
-                func_result = validate_functional(task_dir)
-                result["stages"]["functional"] = func_result
-                if not func_result["passed"]:
-                    print(f"  Adjusted task failed functional validation — restoring snapshot")
-                    shutil.rmtree(task_dir)
-                    shutil.copytree(snapshot_dir, task_dir)
-                    break  # Keep the original classification, don't return failure
-
-                # For too_easy adjustments: cheap Sonnet check before expensive Opus re-eval.
-                # If Sonnet still solves it 3/3, it's still too easy — save the Opus cost.
+                # For too_easy adjustments: cheap Sonnet check before expensive Opus re-eval
                 if classification == "too_easy":
                     from evaluate import _run_tb
                     from config import SONNET_FILTER_MODEL
+                    adjusted = _try_adjustment(
+                        topic, task_dir, classification, pass_rate,
+                        eval_result, adj_round, model, result,
+                    )
+                    if not adjusted:
+                        break
                     print(f"\n[Sonnet quick-check after too_easy adjustment]")
                     sonnet_check = _run_tb(
                         task_dir=task_dir,
@@ -482,7 +567,14 @@ def run_pipeline(
                     print(f"  Sonnet solved {sonnet_passes}/3")
                     if sonnet_passes >= 3:
                         print(f"  Still too easy for Sonnet — skipping Opus, trying another adjustment")
-                        continue  # Try another adjustment round without burning Opus
+                        continue
+                else:
+                    adjusted = _try_adjustment(
+                        topic, task_dir, classification, pass_rate,
+                        eval_result, adj_round, model, result,
+                    )
+                    if not adjusted:
+                        break
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
