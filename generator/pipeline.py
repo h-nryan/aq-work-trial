@@ -92,6 +92,7 @@ def run_pipeline(
     solution_first: bool = False,
     include_haiku: bool = False,
     prompt_variant: str = "A",
+    hint_style: str = "none",
 ) -> dict:
     """Run the full pipeline for a single topic.
 
@@ -106,6 +107,7 @@ def run_pipeline(
         solution_first: If True, use two-phase generation (write working
             code first, then introduce bugs). Higher functional validation
             pass rate but uses 2 API calls.
+        hint_style: "none", "soft", or "full" — controls instruction hints.
 
     Returns:
         dict with all stage results and final classification.
@@ -133,10 +135,12 @@ def run_pipeline(
     if solution_first:
         gen_result = generate_task_solution_first(
             topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
+            hint_style=hint_style,
         )
     else:
         gen_result = generate_task(
             topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
+            hint_style=hint_style,
         )
     result["stages"]["generate"] = gen_result
     result["task_dir"] = gen_result["task_dir"]

@@ -45,6 +45,49 @@ from config import (
 )
 
 
+# Instruction hint styles for task.yaml — controls how much the instruction
+# reveals about bug locations. Affects difficulty: full hints make tasks easier.
+HINT_RULES = {
+    "none": {
+        "long": (
+            "8. The instruction in task.yaml should describe WHAT the program does and "
+            "WHAT the expected behavior is, but should NOT hint at where the bugs are or "
+            "what's broken. The agent should have to read the code to find the bugs."
+        ),
+        "short": (
+            "task.yaml instruction should describe what the program does and expected "
+            "behavior, but NOT hint at where bugs are"
+        ),
+    },
+    "soft": {
+        "long": (
+            "8. The instruction in task.yaml should describe what the program does, its "
+            "expected behavior, and a HIGH-LEVEL hint about what area is broken — e.g. "
+            "\"the output formatting and error handling have issues\" — but NOT name specific "
+            "functions, variables, or line numbers. The agent should know roughly WHERE to "
+            "look but still have to figure out WHAT is wrong."
+        ),
+        "short": (
+            "task.yaml instruction should describe expected behavior and give a high-level "
+            "hint about what area is broken (NOT specific functions or lines)"
+        ),
+    },
+    "full": {
+        "long": (
+            "8. The instruction in task.yaml MUST hint at what areas have bugs — e.g. "
+            "\"the delimiter handling and header parsing have issues\" or \"there are bugs in "
+            "the sorting logic and edge case handling.\" The agent only reads the instruction "
+            "and source code ONCE before attempting a fix, so vague instructions like "
+            "\"fix the bugs\" make the task too hard."
+        ),
+        "short": (
+            "task.yaml instruction MUST hint at specific bug areas (e.g. \"the delimiter "
+            "handling has issues\")"
+        ),
+    },
+}
+
+
 def _api_call_with_retry(client: OpenAI, **kwargs) -> object:
     """Call the OpenAI chat completions API with retry on transient failures.
 
@@ -193,8 +236,7 @@ CRITICAL RULES:
 5. The Dockerfile MUST install tmux and asciinema alongside all other dependencies (required by the test harness). Example: `RUN apt-get update && apt-get install -y tmux asciinema curl && rm -rf /var/lib/apt/lists/*`
 6. run-tests.sh installs uv + pytest and runs the tests. Follow the exact boilerplate pattern from examples.
 7. task.yaml must have: instruction (detailed), difficulty, category, tags, parser_name: pytest, and timeout fields.
-8. The instruction in task.yaml should describe WHAT the program does and WHAT the expected behavior is, \
-but should NOT hint at where the bugs are or what's broken. The agent should have to read the code to find the bugs.
+{instruction_hint_rule}
 
 MOST IMPORTANT — AVOID THESE COMMON FAILURES:
 A. Tests MUST actually FAIL before solution.sh runs. The source files must have REAL bugs that cause test failures. If you write source code that already works, the task is broken. Verify mentally: "will running these tests against the buggy source files produce failures?"
@@ -258,7 +300,7 @@ Study the examples below. They show EXACTLY the right difficulty. Match them:
 - Put all bugs in ONE source file under 150 lines
 - 3-4 bugs that each produce a clear, distinct test failure
 - 5-7 tests total (not 9-11) — fewer tests with clear criteria give margin for implementation differences
-- task.yaml instruction should describe what the program does and expected behavior, but NOT hint at where bugs are
+- {instruction_hint_rule_short}
 - The examples show what "learnable" looks like. Copy their style, not just their format.
 
 OUTPUT FORMAT:
@@ -381,11 +423,21 @@ def _write_task_files(files: dict, output_dir: str) -> None:
             os.chmod(full_path, 0o755)
 
 
+def _format_prompt(template: str, hint_style: str = "none", variant: str = "A") -> str:
+    """Fill hint-style placeholders in a system prompt template."""
+    rules = HINT_RULES.get(hint_style, HINT_RULES["none"])
+    return template.format(
+        instruction_hint_rule=rules["long"],
+        instruction_hint_rule_short=rules["short"],
+    )
+
+
 def generate_task(
     topic: str,
     output_dir: str | None = None,
     model: str | None = None,
     prompt_variant: str = "A",
+    hint_style: str = "none",
 ) -> dict:
     """Generate a Terminal Bench task for the given topic.
 
@@ -394,6 +446,7 @@ def generate_task(
         output_dir: Where to write the generated task files.
         model: Override the generator model.
         prompt_variant: "A" (verbose constraints) or "B" (trimmed, example-driven).
+        hint_style: "none", "soft", or "full" — controls instruction hints.
 
     Returns:
         dict with task_dir, status, usage, and duration.
@@ -411,7 +464,8 @@ def generate_task(
     )
 
     gen_model = model or GENERATOR_MODEL
-    sys_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
+    raw_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
+    sys_prompt = _format_prompt(raw_prompt, hint_style=hint_style, variant=prompt_variant)
     user_prompt = _build_user_prompt(topic, variant=prompt_variant)
 
     print(f"Generating task for: {topic}")
@@ -537,6 +591,7 @@ def generate_task_solution_first(
     output_dir: str | None = None,
     model: str | None = None,
     prompt_variant: str = "A",
+    hint_style: str = "none",
 ) -> dict:
     """Generate a task using solution-first strategy (two-phase).
 
@@ -551,6 +606,7 @@ def generate_task_solution_first(
     the solution is guaranteed correct — it was written first.
 
     prompt_variant: "A" (verbose constraints) or "B" (trimmed, example-driven).
+    hint_style: "none", "soft", or "full" — controls instruction hints.
     """
     slug = _slugify(topic)
 
@@ -628,7 +684,8 @@ def generate_task_solution_first(
     working_json = json.dumps({"files": working_files}, indent=2)
     p2_template = PHASE2_PROMPT_B if prompt_variant == "B" else PHASE2_PROMPT
     phase2_prompt = p2_template.format(working_json=working_json)
-    sys_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
+    raw_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
+    sys_prompt = _format_prompt(raw_prompt, hint_style=hint_style, variant=prompt_variant)
     phase2_messages = [
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": phase2_prompt},

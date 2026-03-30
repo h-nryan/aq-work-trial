@@ -127,6 +127,7 @@ def run_batch(
     resume_from: str | None = None,
     solution_first: bool = False,
     prompt_variant: str = "A",
+    hint_style: str = "none",
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 
@@ -223,6 +224,7 @@ def run_batch(
                 skip_filters=skip_filters,
                 solution_first=solution_first,
                 prompt_variant=prompt_variant,
+                hint_style=hint_style,
             )
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -543,6 +545,10 @@ if __name__ == "__main__":
         "--prompt-variant", choices=["A", "B"], default="A",
         help="Prompt variant: A (verbose constraints) or B (trimmed, example-driven)",
     )
+    parser.add_argument(
+        "--hint-style", choices=["none", "soft", "full"], default="none",
+        help="Instruction hint style: none, soft (high-level area), or full (specific areas)",
+    )
 
     args = parser.parse_args()
 
@@ -571,4 +577,5 @@ if __name__ == "__main__":
         resume_from=args.resume,
         solution_first=args.solution_first,
         prompt_variant=args.prompt_variant,
+        hint_style=args.hint_style,
     )
