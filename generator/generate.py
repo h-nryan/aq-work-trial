@@ -684,13 +684,28 @@ def regenerate_task(
             "(3) All file paths are consistent."
         )
 
+    # Only send the relevant files for targeted repairs — saves tokens and reduces noise
+    if repair_target == "dockerfile_only":
+        context_files = {k: v for k, v in previous_files.items() if k == "Dockerfile"}
+    elif repair_target == "solution_only":
+        context_files = {k: v for k, v in previous_files.items()
+                         if k == "solution.sh" or k.startswith("tests/") or k == "task.yaml"}
+    elif repair_target == "source_only":
+        infrastructure = {"task.yaml", "Dockerfile", "run-tests.sh", "solution.sh", "docker-compose.yaml"}
+        context_files = {k: v for k, v in previous_files.items()
+                         if k not in infrastructure or k.startswith("tests/")}
+    else:
+        context_files = previous_files  # full rebuild — send everything
+
+    context_json = json.dumps({"files": context_files}, indent=2)
+
     feedback_prompt = f"""The task you generated for "{topic}" failed validation:
 
 {feedback}
 
-Here is the complete task:
+Here are the relevant files:
 ```json
-{previous_json}
+{context_json}
 ```
 
 {repair_instruction}
