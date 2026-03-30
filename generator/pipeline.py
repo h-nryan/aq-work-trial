@@ -243,6 +243,13 @@ def run_pipeline(
                 print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
                       f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
+                # Backup task files before adjustment — restore if it breaks things
+                import shutil
+                backup_dir = task_dir + f"._backup_adj{adj_round + 1}"
+                if os.path.exists(backup_dir):
+                    shutil.rmtree(backup_dir)
+                shutil.copytree(task_dir, backup_dir)
+
                 adj_result = adjust_difficulty(
                     topic, task_dir, classification, pass_rate, model=model,
                 )
@@ -250,6 +257,10 @@ def run_pipeline(
 
                 if adj_result["status"] != "success":
                     print(f"  Difficulty adjustment failed: {adj_result['status']}")
+                    # Restore backup
+                    shutil.rmtree(task_dir)
+                    shutil.move(backup_dir, task_dir)
+                    print(f"  Restored pre-adjustment backup")
                     break
 
                 # Re-validate before re-evaluating
@@ -257,11 +268,13 @@ def run_pipeline(
                 func_result = validate_functional(task_dir)
                 result["stages"]["functional"] = func_result
                 if not func_result["passed"]:
-                    print(f"  Adjusted task failed functional validation")
-                    result["status"] = "functional_validation_failed"
-                    result["failed_stage"] = "functional"
-                    result["duration_sec"] = round(time.time() - start, 2)
-                    return result
+                    print(f"  Adjusted task failed functional validation — restoring backup")
+                    shutil.rmtree(task_dir)
+                    shutil.move(backup_dir, task_dir)
+                    break  # Keep the original classification, don't return failure
+                else:
+                    # Adjustment worked, clean up backup
+                    shutil.rmtree(backup_dir, ignore_errors=True)
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
