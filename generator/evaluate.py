@@ -22,6 +22,12 @@ import sys
 import time
 from pathlib import Path
 
+# Max age (seconds) before a Docker container is considered stale and killed.
+# tb's max_agent_timeout_sec defaults to 360s (6 min). With --n-concurrent 4,
+# each trial gets its own container running in parallel, so max wall time is
+# ~6-7 min per batch. 20 min threshold gives ample margin.
+STALE_CONTAINER_AGE_SEC = 1200
+
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
     EVAL_MODEL,
@@ -35,6 +41,48 @@ from config import (
     SONNET_FILTER_RUNS,
     SONNET_SKIP_THRESHOLD,
 )
+
+
+def _cleanup_stale_containers(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
+    """Kill Docker containers that have been running longer than max_age_sec.
+
+    Returns the number of containers killed.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.ID}} {{.CreatedAt}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 0
+
+    killed = 0
+    now = time.time()
+    for line in result.stdout.strip().splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 3:
+            continue
+        container_id = parts[0]
+        # CreatedAt format: "2026-03-29 17:36:08 -0700 PDT"
+        try:
+            created_str = f"{parts[1]} {parts[2]}"
+            # Parse without timezone — use local time approximation
+            created = time.mktime(time.strptime(created_str, "%Y-%m-%d %H:%M:%S"))
+            age = now - created
+            if age > max_age_sec:
+                subprocess.run(
+                    ["docker", "kill", container_id],
+                    capture_output=True, timeout=10,
+                )
+                killed += 1
+        except (ValueError, subprocess.TimeoutExpired):
+            continue
+
+    if killed:
+        print(f"  Cleaned up {killed} stale container(s) (>{max_age_sec}s old)")
+    return killed
 
 
 def _run_tb(
@@ -59,6 +107,9 @@ def _run_tb(
     Returns:
         dict with passes, total, results_dir, and raw trial data.
     """
+    # Kill any hung containers before starting new trials
+    _cleanup_stale_containers()
+
     dataset_path = str(Path(task_dir).resolve().parent)
     task_id = Path(task_dir).name
 
