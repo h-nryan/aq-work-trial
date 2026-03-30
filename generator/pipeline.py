@@ -23,6 +23,27 @@ from generate import adjust_difficulty, generate_task, generate_task_solution_fi
 MAX_DIFFICULTY_ADJUSTMENTS = 2
 
 
+def _write_status(task_dir: str, stage: str, detail: str = "", **extra) -> None:
+    """Write a lightweight status file for UI polling.
+
+    The dashboard reads _status.json to show real-time pipeline progress.
+    """
+    import json as _json
+    from datetime import datetime
+    status = {
+        "stage": stage,
+        "detail": detail,
+        "updated_at": datetime.now().isoformat(),
+        **extra,
+    }
+    try:
+        os.makedirs(task_dir, exist_ok=True)
+        with open(os.path.join(task_dir, "_status.json"), "w") as f:
+            _json.dump(status, f)
+    except Exception:
+        pass  # Non-critical — don't break pipeline for status writes
+
+
 def _auto_promote(task_dir: str, result: dict) -> None:
     """Auto-promote a learnable task to examples-sonnet/."""
     from pathlib import Path
@@ -49,6 +70,37 @@ def _auto_promote(task_dir: str, result: dict) -> None:
     total = result.get("total", "?")
     print(f"  [Auto-promote] LEARNABLE task promoted to {dest}")
     print(f"  [Auto-promote] Opus {passes}/{total} ({pass_rate:.0%})")
+
+
+def _write_adjustment_snapshot(
+    snapshot_dir: str,
+    adj_round: int,
+    classification: str,
+    pass_rate: float,
+    eval_result: dict,
+) -> None:
+    """Write metadata into a pre-adjustment snapshot for later analysis.
+
+    Captures what the task looked like before adjustment, why it was adjusted,
+    and the eval results that triggered the adjustment.
+    """
+    import json
+    meta = {
+        "adjustment_round": adj_round,
+        "pre_adjustment_classification": classification,
+        "pre_adjustment_pass_rate": pass_rate,
+        "pre_adjustment_passes": eval_result.get("passes", 0),
+        "pre_adjustment_total": eval_result.get("total", 0),
+        "trigger": f"{classification} — pass_rate={pass_rate:.0%}",
+    }
+    # Include per-trial results if available
+    trials = eval_result.get("trials")
+    if trials:
+        meta["trial_results"] = trials
+
+    meta_path = os.path.join(snapshot_dir, "_adj_snapshot.json")
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
 
 
 def _write_task_meta(task_dir: str, result: dict, category: str | None = None) -> None:
@@ -204,6 +256,9 @@ def run_pipeline(
         print(f"Strategy: solution-first (two-phase)")
     print(f"{'='*60}")
 
+    if output_dir:
+        _write_status(output_dir, "generating", "Phase 1 + Phase 2" if solution_first else "Single phase")
+
     if solution_first:
         gen_result = generate_task_solution_first(
             topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
@@ -220,6 +275,7 @@ def run_pipeline(
     if gen_result["status"] != "success":
         result["status"] = "generation_failed"
         result["failed_stage"] = "generation"
+        _write_status(task_dir or output_dir or "", "failed", "generation failed")
         result["duration_sec"] = round(time.time() - start, 2)
         return result
 
@@ -234,6 +290,7 @@ def run_pipeline(
 
         # Stage 2: Structural validation
         print(f"\n[Structural Validation]")
+        _write_status(task_dir, "structural", f"attempt {attempt + 1}")
         struct_result = validate_structural(task_dir)
         result["stages"]["structural"] = struct_result
         print(f"  {'PASSED' if struct_result['passed'] else 'FAILED'}")
@@ -257,6 +314,7 @@ def run_pipeline(
         # Stage 3: Functional validation
         if not skip_functional:
             print(f"\n[Functional Validation]")
+            _write_status(task_dir, "functional", f"Docker build + test, attempt {attempt + 1}")
             func_result = validate_functional(task_dir)
             result["stages"]["functional"] = func_result
 
@@ -300,6 +358,7 @@ def run_pipeline(
 
     # Stage 4+5+6: Tiered evaluation with difficulty adjustment loop
     if not skip_eval:
+        _write_status(task_dir, "evaluating", "Opus trials running")
         for adj_round in range(1 + MAX_DIFFICULTY_ADJUSTMENTS):
             eval_result = evaluate_task(
                 task_dir=task_dir,
@@ -324,12 +383,17 @@ def run_pipeline(
                 print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
                       f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
-                # Backup task files before adjustment — restore if it breaks things
+                # Snapshot task files before adjustment — always kept for analysis
                 import shutil
-                backup_dir = task_dir + f"._backup_adj{adj_round + 1}"
-                if os.path.exists(backup_dir):
-                    shutil.rmtree(backup_dir)
-                shutil.copytree(task_dir, backup_dir)
+                snapshot_dir = task_dir + f".pre_adj{adj_round + 1}"
+                if os.path.exists(snapshot_dir):
+                    shutil.rmtree(snapshot_dir)
+                shutil.copytree(task_dir, snapshot_dir)
+
+                # Write adjustment metadata into the snapshot
+                _write_adjustment_snapshot(
+                    snapshot_dir, adj_round + 1, classification, pass_rate, eval_result,
+                )
 
                 adj_result = adjust_difficulty(
                     topic, task_dir, classification, pass_rate, model=model,
@@ -338,10 +402,10 @@ def run_pipeline(
 
                 if adj_result["status"] != "success":
                     print(f"  Difficulty adjustment failed: {adj_result['status']}")
-                    # Restore backup
+                    # Restore from snapshot
                     shutil.rmtree(task_dir)
-                    shutil.move(backup_dir, task_dir)
-                    print(f"  Restored pre-adjustment backup")
+                    shutil.copytree(snapshot_dir, task_dir)
+                    print(f"  Restored pre-adjustment snapshot")
                     break
 
                 # Re-validate before re-evaluating
@@ -349,13 +413,10 @@ def run_pipeline(
                 func_result = validate_functional(task_dir)
                 result["stages"]["functional"] = func_result
                 if not func_result["passed"]:
-                    print(f"  Adjusted task failed functional validation — restoring backup")
+                    print(f"  Adjusted task failed functional validation — restoring snapshot")
                     shutil.rmtree(task_dir)
-                    shutil.move(backup_dir, task_dir)
+                    shutil.copytree(snapshot_dir, task_dir)
                     break  # Keep the original classification, don't return failure
-                else:
-                    # Adjustment worked, clean up backup
-                    shutil.rmtree(backup_dir, ignore_errors=True)
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
@@ -364,6 +425,13 @@ def run_pipeline(
 
     result["status"] = "completed"
     result["duration_sec"] = round(time.time() - start, 2)
+
+    # Write final status
+    cl = result.get("classification", "unknown")
+    pr = result.get("pass_rate")
+    pr_s = f"{pr:.0%}" if isinstance(pr, (int, float)) else ""
+    _write_status(task_dir, "completed", f"{cl} {pr_s}".strip(),
+                  classification=cl, pass_rate=pr)
 
     # Auto-write _meta.yaml for learnable tasks (feeds back into example selection)
     if result.get("classification") and task_dir:
