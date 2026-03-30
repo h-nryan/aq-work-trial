@@ -236,9 +236,10 @@ class TestLoadExamples:
         assert "GOOD EXAMPLES" in result
 
     def test_no_examples_dirs(self, monkeypatch, tmp_path):
-        """Returns empty string when neither examples directory exists."""
+        """Returns empty string when no examples directories exist."""
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(tmp_path / "nope1"))
         monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope2"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope3"))
         monkeypatch.setattr("generate.TOO_EASY_EXAMPLES", set())
         monkeypatch.setattr("generate.TOO_HARD_EXAMPLES", set())
 

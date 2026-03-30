@@ -39,6 +39,7 @@ from config import (
     OPENROUTER_API_KEY,
     OPENROUTER_BASE_URL,
     OPUS_EXAMPLES_DIR,
+    SONNET_EXAMPLES_DIR,
     OUTPUT_DIR,
     _slugify,
 )
@@ -146,10 +147,18 @@ def _load_examples() -> str:
             else:
                 positive_examples.append(content)
 
-    # Load Opus-generated examples (all assumed learnable — they passed evaluation)
+    # Load Opus-generated examples (learnable — passed evaluation)
     opus_path = Path(OPUS_EXAMPLES_DIR)
     if opus_path.is_dir():
         for task_dir in sorted(opus_path.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            positive_examples.append(_load_task_dir(task_dir))
+
+    # Load Sonnet-generated examples (learnable — passed evaluation)
+    sonnet_path = Path(SONNET_EXAMPLES_DIR)
+    if sonnet_path.is_dir():
+        for task_dir in sorted(sonnet_path.iterdir()):
             if not task_dir.is_dir():
                 continue
             positive_examples.append(_load_task_dir(task_dir))

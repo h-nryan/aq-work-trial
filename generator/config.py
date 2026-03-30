@@ -19,6 +19,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 EXAMPLES_DIR = os.path.join(BASE_DIR, "examples")
 OPUS_EXAMPLES_DIR = os.path.join(BASE_DIR, "examples-opus")
+SONNET_EXAMPLES_DIR = os.path.join(BASE_DIR, "examples-sonnet")
 
 # --- Generation ---
 MAX_GENERATION_RETRIES = 2
