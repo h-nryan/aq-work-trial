@@ -245,3 +245,8 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 
 - **`generate-exemplar.sh`** — Generates a high-quality task using Opus (`--model anthropic/claude-opus-4 --solution-first`), validates structurally + functionally, and prints next-step commands for eval and promotion. Use this to build up `examples-opus/` before running Sonnet batches.
 - **`promote-exemplar.sh`** — Copies a confirmed-learnable task to `examples-opus/`, strips pipeline artifacts, and commits. Takes `--opus-passes` and `--opus-total` for the commit message.
+
+### Known Issues
+
+- **Token tracking on timeout**: When the agent times out (`failure_mode=agent_timeout`), the harness returns 0 input/output tokens even though the agent may have made multiple LLM calls and partially fixed the task. The `AgentResult` partial result constructed on timeout doesn't pull token counts from the chat history. This means: (1) cost estimates are underreported for timed-out trials, (2) `resolved=True` with 0 tokens is valid — the agent fixed the code before timing out, and tests passed on the modified container.
+- **4/7 tests pass on buggy webhook code**: The webhook receiver task has 4 tests passing without any fixes applied, meaning only 3 tests actually verify bug fixes. Tasks should aim for majority of tests failing on buggy code to properly measure agent capability.
