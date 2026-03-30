@@ -105,6 +105,17 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - **Backup/restore on adjustment failure**: Task files are backed up before each adjustment. If the adjusted version fails validation, the backup is restored and the original classification is preserved. Previously, failed adjustments destroyed working (but wrong-difficulty) tasks.
 - *Design decision*: Full file replacement, not targeted repair — difficulty changes affect the relationship between source, tests, and solution.
 
+### Post-Classification Analysis — Stretch Goal E
+
+**Analysis module** (`analyze.py`) — Extracts features from classified tasks and identifies patterns that correlate with learnability. Feature extraction:
+- **Bug type taxonomy**: Classifies diff hunks into categories (off_by_one, wrong_operator, wrong_variable, wrong_constant, missing_edge_case, missing_code, extra_code, logic_change) using heuristic pattern matching on the diff.
+- **Test diagnostic quality**: AST-based analysis of test files — counts tests, assertion types (equality, membership, type_check), docstrings, descriptive names, average assertions per test.
+- **Code structure**: Function/class count, max nesting depth, import count, LOC, language detection.
+- **Instruction specificity**: Word count, mentions of files/functions/bugs, specificity score (low/medium/high).
+- **Diff locality**: Spread ratio (0=clustered, 1=spread), gap distances between hunks.
+- **Cross-group pattern analysis**: Compares averages across classification groups and generates actionable findings ("too-hard tasks average 8 bugs vs 3 for learnable").
+- CLI: `python3.12 generator/analyze.py --learnable <dirs> --too-hard <dirs>` or `--batch-report <json>`
+
 ### Diversity Analysis — Stretch Goal C
 
 **Diversity module** (`diversity.py`) — Analyzes batch reports for:
@@ -165,7 +176,7 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - End-to-end integration test (`test_pipeline_e2e.py`) — 15 tests exercising the full `run_pipeline` flow (generate → structural → functional → evaluate) with mocked API/Docker. Covers happy path, solution-first strategy, generation failure, structural/functional retry, infrastructure error detection, difficulty adjustment loop, and regeneration failure.
 - Generator unit tests (`test_generate.py`) — 26 new tests for `_parse_response` (JSON parsing edge cases, markdown fences, embedded backticks), `_load_examples` (three-way classification, opus examples), and `_slugify` (special chars, truncation, hash suffix).
 - Evaluate tests (`test_evaluate.py`) — 32 tests covering stale resource cleanup, result parsing, filter tier early stopping, full evaluate_task orchestration (Haiku/Sonnet filtering, Opus classification, skip_filters, default skip_haiku), and _build_result.
-- 269 tests across 13 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
+- 299 tests across 14 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
 
 ### Scripts
 
