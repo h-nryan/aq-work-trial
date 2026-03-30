@@ -45,46 +45,25 @@ from config import (
 )
 
 
-# Instruction hint styles for task.yaml — controls how much the instruction
-# reveals about bug locations. Affects difficulty: full hints make tasks easier.
-HINT_RULES = {
-    "none": {
-        "long": (
-            "8. The instruction in task.yaml should describe WHAT the program does and "
-            "WHAT the expected behavior is, but should NOT hint at where the bugs are or "
-            "what's broken. The agent should have to read the code to find the bugs."
-        ),
-        "short": (
-            "task.yaml instruction should describe what the program does and expected "
-            "behavior, but NOT hint at where bugs are"
-        ),
-    },
-    "soft": {
-        "long": (
-            "8. The instruction in task.yaml should describe what the program does, its "
-            "expected behavior, and a HIGH-LEVEL hint about what area is broken — e.g. "
-            "\"the output formatting and error handling have issues\" — but NOT name specific "
-            "functions, variables, or line numbers. The agent should know roughly WHERE to "
-            "look but still have to figure out WHAT is wrong."
-        ),
-        "short": (
-            "task.yaml instruction should describe expected behavior and give a high-level "
-            "hint about what area is broken (NOT specific functions or lines)"
-        ),
-    },
-    "full": {
-        "long": (
-            "8. The instruction in task.yaml MUST hint at what areas have bugs — e.g. "
-            "\"the delimiter handling and header parsing have issues\" or \"there are bugs in "
-            "the sorting logic and edge case handling.\" The agent only reads the instruction "
-            "and source code ONCE before attempting a fix, so vague instructions like "
-            "\"fix the bugs\" make the task too hard."
-        ),
-        "short": (
-            "task.yaml instruction MUST hint at specific bug areas (e.g. \"the delimiter "
-            "handling has issues\")"
-        ),
-    },
+# Instruction style for task.yaml — based on what learnable tasks actually have.
+# Every confirmed learnable task follows this pattern:
+#   1. Names the exact file path ("/app/template_engine.py")
+#   2. Describes what the program SHOULD do (numbered requirements)
+#   3. Lists current broken behavior or bug symptoms
+INSTRUCTION_RULE = {
+    "long": (
+        "8. The instruction in task.yaml MUST follow this pattern (all learnable tasks do):\n"
+        "   a) Name the exact source file path (e.g. \"The script `/app/csv_processor.py`\")\n"
+        "   b) Describe what the program is supposed to do (numbered list of requirements)\n"
+        "   c) List the current broken behavior or symptoms (e.g. \"Currently: assumes comma "
+        "delimiter, treats all rows as data, emits lists instead of dicts\")\n"
+        "   The agent has limited turns, so it needs to know the file to read, the expected "
+        "behavior, and what's currently wrong — without this context it wastes time on discovery."
+    ),
+    "short": (
+        "task.yaml instruction MUST: name the file path, list expected behavior, "
+        "describe current broken behavior"
+    ),
 }
 
 
@@ -494,10 +473,9 @@ def _write_task_files(files: dict, output_dir: str) -> None:
 
 
 def _format_prompt(template: str, hint_style: str = "none", variant: str = "A") -> str:
-    """Fill hint-style placeholders in a system prompt template."""
-    rules = HINT_RULES.get(hint_style, HINT_RULES["none"])
-    result = template.replace("{instruction_hint_rule}", rules["long"])
-    result = result.replace("{instruction_hint_rule_short}", rules["short"])
+    """Fill instruction rule placeholders in a system prompt template."""
+    result = template.replace("{instruction_hint_rule}", INSTRUCTION_RULE["long"])
+    result = result.replace("{instruction_hint_rule_short}", INSTRUCTION_RULE["short"])
     return result
 
 

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
 from config import _slugify, _SLUG_MAX_LEN, _SLUG_HASH_LEN
 from generate import (
-    SYSTEM_PROMPT, SYSTEM_PROMPT_B, HINT_RULES, _format_prompt,
+    SYSTEM_PROMPT, SYSTEM_PROMPT_B, INSTRUCTION_RULE, _format_prompt,
     _build_user_prompt, _parse_response, select_examples, _score_example,
 )
 
@@ -49,28 +49,23 @@ class TestSystemPrompt:
 
 
 class TestFormatPrompt:
-    """Tests for _format_prompt with hint style placeholders."""
+    """Tests for _format_prompt with instruction rule placeholders."""
 
-    def test_all_hint_styles_format_without_error(self):
+    def test_format_prompt_produces_valid_string(self):
         for variant, template in [("A", SYSTEM_PROMPT), ("B", SYSTEM_PROMPT_B)]:
-            for style in HINT_RULES:
-                result = _format_prompt(template, hint_style=style, variant=variant)
-                assert isinstance(result, str)
-                assert len(result) > 100
-
-    def test_hint_style_changes_output(self):
-        none_result = _format_prompt(SYSTEM_PROMPT, "none")
-        soft_result = _format_prompt(SYSTEM_PROMPT, "soft")
-        full_result = _format_prompt(SYSTEM_PROMPT, "full")
-        assert none_result != soft_result
-        assert soft_result != full_result
+            result = _format_prompt(template, variant=variant)
+            assert isinstance(result, str)
+            assert len(result) > 100
 
     def test_no_unresolved_placeholders(self):
-        for style in HINT_RULES:
-            result = _format_prompt(SYSTEM_PROMPT, style)
-            assert "{instruction_hint_rule}" not in result
-            result_b = _format_prompt(SYSTEM_PROMPT_B, style)
-            assert "{instruction_hint_rule_short}" not in result_b
+        result = _format_prompt(SYSTEM_PROMPT)
+        assert "{instruction_hint_rule}" not in result
+        result_b = _format_prompt(SYSTEM_PROMPT_B)
+        assert "{instruction_hint_rule_short}" not in result_b
+
+    def test_instruction_rule_present(self):
+        result = _format_prompt(SYSTEM_PROMPT)
+        assert "file path" in result.lower() or "task.yaml" in result.lower()
 
 
 class TestBuildUserPrompt:
