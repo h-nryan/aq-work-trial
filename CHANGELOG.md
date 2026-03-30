@@ -136,6 +136,7 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - **Docker build failures now retried**: Bad generated Dockerfiles (e.g., conflicting packages like `systemctl` vs `systemd`) are now retried with a `dockerfile_only` repair target that only sends the Dockerfile + error (not the full task). Only true environment errors (Docker not available, disk full, permission denied) skip retries.
 - **Targeted repair context**: Dockerfile repairs send only the Dockerfile. Solution and source repairs send full task context (needed to understand file relationships).
 - **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
+- **Phase 1/2 parse retry**: Both solution-first phases now retry the API call up to 3 times when the response is unparseable JSON, instead of failing immediately.
 
 ### Code Quality
 
