@@ -426,10 +426,9 @@ def _write_task_files(files: dict, output_dir: str) -> None:
 def _format_prompt(template: str, hint_style: str = "none", variant: str = "A") -> str:
     """Fill hint-style placeholders in a system prompt template."""
     rules = HINT_RULES.get(hint_style, HINT_RULES["none"])
-    return template.format(
-        instruction_hint_rule=rules["long"],
-        instruction_hint_rule_short=rules["short"],
-    )
+    result = template.replace("{instruction_hint_rule}", rules["long"])
+    result = result.replace("{instruction_hint_rule_short}", rules["short"])
+    return result
 
 
 def generate_task(
