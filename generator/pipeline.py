@@ -552,6 +552,9 @@ def run_pipeline(
 
                     print(f"\n  Post-adjustment result: {passes}/{total} → {classification}")
 
+                    from evaluate import _write_eval_status
+                    _write_eval_status(task_dir, "opus", passes, total, filtered=False)
+
                     if classification == "learnable":
                         break
                     # If still not learnable, fall through to normal adjustment loop

@@ -186,6 +186,67 @@ CUSTOM_CSS = """
 """
 
 
+def _render_eval_tier_cell(
+    tier: str,
+    tier_results: dict,
+    eval_tiers: dict,
+    filtered_at: str | None,
+    is_adjusting: bool,
+    stage: str,
+    classification: str | None,
+    task_dirname: str,
+    batch_start_ts: int,
+) -> str:
+    """Render a Sonnet or Opus eval cell with unified data source logic.
+
+    Data sources (in priority order):
+    1. tier_results from batch JSONL (completed tasks)
+    2. eval_tiers from _status.json (durable, survives run cleanup)
+    3. runs/ dir (live in-progress tasks only)
+    """
+    model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
+
+    # Source 1: batch results (JSONL/report)
+    tier_data = tier_results.get(tier, {})
+    passes = tier_data.get("passes") if tier_data else None
+    total = tier_data.get("total") if tier_data else None
+
+    # Source 2: _status.json eval_tiers (overwrites if source 1 empty)
+    if passes is None:
+        status_tier = eval_tiers.get(tier, {})
+        if status_tier:
+            passes = status_tier.get("passes", 0)
+            total = status_tier.get("total", 0)
+
+    # We have scores — render them
+    if passes is not None and total:
+        is_filtered_by_this = filtered_at == tier
+        if is_filtered_by_this and is_adjusting:
+            return f'<div class="stage-cell stage-active">{passes}/{total} adj.</div>'
+        elif is_filtered_by_this:
+            return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
+        elif classification in ("too_hard", "too_easy") and tier == "opus":
+            return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
+        else:
+            return f'<div class="stage-cell stage-done">{passes}/{total}</div>'
+
+    # No persisted scores — check if task is in progress
+    if stage != "evaluating":
+        # Completed with no data for this tier
+        if tier == "opus" and filtered_at in ("sonnet", "haiku"):
+            return '<div class="stage-cell stage-skipped">skip</div>'
+        return '<div class="stage-cell stage-skipped">—</div>'
+
+    # Source 3: live runs/ dir (in-progress only)
+    _p, _t, _active = _get_live_eval_scores(task_dirname, model_glob, batch_start_ts)
+    if _t > 0:
+        return f'<div class="stage-cell stage-active">{_p}/{_t}</div>'
+    elif _active:
+        return '<div class="stage-cell stage-active">...</div>'
+    else:
+        return '<div class="stage-cell stage-pending">—</div>'
+
+
 def _get_batch_start_ts(batch_dir: str) -> int:
     """Get batch start as unix timestamp from meta file."""
     for f in glob.glob(os.path.join(batch_dir, "batch-*-meta.json")):
@@ -838,74 +899,25 @@ def render_pipeline_view():
             tier_results = eval_stages.get("tier_results", {})
             filtered_at = eval_stages.get("filtered_at")
 
-            # Sonnet filter cell
-            sonnet_tier = tier_results.get("sonnet", {})
-            if sonnet_tier:
-                sp = sonnet_tier.get("passes", 0)
-                st_total = sonnet_tier.get("total", 0)
-                if filtered_at in ("sonnet", "haiku") and is_adjusting:
-                    # Too easy via Sonnet, adjusting — show score + adj indicator
-                    sonnet_cell = f'<div class="stage-cell stage-active">{sp}/{st_total} adj.</div>'
-                elif filtered_at in ("sonnet", "haiku"):
-                    # Sonnet filtered, final
-                    sonnet_cell = f'<div class="stage-cell stage-failed">{sp}/{st_total}</div>'
-                else:
-                    sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
-            elif stage == "evaluating":
-                # Check _status.json eval_tiers first (persists after run cleanup)
-                _status_path = os.path.join(t.get("dir", ""), "_status.json")
-                _eval_tiers = {}
-                if os.path.exists(_status_path):
-                    try:
-                        _eval_tiers = json.load(open(_status_path)).get("eval_tiers", {})
-                    except Exception:
-                        pass
-                _sonnet_status = _eval_tiers.get("sonnet", {})
-                if _sonnet_status:
-                    _sp = _sonnet_status.get("passes", 0)
-                    _st = _sonnet_status.get("total", 0)
-                    if _sonnet_status.get("filtered"):
-                        sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st} adj.</div>'
-                    else:
-                        sonnet_cell = f'<div class="stage-cell stage-done">{_sp}/{_st}</div>'
-                else:
-                    # Fallback: live scores from runs/
-                    _dn = os.path.basename(t.get("dir", ""))
-                    _sp, _st, _s_active = _get_live_eval_scores(_dn, "claude-sonnet*", batch_start_ts)
-                    if _st > 0:
-                        sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st}</div>'
-                    else:
-                        sonnet_cell = '<div class="stage-cell stage-active">...</div>'
-            else:
-                sonnet_cell = '<div class="stage-cell stage-skipped">—</div>'
+            # Read eval_tiers from _status.json (durable, survives run cleanup)
+            _eval_tiers = {}
+            _status_path = os.path.join(t.get("dir", ""), "_status.json")
+            if os.path.exists(_status_path):
+                try:
+                    _eval_tiers = json.load(open(_status_path)).get("eval_tiers", {})
+                except Exception:
+                    pass
 
-            # Opus eval cell
-            opus_tier = tier_results.get("opus", {})
-            if opus_tier and opus_tier.get("total"):
-                op = opus_tier.get("passes", 0)
-                ot = opus_tier.get("total", 0)
-                if is_adjusting:
-                    opus_cell = f'<div class="stage-cell stage-active">{op}/{ot} adj.</div>'
-                elif cl in ("too_hard", "too_easy"):
-                    opus_cell = f'<div class="stage-cell stage-failed">{op}/{ot}</div>'
-                else:
-                    opus_cell = f'<div class="stage-cell stage-done">{op}/{ot}</div>'
-            elif filtered_at in ("sonnet", "haiku") and stage == "completed":
-                opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
-            elif stage == "evaluating":
-                # Live Opus scores from runs/, filtered to current batch
-                _dn = os.path.basename(t.get("dir", ""))
-                _op, _ot, _o_active = _get_live_eval_scores(_dn, "claude-opus*", batch_start_ts)
-                if _ot > 0:
-                    opus_cell = f'<div class="stage-cell stage-active">{_op}/{_ot}</div>'
-                elif _o_active:
-                    # Opus run exists but no results yet — actively running
-                    opus_cell = '<div class="stage-cell stage-active">...</div>'
-                else:
-                    # No Opus run at all — still in Sonnet or not reached
-                    opus_cell = '<div class="stage-cell stage-pending">—</div>'
-            else:
-                opus_cell = _render_stage_cell(stage, "evaluating", fs)
+            # Render each tier with unified logic
+            _dn = os.path.basename(t.get("dir", ""))
+            sonnet_cell = _render_eval_tier_cell(
+                "sonnet", tier_results, _eval_tiers, filtered_at,
+                is_adjusting, stage, cl, _dn, batch_start_ts,
+            )
+            opus_cell = _render_eval_tier_cell(
+                "opus", tier_results, _eval_tiers, filtered_at,
+                is_adjusting, stage, cl, _dn, batch_start_ts,
+            )
         elif stage == "failed":
             sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
             opus_cell = '<div class="stage-cell stage-pending">—</div>'

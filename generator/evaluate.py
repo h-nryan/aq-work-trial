@@ -837,6 +837,8 @@ def evaluate_task(
 
     print(f"\n  Opus result: {opus_passes}/{opus_total} → {classification}")
 
+    _write_eval_status(task_dir, "opus", opus_passes, opus_total, filtered=False)
+
     result = _build_result(
         task_dir=task_dir,
         classification=classification,
