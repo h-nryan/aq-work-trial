@@ -133,6 +133,14 @@ def _mock_regenerate_fail(topic, task_dir, feedback, model=None):
     return {"status": "parse_error: mock retry failure"}
 
 
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _isolate_examples(tmp_path, monkeypatch):
+    """Prevent auto-promote from writing to the real examples-sonnet/ directory."""
+    monkeypatch.setattr("pipeline.SONNET_EXAMPLES_DIR", str(tmp_path / "examples-sonnet-test"))
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 class TestHappyPath:
