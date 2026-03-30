@@ -393,29 +393,33 @@ def render_live_status():
             else:
                 badge = f'<span class="stage-badge badge-generating">{model}</span>'
 
-            # Try to find partial results
+            # Find trial pass rate from run results
             run_dirs = glob.glob(f"runs/*{ev['task_id']}*{model.replace('claude-', '')}*")
-            test_info = ""
+            trials_passed = 0
+            trials_total = 0
             for rd in sorted(run_dirs):
                 rf = os.path.join(rd, "results.json")
                 if os.path.exists(rf):
                     try:
                         data = json.load(open(rf))
                         for r in data.get("results", []):
-                            pr = r.get("parser_results") or {}
-                            passed = sum(1 for v in pr.values() if v == "passed")
-                            total = len(pr)
                             resolved = r.get("is_resolved")
-                            if total > 0:
-                                test_info += f" | Tests: {passed}/{total}"
+                            if resolved is not None:
+                                trials_total += 1
                                 if resolved:
-                                    test_info += " SOLVED"
+                                    trials_passed += 1
                     except Exception:
                         pass
 
+            trial_info = ""
+            if trials_total > 0:
+                trial_info = f" | Trials: **{trials_passed}/{trials_total}** passed"
+                if trials_passed > 0:
+                    trial_info += " ✓"
+
             st.markdown(f"""
             <div class="task-card-running">
-                <strong>{task}</strong> {badge}{test_info}
+                <strong>{task}</strong> {badge}{trial_info}
             </div>
             """, unsafe_allow_html=True)
 
