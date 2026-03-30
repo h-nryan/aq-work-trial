@@ -30,7 +30,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - **Negative** (too easy): shown as "TOO-EASY EXAMPLES — avoid this difficulty" (currently: `config-manifest-validator`)
 - **Too hard**: excluded entirely — showing impossible tasks miscalibrates difficulty upward and wastes tokens
 - `examples-opus/` directory for Opus-generated exemplars that Sonnet can replicate cheaply at scale
-- *Design decision*: Negative examples are more informative than exclusion. Showing what "too easy" looks like helps calibrate the other boundary.
+- **Bug annotations** (`_bugs.md`): Every example now has a structured annotation describing each bug's subtlety level (LOW/MODERATE/HIGH), the test-to-bug mapping, and WHY the task falls in its difficulty category. Too-easy and too-hard examples include "patterns to avoid" sections that teach Sonnet the boundaries of good difficulty.
+- *Design decision*: Subtlety ratings teach the QUALITY dimension of difficulty. Telling Sonnet "this is a HIGH subtlety bug because the wrong variable name looks correct at first glance" is more useful than "add 3-5 bugs."
 
 **Prompt calibration** (`generate.py`) — Single fixed system prompt targeting 3-5 interacting bugs, ~40-60% Opus solve rate. Per-difficulty hints (easy/medium/hard) were reverted — they worked against the pipeline's goal since every task should land in the learnable band regardless of topic.
 
