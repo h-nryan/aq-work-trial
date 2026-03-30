@@ -652,9 +652,16 @@ def render_pipeline_view():
                 # Completed but stages data unavailable (older pipeline format)
                 sonnet_cell = '<div class="stage-cell stage-skipped">—</div>'
 
-            # Opus eval cell
+            # Opus eval cell — check if Opus was skipped (Sonnet filtered)
+            filtered_at = eval_stages.get("filtered_at")
             opus_tier = tier_results.get("opus", {})
-            if opus_tier and opus_tier.get("total"):
+            if filtered_at in ("sonnet", "haiku") and stage == "completed":
+                # Sonnet filtered AND task is done — Opus was truly skipped
+                opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
+            elif filtered_at in ("sonnet", "haiku"):
+                # Sonnet filtered but task still in progress (adjusting) — Opus not reached yet
+                opus_cell = '<div class="stage-cell stage-pending">—</div>'
+            elif opus_tier and opus_tier.get("total"):
                 op = opus_tier.get("passes", 0)
                 ot = opus_tier.get("total", 0)
                 if cl in ("too_hard", "too_easy"):
@@ -681,7 +688,18 @@ def render_pipeline_view():
         elif cl == "too_hard":
             result_cell = '<div class="result-cell result-hard">TOO HARD</div>'
         elif cl == "too_easy":
-            result_cell = '<div class="result-cell result-easy">TOO EASY</div>'
+            # Check if this was Sonnet-filtered (no Opus ran) vs Opus-confirmed
+            eval_stages_r = t.get("stages", {}).get("evaluation", {})
+            filtered_at_r = eval_stages_r.get("filtered_at")
+            # Check if adjustment was attempted
+            task_dir_r = t.get("dir")
+            has_adj = bool(glob.glob((task_dir_r or "") + ".pre_adj*")) if task_dir_r else False
+            if has_adj and stage == "evaluating":
+                result_cell = '<div class="result-cell result-easy">ADJUSTING</div>'
+            elif filtered_at_r in ("sonnet", "haiku"):
+                result_cell = f'<div class="result-cell result-easy">TOO EASY ({filtered_at_r})</div>'
+            else:
+                result_cell = '<div class="result-cell result-easy">TOO EASY</div>'
         elif stage == "failed":
             result_cell = '<div class="result-cell result-failed">FAIL</div>'
         elif stage == "queued":
