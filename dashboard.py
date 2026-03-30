@@ -650,7 +650,7 @@ def render_pipeline_view():
             sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
         elif stage in ("completed", "evaluating") or cl:
-            # Check if Sonnet filter actually ran from eval data
+            # Check if Sonnet filter actually ran — from eval data or runs/ dir
             eval_stages = t.get("stages", {}).get("evaluation", {})
             sonnet_tier = eval_stages.get("tier_results", {}).get("sonnet", {})
             if sonnet_tier:
@@ -658,7 +658,31 @@ def render_pipeline_view():
                 st_total = sonnet_tier.get("total", 0)
                 sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
             else:
-                sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
+                # Fallback: check runs/ dir for Sonnet eval runs (in-progress tasks)
+                task_dir = t.get("dir")
+                dirname = os.path.basename(task_dir) if task_dir else ""
+                sonnet_runs = glob.glob(os.path.join("runs", f"eval-{dirname}-claude-sonnet-*"))
+                if sonnet_runs:
+                    # Sonnet ran — try to read results
+                    sonnet_pass = 0
+                    sonnet_total = 0
+                    for sr in sonnet_runs:
+                        rf = os.path.join(sr, "results.json")
+                        if os.path.exists(rf):
+                            try:
+                                rd = json.load(open(rf))
+                                for trial in rd.get("results", []):
+                                    sonnet_total += 1
+                                    if trial.get("is_resolved"):
+                                        sonnet_pass += 1
+                            except Exception:
+                                pass
+                    if sonnet_total > 0:
+                        sonnet_cell = f'<div class="stage-cell stage-done">{sonnet_pass}/{sonnet_total}</div>'
+                    else:
+                        sonnet_cell = '<div class="stage-cell stage-active">🧪</div>'
+                else:
+                    sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = _render_stage_cell(stage, "evaluating", fs)
         elif stage == "failed":
             sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
