@@ -1,9 +1,14 @@
 """
 Basic structural validator — checks that a generated task directory has the right files and format.
+
+Includes solution diff analysis that compares buggy source files against the
+solution to produce calibration warnings (bug count, LOC, file count).
 """
 
 from __future__ import annotations
 
+import difflib
+import re
 import sys
 from pathlib import Path
 
@@ -13,6 +18,171 @@ import yaml
 REQUIRED_FILES = ["task.yaml", "Dockerfile", "run-tests.sh"]
 REQUIRED_YAML_FIELDS = ["instruction", "difficulty", "parser_name"]
 VALID_DIFFICULTIES = {"easy", "medium", "hard"}
+
+# Files that are infrastructure, not source code — excluded from diff analysis
+INFRA_FILES = {"Dockerfile", "docker-compose.yaml", "run-tests.sh", "task.yaml"}
+
+
+def _parse_solution_files(solution_sh: str) -> dict[str, str]:
+    """Extract file contents from a solution.sh heredoc script.
+
+    Parses patterns like:
+        cat > /app/foo.py << 'EOF'
+        ...content...
+        EOF
+
+    Returns dict mapping filename (basename) to content.
+    """
+    files: dict[str, str] = {}
+    # Match: cat > <path> << '<DELIM>' or cat > <path> << 'DELIM'
+    # Also handles unquoted delimiters and >> (append)
+    pattern = re.compile(
+        r"""cat\s+>+\s+(\S+)\s+<<\s*['"]?(\w+)['"]?""",
+    )
+
+    lines = solution_sh.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        match = pattern.search(lines[i])
+        if match:
+            filepath = match.group(1)
+            delimiter = match.group(2)
+            content_lines: list[str] = []
+            i += 1
+            while i < len(lines) and lines[i].rstrip("\n") != delimiter:
+                content_lines.append(lines[i])
+                i += 1
+            # Strip the path prefix (e.g. /app/) to get the basename/relative path
+            filename = filepath.split("/")[-1] if "/" in filepath else filepath
+            files[filename] = "".join(content_lines)
+        i += 1
+
+    return files
+
+
+def analyze_solution_diff(task_dir: str) -> dict:
+    """Analyze the diff between buggy source files and solution.sh output.
+
+    Returns a dict with:
+        - files_changed: number of source files modified by solution
+        - total_hunks: number of distinct change regions (proxy for bug count)
+        - total_lines_changed: total added + removed lines
+        - source_loc: total lines in buggy source files
+        - warnings: list of calibration warnings
+        - file_details: per-file breakdown
+    """
+    task_path = Path(task_dir)
+    solution_path = task_path / "solution.sh"
+    warnings: list[str] = []
+
+    if not solution_path.exists():
+        return {"warnings": ["solution.sh not found — skipping diff analysis"]}
+
+    solution_files = _parse_solution_files(solution_path.read_text())
+    if not solution_files:
+        return {"warnings": ["Could not parse any heredoc files from solution.sh"]}
+
+    files_changed = 0
+    total_hunks = 0
+    total_lines_added = 0
+    total_lines_removed = 0
+    source_loc = 0
+    file_details: list[dict] = []
+
+    for filename, fixed_content in solution_files.items():
+        # Skip infrastructure files
+        if filename in INFRA_FILES:
+            continue
+        # Skip test files
+        if filename.startswith("test_") or "/tests/" in filename:
+            continue
+
+        buggy_path = _find_source_file(task_path, filename)
+        if buggy_path is None:
+            warnings.append(f"Solution modifies {filename} but file not found in task")
+            continue
+
+        buggy_content = buggy_path.read_text()
+        source_loc += len(buggy_content.splitlines())
+
+        if buggy_content == fixed_content:
+            continue
+
+        files_changed += 1
+        buggy_lines = buggy_content.splitlines(keepends=True)
+        fixed_lines = fixed_content.splitlines(keepends=True)
+
+        # Count hunks and changed lines
+        diff = list(difflib.unified_diff(buggy_lines, fixed_lines, n=0))
+        hunks = sum(1 for line in diff if line.startswith("@@"))
+        added = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
+        removed = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
+
+        total_hunks += hunks
+        total_lines_added += added
+        total_lines_removed += removed
+
+        file_details.append({
+            "filename": filename,
+            "hunks": hunks,
+            "lines_added": added,
+            "lines_removed": removed,
+        })
+
+    # Generate calibration warnings
+    if files_changed == 0:
+        warnings.append("Solution changes no source files — may be misconfigured")
+    elif files_changed > 2:
+        warnings.append(
+            f"Solution modifies {files_changed} source files — "
+            "multi-file tasks are harder for agents"
+        )
+
+    if total_hunks < 2:
+        warnings.append(
+            f"Only {total_hunks} change region(s) — task may be too easy (single bug)"
+        )
+    elif total_hunks > 8:
+        warnings.append(
+            f"{total_hunks} change regions — likely too many bugs (target 3-4)"
+        )
+
+    total_changed = total_lines_added + total_lines_removed
+    if total_changed > 80:
+        warnings.append(
+            f"Solution changes {total_changed} lines — large diffs suggest "
+            "task is too complex for 6-minute time limit"
+        )
+
+    if source_loc > 200:
+        warnings.append(
+            f"Buggy source is {source_loc} LOC — agents must read and understand "
+            "quickly; consider keeping under 150 lines"
+        )
+
+    return {
+        "files_changed": files_changed,
+        "total_hunks": total_hunks,
+        "total_lines_changed": total_lines_added + total_lines_removed,
+        "source_loc": source_loc,
+        "warnings": warnings,
+        "file_details": file_details,
+    }
+
+
+def _find_source_file(task_path: Path, filename: str) -> Path | None:
+    """Find a source file in the task directory, checking common locations."""
+    # Direct match in task root
+    candidate = task_path / filename
+    if candidate.exists():
+        return candidate
+
+    # Search subdirectories (but not tests/)
+    for path in task_path.rglob(filename):
+        if "tests" not in path.parts and path.is_file():
+            return path
+
+    return None
 
 
 def validate_task(task_dir: str) -> dict:
@@ -73,9 +243,20 @@ def validate_task(task_dir: str) -> dict:
         if "FROM" not in content:
             issues.append("Dockerfile missing FROM statement")
 
+    # Solution diff analysis — calibration warnings (don't block validation)
+    diff_analysis = analyze_solution_diff(task_dir)
+    warnings = diff_analysis.get("warnings", [])
+
     passed = len(issues) == 0
 
-    return {"passed": passed, "issues": issues}
+    result = {"passed": passed, "issues": issues}
+    if warnings:
+        result["diff_warnings"] = warnings
+    if "total_hunks" in diff_analysis:
+        result["diff_analysis"] = {
+            k: v for k, v in diff_analysis.items() if k != "warnings"
+        }
+    return result
 
 
 if __name__ == "__main__":
@@ -91,5 +272,19 @@ if __name__ == "__main__":
         print("FAILED:")
         for issue in result["issues"]:
             print(f"  - {issue}")
+
+    if result.get("diff_warnings"):
+        print("\nDiff analysis warnings:")
+        for w in result["diff_warnings"]:
+            print(f"  ⚠ {w}")
+
+    if result.get("diff_analysis"):
+        da = result["diff_analysis"]
+        print(
+            f"\nDiff analysis: {da.get('files_changed', 0)} file(s) changed, "
+            f"{da.get('total_hunks', 0)} change region(s), "
+            f"{da.get('total_lines_changed', 0)} lines changed, "
+            f"{da.get('source_loc', 0)} LOC in buggy source"
+        )
 
     sys.exit(0 if result["passed"] else 1)

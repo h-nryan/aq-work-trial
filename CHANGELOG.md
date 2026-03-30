@@ -55,6 +55,14 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ### Validation
 
+**Solution diff analysis** (`validator/validate.py`) — Pre-Docker calibration check that diffs buggy source files against solution.sh heredocs. Parses `cat > path << 'DELIM'` patterns to extract fixed file contents, then computes: files changed, change regions (hunks, proxy for bug count), total lines changed, and source LOC. Generates warnings for:
+- Too many change regions (>8 hunks — likely too many bugs)
+- Too few change regions (<2 hunks — likely too easy)
+- Multi-file changes (>2 source files modified)
+- Large diffs (>80 lines changed — too complex for 6-minute agent time limit)
+- High source LOC (>200 lines)
+- Validated against confirmed learnable tasks (csv-to-json: 5 hunks/24 LOC, C linked list: 5 hunks/125 LOC) and too-hard tasks (flask-api: 3 files/7 hunks, coordinate-transform: 8 hunks/51 lines changed). Thresholds calibrated so learnable tasks pass clean while too-hard tasks get flagged.
+
 **Docker-based functional validator** (`validator/docker_validate.py`) — End-to-end correctness verification:
 1. Pre-Docker sanity checks (instruction length, file sizes)
 2. Docker image build + size check (fail > 2 GB, warn > 1 GB)
@@ -156,7 +164,7 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - End-to-end integration test (`test_pipeline_e2e.py`) — 15 tests exercising the full `run_pipeline` flow (generate → structural → functional → evaluate) with mocked API/Docker. Covers happy path, solution-first strategy, generation failure, structural/functional retry, infrastructure error detection, difficulty adjustment loop, and regeneration failure.
 - Generator unit tests (`test_generate.py`) — 26 new tests for `_parse_response` (JSON parsing edge cases, markdown fences, embedded backticks), `_load_examples` (three-way classification, opus examples), and `_slugify` (special chars, truncation, hash suffix).
 - Evaluate tests (`test_evaluate.py`) — 32 tests covering stale resource cleanup, result parsing, filter tier early stopping, full evaluate_task orchestration (Haiku/Sonnet filtering, Opus classification, skip_filters, default skip_haiku), and _build_result.
-- 255 tests across 13 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
+- 269 tests across 13 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
 
 ### Scripts
 
