@@ -14,6 +14,14 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Difficulty Adjustment
+
+**Surgical difficulty adjustment** (`generate.py`) — Replaced the full-regeneration approach in `adjust_difficulty()` with constrained surgical string-replacement edits. Previously, when a task was too_hard or too_easy, Sonnet would regenerate ALL task files from scratch — renaming functions, restructuring code, rewriting tests — which broke test/code alignment and created new failure modes (batch 17: 5/5 adjusted tasks still 0% after 2 rounds). Now Sonnet must pick exactly ONE operation from a constrained menu:
+- **too_hard**: remove_bug (fix one bug in source, delete its test, update solution), add_hints (add line numbers/function names to task.yaml), or simplify_bug (make one bug more obvious)
+- **too_easy**: add_bug (insert new bug + test + fix), make_subtler (change an obvious bug to a subtle one), or remove_hints (strip helpful comments)
+
+Each edit uses exact string replacement (`old` → `new`) applied to existing files — no file renames, no restructuring, no test rewrites. If an edit's `old` string isn't found verbatim, it fails explicitly and retries. Tests verified on 2 known too_hard tasks: bash quoting (removed `$(ls)` bug, kept quoting bugs) and XML converter (fixed inverted flattening, deleted its test) — both applied 5/5 edits cleanly in 18.5s with tests/Dockerfile/run-tests.sh untouched.
+
 ### Reliability
 
 **Crash-safe batch reports** (`batch.py`) — Batch runs now always produce a report file, even on crash (OOM, KeyboardInterrupt, credit exhaustion). Previously, if a batch died mid-execution, no report was written and the dashboard showed it as perpetually "active". Now the execution is wrapped in try/except with a finally-style report write that captures whatever results completed before the crash, tagged with `batch_status: "crashed"`. KeyboardInterrupt and SystemExit are re-raised after the report is saved.
@@ -37,6 +45,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 **Reduced validation timeouts** (`pipeline.py`) — Build timeout 300s→60s, test timeout 180s→120s. Data from batch 11 shows builds complete in <1s (with base image) and 99% of tests in 12-14s. The worst outlier (C linked list compilation) was 110s. Previous 180s timeout wasted minutes per task on tests that would never pass (e.g., tasks with server loops that hang forever).
 
 **Fix UnboundLocalError on generation failure** (`pipeline.py`) — `task_dir` was referenced before assignment when generation failed, causing a crash that masked the real error.
+
+**Cross-batch topic exclusion** (`prompts.py`) — Added 6 topics that always fail functional validation (0% pass rate across 2+ batches): Python ORM, Bash log counter, Python socket client, CMake project, Python HTTP client, Python state machine. Total exclusions: 25 topics, 29 remaining. Each exclusion has a documented reason (complex domain, blocking I/O, build config vs code, Bash weakness).
 
 **Fix NoneType crash in eval result parsing** (`evaluate.py`) — `parser_results` can be `null` in trial data (not just missing), causing `'NoneType' object has no attribute 'values'` during result aggregation. Two batch 13 tasks (CMake, state machine) that passed functional validation and Opus eval were lost to this bug. Fixed with `or {}` guard.
 
