@@ -373,14 +373,17 @@ def _render_task_details(task_dir: str, task_info: dict):
                 except Exception:
                     pass
 
-    if all_trials or opus_tier:
+    if all_trials or opus_tier or eval_data.get("passes") is not None:
         passes = opus_tier.get("passes", eval_data.get("passes", 0))
         total = opus_tier.get("total", eval_data.get("total", 0))
         early = opus_tier.get("early_stopped", False)
-        st.markdown(
-            f"**Opus Evaluation**: **{passes}/{total}**"
-            + (" (early stop)" if early else "")
-            + f" — {len(all_trials)} trial{'s' if len(all_trials) != 1 else ''}"
+        detail_parts = []
+        if early:
+            detail_parts.append("early stop")
+        if all_trials:
+            detail_parts.append(f"{len(all_trials)} trial{'s' if len(all_trials) != 1 else ''}")
+        detail_str = f" ({', '.join(detail_parts)})" if detail_parts else ""
+        st.markdown(f"**Opus Evaluation**: **{passes}/{total}**{detail_str}"
         )
 
         for trial in all_trials:
