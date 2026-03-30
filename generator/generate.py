@@ -206,6 +206,9 @@ point toward the bug that caused it, not require fixing other bugs first
 - All bugs should be in a SINGLE source file — multi-file bug hunts are too slow for 6 minutes
 - Use bugs that produce clear test failures: wrong output, wrong type, missing value. \
 Avoid bugs that only show up in valgrind, cause undefined behavior, or produce intermittent failures
+- Keep test count low: 5-7 tests, not 9-11. Each test should check one bug's behavior. \
+Fewer tests with clear pass/fail criteria give the agent margin for implementation \
+differences — the goal is testing bug-finding, not exact output formatting
 - The task should take a skilled human 10-20 minutes (NOT 30-60 minutes)
 - Do NOT make it impossible — a capable agent should solve it ~40-60% of the time
 
@@ -245,6 +248,7 @@ DIFFICULTY — THE MOST IMPORTANT THING:
 Study the examples below. They show EXACTLY the right difficulty. Match them:
 - Put all bugs in ONE source file under 150 lines
 - 3-4 bugs that each produce a clear, distinct test failure
+- 5-7 tests total (not 9-11) — fewer tests with clear criteria give margin for implementation differences
 - task.yaml instruction should describe what the program does and expected behavior, but NOT hint at where bugs are
 - The examples show what "learnable" looks like. Copy their style, not just their format.
 
