@@ -849,6 +849,9 @@ def _build_result(
                 "passes": v["passes"],
                 "total": v["total"],
                 "should_skip": v.get("should_skip"),
+                "early_stopped": v.get("early_stopped"),
+                "trials": v.get("trials", []),
+                "test_stats": v.get("test_stats"),
             }
             for tier, v in tier_results.items()
         },

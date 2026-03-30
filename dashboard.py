@@ -211,6 +211,9 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             elif not task_info["failed_stage"] and ("generation" in status or "retry_generation" in status):
                 task_info["failed_stage"] = "generation"
 
+            # Preserve full stages data for detail view
+            task_info["stages"] = r.get("stages", {})
+
             if cl:
                 task_info["stage"] = "completed"
                 task_info["classification"] = cl
@@ -340,60 +343,93 @@ def _render_task_details(task_dir: str, task_info: dict):
             except Exception:
                 pass
 
-    # Eval results — look for runs
-    eval_runs = sorted(glob.glob(os.path.join("runs", f"eval-{dirname}-*")))
-    if eval_runs:
-        st.markdown(f"**Opus Evaluation** ({len(eval_runs)} run{'s' if len(eval_runs) != 1 else ''})")
+    # Eval results — from batch data (primary) or runs/ dir (fallback)
+    stages = task_info.get("stages", {})
+    eval_data = stages.get("evaluation", {})
+    opus_tier = eval_data.get("tier_results", {}).get("opus", {})
+    opus_trials = opus_tier.get("trials", [])
+
+    # Flatten: each "trial batch" from run_opus_eval has a sub-list of trials
+    all_trials = []
+    for batch in opus_trials:
+        if isinstance(batch, dict):
+            sub = batch.get("trials", [])
+            if sub:
+                all_trials.extend(sub)
+            else:
+                # batch itself might be a single trial result
+                all_trials.append(batch)
+
+    # Fallback: look in runs/ if no trial data in batch results
+    if not all_trials:
+        eval_runs = sorted(glob.glob(os.path.join("runs", f"eval-{dirname}-*")))
         for run_dir in eval_runs:
             results_file = os.path.join(run_dir, "results.json")
             if os.path.exists(results_file):
                 try:
                     rdata = json.load(open(results_file))
-                    trials = rdata.get("results", [])
-                    for trial in trials:
-                        resolved = trial.get("is_resolved", False)
-                        pr = trial.get("parser_results") or {}
-                        tp = sum(1 for v in pr.values() if v == "passed")
-                        tt = len(pr)
-                        fm = trial.get("failure_mode", "")
-                        icon = "✅" if resolved else "❌"
-
-                        # Agent timing
-                        agent_start = trial.get("agent_started_at", "")
-                        agent_end = trial.get("agent_ended_at", "")
-                        agent_dur = ""
-                        if agent_start and agent_end:
-                            try:
-                                from datetime import datetime as _dt
-                                t0 = _dt.fromisoformat(agent_start.replace("+00:00", ""))
-                                t1 = _dt.fromisoformat(agent_end.replace("+00:00", ""))
-                                secs = (t1 - t0).total_seconds()
-                                agent_dur = f" ({secs:.0f}s)"
-                            except Exception:
-                                pass
-
-                        # Token usage
-                        in_tok = trial.get("total_input_tokens")
-                        out_tok = trial.get("total_output_tokens")
-                        tok_str = ""
-                        if in_tok or out_tok:
-                            tok_str = f" | {(in_tok or 0) + (out_tok or 0):,} tokens"
-
-                        st.markdown(
-                            f"{icon} Tests: **{tp}/{tt}**{agent_dur}{tok_str}"
-                            + (f" — {fm}" if fm and not resolved else "")
-                        )
-
-                        # Show per-test results
-                        if pr and tt > 0:
-                            test_lines = []
-                            for tname, tresult in sorted(pr.items()):
-                                t_icon = "✅" if tresult == "passed" else "❌"
-                                test_lines.append(f"  {t_icon} {tname}")
-                            with st.expander(f"  Per-test results ({tp}/{tt})"):
-                                st.text("\n".join(test_lines))
+                    for trial in rdata.get("results", []):
+                        all_trials.append(trial)
                 except Exception:
                     pass
+
+    if all_trials or opus_tier:
+        passes = opus_tier.get("passes", eval_data.get("passes", 0))
+        total = opus_tier.get("total", eval_data.get("total", 0))
+        early = opus_tier.get("early_stopped", False)
+        st.markdown(
+            f"**Opus Evaluation**: **{passes}/{total}**"
+            + (" (early stop)" if early else "")
+            + f" — {len(all_trials)} trial{'s' if len(all_trials) != 1 else ''}"
+        )
+
+        for trial in all_trials:
+            resolved = trial.get("resolved", trial.get("is_resolved", False))
+            tp = trial.get("tests_passed", 0)
+            tt = trial.get("tests_total", 0)
+
+            # Also check parser_results if available (from runs/ fallback)
+            pr = trial.get("parser_results") or {}
+            if pr and not tp:
+                tp = sum(1 for v in pr.values() if v == "passed")
+                tt = len(pr)
+
+            fm = trial.get("failure_mode", "")
+            icon = "✅" if resolved else "❌"
+
+            # Agent timing
+            agent_start = trial.get("agent_started_at", "")
+            agent_end = trial.get("agent_ended_at", "")
+            agent_dur = ""
+            if agent_start and agent_end:
+                try:
+                    t0 = datetime.fromisoformat(agent_start.replace("+00:00", ""))
+                    t1 = datetime.fromisoformat(agent_end.replace("+00:00", ""))
+                    secs = (t1 - t0).total_seconds()
+                    agent_dur = f" ({secs:.0f}s)"
+                except Exception:
+                    pass
+
+            # Token usage
+            in_tok = trial.get("input_tokens", trial.get("total_input_tokens"))
+            out_tok = trial.get("output_tokens", trial.get("total_output_tokens"))
+            tok_str = ""
+            if in_tok or out_tok:
+                tok_str = f" | {(in_tok or 0) + (out_tok or 0):,} tokens"
+
+            st.markdown(
+                f"  {icon} Tests: **{tp}/{tt}**{agent_dur}{tok_str}"
+                + (f" — {fm}" if fm and not resolved else "")
+            )
+
+            # Show per-test results if available
+            if pr and tt > 0:
+                test_lines = []
+                for tname, tresult in sorted(pr.items()):
+                    t_icon = "✅" if tresult == "passed" else "❌"
+                    test_lines.append(f"  {t_icon} {tname}")
+                with st.expander(f"  Per-test results ({tp}/{tt})"):
+                    st.text("\n".join(test_lines))
 
     # Adjustment snapshots
     adj_dirs = sorted(glob.glob(task_dir + ".pre_adj*"))
