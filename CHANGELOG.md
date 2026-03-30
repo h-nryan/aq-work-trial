@@ -68,6 +68,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - Multi-file changes (>2 source files modified)
 - Large diffs (>80 lines changed — too complex for 6-minute agent time limit)
 - High source LOC (>200 lines)
+
+**WORKDIR file layout check** (`validator/validate.py`) — Structural validation now fails if solution.sh writes files outside the Dockerfile's WORKDIR. Tasks with source files in system directories (e.g. `/etc/nginx/`) cause the agent to waste time navigating instead of debugging. Parses WORKDIR from Dockerfile and checks all heredoc/echo write targets in solution.sh. Both prompt variants updated to explicitly require all source files in WORKDIR.
 - Validated against confirmed learnable tasks (csv-to-json: 5 hunks/24 LOC, C linked list: 5 hunks/125 LOC) and too-hard tasks (flask-api: 3 files/7 hunks, coordinate-transform: 8 hunks/51 lines changed). Thresholds calibrated so learnable tasks pass clean while too-hard tasks get flagged.
 
 **Docker-based functional validator** (`validator/docker_validate.py`) — End-to-end correctness verification:

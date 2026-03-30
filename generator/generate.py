@@ -192,7 +192,7 @@ A. Tests MUST actually FAIL before solution.sh runs. The source files must have 
 B. solution.sh must fix ALL bugs, not just some. Mentally trace every test case through your solution and verify it passes.
 C. solution.sh must write COMPLETE fixed files (using heredocs), not patches. It should be self-contained.
 D. Keep the technology stack simple — prefer Python, Bash, C. Avoid Node.js/npm unless the topic requires it, as npm installs are slow and fragile in containers.
-E. Dockerfile WORKDIR must match paths used in source files, tests, and solution.sh.
+E. ALL source files must live in WORKDIR (usually /app). Never put source files in system directories like /etc/ or /usr/. Dockerfile WORKDIR must match paths used in source files, tests, and solution.sh.
 F. Tests should test concrete outputs (file contents, exit codes, stdout) not require running servers. Server-based tasks are harder to validate reliably.
 
 DIFFICULTY CALIBRATION (CRITICAL):
@@ -237,6 +237,7 @@ and are verified by pytest.
 REQUIRED FILES: task.yaml, Dockerfile, run-tests.sh, solution.sh, tests/test_outputs.py, plus buggy source files.
 - solution.sh uses `cat > filename << 'EOF'` heredocs to write complete fixed files.
 - Dockerfile MUST install tmux and asciinema. Prefer Python/Bash/C stacks.
+- ALL source files must live in WORKDIR (usually /app). Never use system directories like /etc/.
 - Tests MUST FAIL before solution.sh and PASS after.
 - run-tests.sh installs uv + pytest. Follow the boilerplate from examples.
 

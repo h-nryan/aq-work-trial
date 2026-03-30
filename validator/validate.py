@@ -267,6 +267,33 @@ def validate_task(task_dir: str) -> dict:
         if "FROM" not in content:
             issues.append("Dockerfile missing FROM statement")
 
+    # Check solution.sh doesn't write files outside WORKDIR
+    # Tasks with files in system dirs (e.g. /etc/nginx/) are too hard because
+    # the agent wastes time navigating instead of debugging.
+    solution_path = task_path / "solution.sh"
+    if solution_path.exists() and dockerfile_path.exists():
+        workdir = "/app"  # default
+        for line in dockerfile_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.upper().startswith("WORKDIR"):
+                parts = stripped.split(None, 1)
+                if len(parts) == 2:
+                    workdir = parts[1].strip()
+
+        # Extract full paths from heredoc and echo write targets
+        write_path_re = re.compile(
+            r"""cat\s+>+\s+(\S+)\s+<<|echo\s+["'][^"']*["']\s+>\s+(\S+)"""
+        )
+        for match in write_path_re.finditer(solution_path.read_text()):
+            raw_path = (match.group(1) or match.group(2)).strip("'\"")
+            if raw_path.startswith("$"):
+                continue
+            if raw_path.startswith("/") and not raw_path.startswith(workdir):
+                issues.append(
+                    f"solution.sh writes to '{raw_path}' outside WORKDIR ({workdir}) "
+                    f"— source files must be in WORKDIR for agent navigability"
+                )
+
     # Solution diff analysis — calibration warnings (don't block validation)
     diff_analysis = analyze_solution_diff(task_dir)
     warnings = diff_analysis.get("warnings", [])

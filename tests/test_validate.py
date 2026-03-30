@@ -115,6 +115,42 @@ class TestValidateTask:
         assert result["passed"] is True
         assert "diff_warnings" in result
 
+    def test_solution_outside_workdir_fails(self, good_task):
+        """solution.sh writing to paths outside WORKDIR should fail."""
+        (good_task / "Dockerfile").write_text("FROM ubuntu:24.04\nWORKDIR /app\n")
+        (good_task / "solution.sh").write_text(
+            "#!/bin/bash\ncat > /etc/nginx/nginx.conf << 'EOF'\nserver {}\nEOF\n"
+        )
+        result = validate_task(str(good_task))
+        assert result["passed"] is False
+        assert any("outside WORKDIR" in i for i in result["issues"])
+
+    def test_solution_inside_workdir_passes(self, good_task):
+        """solution.sh writing to paths inside WORKDIR should pass."""
+        (good_task / "Dockerfile").write_text("FROM ubuntu:24.04\nWORKDIR /app\n")
+        (good_task / "solution.sh").write_text(
+            "#!/bin/bash\ncat > /app/main.py << 'EOF'\nprint('hi')\nEOF\n"
+        )
+        result = validate_task(str(good_task))
+        assert result["passed"] is True
+
+    def test_solution_relative_path_ok(self, good_task):
+        """Relative paths in solution.sh are fine (resolved within WORKDIR)."""
+        (good_task / "solution.sh").write_text(
+            "#!/bin/bash\ncat > main.py << 'EOF'\nprint('hi')\nEOF\n"
+        )
+        result = validate_task(str(good_task))
+        assert result["passed"] is True
+
+    def test_solution_custom_workdir(self, good_task):
+        """Check uses actual WORKDIR from Dockerfile, not hardcoded /app."""
+        (good_task / "Dockerfile").write_text("FROM ubuntu:24.04\nWORKDIR /opt/project\n")
+        (good_task / "solution.sh").write_text(
+            "#!/bin/bash\ncat > /opt/project/fix.py << 'EOF'\npass\nEOF\n"
+        )
+        result = validate_task(str(good_task))
+        assert result["passed"] is True
+
 
 class TestParseSolutionFiles:
     def test_basic_heredoc(self):
