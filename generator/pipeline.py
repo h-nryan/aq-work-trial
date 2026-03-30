@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+import yaml
+
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "validator"))
 import shutil
@@ -165,16 +167,20 @@ def _write_task_meta(task_dir: str, result: dict, category: str | None = None) -
                 except OSError:
                     pass
 
+    meta = {
+        "approx_tokens": approx_tokens,
+        "classification": classification,
+        "opus_pass_rate": pass_rate,
+        "opus_passes": passes,
+        "opus_total": total,
+        "source": "pipeline-generated",
+    }
+    if category:
+        meta["category"] = category
+
     meta_path = os.path.join(task_dir, "_meta.yaml")
     with open(meta_path, "w") as f:
-        f.write(f"classification: {classification}\n")
-        f.write(f"opus_pass_rate: {pass_rate}\n")
-        f.write(f"opus_passes: {passes}\n")
-        f.write(f"opus_total: {total}\n")
-        if category:
-            f.write(f"category: {category}\n")
-        f.write(f"approx_tokens: {approx_tokens}\n")
-        f.write(f"source: pipeline-generated\n")
+        yaml.dump(meta, f, default_flow_style=False, sort_keys=True)
 
 
 def validate_structural(task_dir: str) -> dict:

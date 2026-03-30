@@ -24,6 +24,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Extract `_strip_fences` helper** (`generate.py`) — The markdown fence-stripping logic (strip ` ```json ` wrappers from LLM responses) was copy-pasted identically in `_parse_response` and `adjust_difficulty`. Extracted into a shared `_strip_fences(text: str) -> str` helper. Both call sites simplified to a single line. The helper comment explains why regex can't be used (JSON content may itself contain triple backticks).
 
+**Use `yaml.dump` in `_write_task_meta`** (`pipeline.py`) — `_meta.yaml` was written with hand-rolled f-string writes. If any value (particularly `category`) contained a YAML special character (`:`, `#`, `"`, etc.) the output would be silently malformed and fail to parse. Replaced with `yaml.dump(..., sort_keys=True)` which handles all edge cases. `yaml` (pyyaml) was already a declared generator dependency; added module-level import to `pipeline.py`.
+
 ### Early Adjustment with Test-Level Granularity
 
 **Early adjustment after 0/3 parallel batch** (`evaluate.py`, `pipeline.py`) — Major refactor of the evaluation + adjustment loop. Previously, the pipeline ran all 5 Opus trials before adjusting difficulty, wasting 2 expensive Opus runs on clearly-too-hard tasks. Now, after the initial 3-parallel Opus batch:
