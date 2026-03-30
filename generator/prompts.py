@@ -343,15 +343,6 @@ EXCLUDED_TOPICS = {
     "repair a Python state machine implementation with incorrect transition validation and event handling",
     # C memory bugs (too hard in container context, 0/5 in batch 2)
     "debug a C program with memory corruption in a linked list implementation",
-    # Fundamentally too_hard for Opus (0/5 across 2+ batches, confirmed by difficulty adjustment)
-    "fix a Bash script with quoting errors that breaks on filenames with spaces",
-    "fix a Python config file parser that mishandles default values and type coercion",
-    "fix a Python DNS resolver script with incorrect record type handling and cache expiry bugs",
-    "fix a Python SQLite migration script with schema versioning and data type bugs",
-    "fix a Python XML-to-JSON converter with namespace handling and attribute mapping bugs",
-    "debug a broken backup rotation script with race conditions in concurrent rsync and retention policy bugs",
-    "fix a Python script that crashes on empty input when reading a CSV file",
-    "fix a Python monitoring script with broken metrics collection, alerting thresholds, and stale data",
 }
 
 

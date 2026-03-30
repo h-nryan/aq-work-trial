@@ -8,11 +8,19 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Stretch goals implemented**: A (cost-efficient evaluation), B (difficulty tuning), C (diversity analysis), D (human-likeness comparison).
 
-**Current state**: 305+ tests across 14+ modules. First Sonnet-generated learnable task achieved (template engine, Opus 25%). 4 learnable exemplars total (1 hand-crafted, 2 Opus-generated, 1 Sonnet-generated). Opus difficulty rating pre-filter shows promise (2/2 correct predictions in initial test).
+**Current state**: 23 learnable tasks in examples-sonnet/, 2 Opus-generated exemplars, 1 hand-crafted exemplar (26 total). Batch 22 achieved 75% learnable rate (9/12) — best batch yet — with 5 of those via difficulty adjustment (first confirmed adjustment→learnable conversions). Pipeline validates structurally and functionally in Docker with solution-first generation, then evaluates with tiered Opus eval with early stopping.
 
 ---
 
 ## [Unreleased]
+
+### Difficulty Adjustment Testing
+
+**Direct test of severity-based adjustment on batch 22 too_hard tasks** — Wrote `test_adjust_difficulty.py` to test `adjust_difficulty()` in isolation on the "fix-a-python-unit-test-suite-where-fixtures-have-411353" task (too_hard, 0% pass rate). Results: Sonnet picked `simplify_bug` operation, applied 4/6 edits successfully (2 failed on string matching — one exact match not found in test file, one ambiguous match in solution.sh). Changes: added BUG comments near all 3 bugs in fixture_manager.py, added missing `setup()` call hint, expanded task.yaml with specific function names and symptoms for each bug. Functional validation passed (tests fail without solution, pass with solution). Duration: 38s, 11.5K tokens. Confirms the severity-based prompt (0-pass aggressive mode) produces valid, functional edits.
+
+### Topic Pool
+
+**Removed 8 "fundamentally too_hard" topic exclusions** (`prompts.py`) — Batch 22 proved that difficulty adjustment can convert too_hard topics to learnable: 5 of 9 learnable tasks in batch 22 were previously excluded topics that became learnable via surgical adjustment. Removed the 8 exclusions added in commit 5b42a68 (bash quoting, config parser, DNS resolver, SQLite migration, XML converter, backup rotation, CSV crash, monitoring script). These topics are now back in the selection pool, increasing pool size from ~20 to ~28.
 
 ### Difficulty Adjustment
 
