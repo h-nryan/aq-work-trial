@@ -83,11 +83,12 @@ TOO_EASY_EXAMPLES = {
 # Excluded from few-shot context — showing impossible tasks as "good examples"
 # miscalibrates difficulty upward and wastes prompt tokens.
 TOO_HARD_EXAMPLES = {
-    "broken-coordinate-transform",  # Opus 0/5, Sonnet 0/3
-    "broken-flask-api",             # Opus 0/5, Sonnet 0/3
+    "broken-coordinate-transform",       # Opus 0/5, Sonnet 0/3 — C++ matrix math
+    "broken-flask-api",                  # Opus 0/5, Sonnet 0/3 — server-based
+    "log-rotation-analyzer",             # Opus 0/5, Sonnet 0/5 — create from scratch
+    "fix-maven-artifact-dependencies",   # Opus 0/5, Sonnet 0/5 — Maven/Java config
 }
 # Confirmed learnable: csv-to-json-cli-fix (Opus 3/5)
-# Pending: fix-maven-artifact-dependencies, log-rotation-analyzer
 
 
 def _load_task_dir(task_dir: Path) -> str:
@@ -193,14 +194,17 @@ E. Dockerfile WORKDIR must match paths used in source files, tests, and solution
 F. Tests should test concrete outputs (file contents, exit codes, stdout) not require running servers. Server-based tasks are harder to validate reliably.
 
 DIFFICULTY CALIBRATION (CRITICAL):
-These tasks will be solved by a very capable AI agent (Claude Opus). To land in the \
-learnable range (1-3 out of 5 attempts pass), aim for:
-- Include 3-5 distinct bugs or issues that interact with each other
-- Use subtle bugs: off-by-one errors, type mismatches, missing edge cases, wrong variable references
-- Require understanding of the FULL codebase to fix (not just one file)
-- Include environment/dependency issues alongside code bugs
-- Make some bugs only visible through specific test cases (edge cases)
-- The task should take a skilled human 20-60 minutes
+These tasks will be solved by a very capable AI agent (Claude Opus) with a 6-minute \
+time limit. To land in the learnable range (1-3 out of 5 attempts pass), aim for:
+- Include exactly 3-4 bugs (NOT 5+, that's too hard)
+- Each bug MUST be independently discoverable from test output — a failing test should \
+point toward the bug that caused it, not require fixing other bugs first
+- Do NOT create cascading bugs where Bug A must be fixed before Bug B can even be diagnosed
+- Keep total source code under 150 lines — the agent must read and understand it in ~1 minute
+- All bugs should be in a SINGLE source file — multi-file bug hunts are too slow for 6 minutes
+- Use bugs that produce clear test failures: wrong output, wrong type, missing value. \
+Avoid bugs that only show up in valgrind, cause undefined behavior, or produce intermittent failures
+- The task should take a skilled human 10-20 minutes (NOT 30-60 minutes)
 - Do NOT make it impossible — a capable agent should solve it ~40-60% of the time
 
 OUTPUT FORMAT:
