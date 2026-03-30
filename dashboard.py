@@ -683,7 +683,7 @@ def render_pipeline_view():
                      text=f"**{n_completed + n_failed}/{n_total}** tasks processed")
 
     # Pipeline funnel
-    n_generated = sum(1 for t in tasks if t.get("stages", {}).get("generate") or t["stage"] != "failed" or t.get("failed_stage") not in ("generation", "generating", ""))
+    n_generated = sum(1 for t in tasks if t.get("failed_stage") not in ("generation", "generating") and t["stage"] != "queued")
     n_structural = sum(1 for t in tasks if t.get("stages", {}).get("structural", {}).get("passed", False))
     n_functional = sum(1 for t in tasks if t.get("stages", {}).get("functional", {}).get("passed", False))
     n_evaluated = sum(1 for t in tasks if t.get("classification") and t["classification"] != "eval_skipped")

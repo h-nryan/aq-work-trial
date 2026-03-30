@@ -14,6 +14,18 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Dashboard: Cost Summary, Funnel, Trends, and Diversity
+
+**Batch cost summary** (`dashboard.py`) — Three cost cards below the existing count cards: Generation cost (Sonnet API tokens from all generate/retry/adjustment stages), Opus eval cost (from agent token counts in trial data), and Cost per learnable task. Pricing constants: Sonnet 4.5 at $3/$15 per MTok in/out; Opus 4 at $15/$75 per MTok in/out.
+
+**Pipeline funnel visualization** (`dashboard.py`) — Horizontal bar chart between the progress bar and task table showing attrition at each stage: Attempted → Generated → Structural → Functional → Evaluated → Learnable, with absolute counts and cumulative yield % on each bar.
+
+**Per-task cost in detail view** (`dashboard.py`) — Cost breakdown added to every task expander: generation tokens + cost, Opus eval tokens + cost, and total.
+
+**All-batch trend charts** (`dashboard.py`) — Inside the "All-time metrics" expander: learnable yield % per batch (bar chart) and cost per learnable per batch (bar chart), computed from token data in the incremental JSONL files.
+
+**Category diversity chart** (`dashboard.py`) — Inside "All-time metrics": bar chart of `_meta.yaml` category distribution across tasks in the current batch, showing coverage across the 6 task categories.
+
 ### Example Budget Increase
 
 **Doubled example token budget from 20K to 40K** (`generate.py`) — Increases few-shot examples from 5 to 9 (covering all 6 categories). More examples give Sonnet better calibration for bug difficulty and solution alignment. Motivated by batch 24 functional failures: curl wrapper (bugs too weak — tests pass without solution) and DNS resolver (Phase 1/2 mismatch — solution doesn't fix bugs). Both failure modes suggest Sonnet needs more reference material for correct bug/test/solution structure. Cost impact negligible (~$0.02/generation) vs Opus eval savings.
