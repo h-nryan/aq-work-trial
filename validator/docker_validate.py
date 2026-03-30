@@ -378,7 +378,11 @@ def docker_validate(
         }
 
         if no_solution["timed_out"]:
-            issues.append("Tests timed out without solution applied.")
+            # Timeout counts as a valid failure — buggy code may hang due to
+            # infinite loops, deadlocks, or memory corruption.
+            tests_fail_without_solution = True
+            result_template["tests_fail_without_solution"] = True
+            _log(f"    Tests timed out without solution (valid failure). ({execution_times['test_without_solution']}s)")
         elif no_solution["exit_code"] == 0:
             issues.append(
                 "Tests PASSED without solution — task is broken (tests should fail on unsolved container)."
