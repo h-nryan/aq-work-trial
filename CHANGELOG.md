@@ -17,10 +17,21 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 ### Difficulty Adjustment
 
 **Surgical difficulty adjustment** (`generate.py`) — Replaced the full-regeneration approach in `adjust_difficulty()` with constrained surgical string-replacement edits. Previously, when a task was too_hard or too_easy, Sonnet would regenerate ALL task files from scratch — renaming functions, restructuring code, rewriting tests — which broke test/code alignment and created new failure modes (batch 17: 5/5 adjusted tasks still 0% after 2 rounds). Now Sonnet must pick exactly ONE operation from a constrained menu:
-- **too_hard**: remove_bug (fix one bug in source, delete its test, update solution), add_hints (add line numbers/function names to task.yaml), or simplify_bug (make one bug more obvious)
-- **too_easy**: add_bug (insert new bug + test + fix), make_subtler (change an obvious bug to a subtle one), or remove_hints (strip helpful comments)
+- **too_hard (0 tests passing)**: aggressive multi-edit — simplify hardest bug, add code comments near all bugs, improve instruction, remove a test. One surgical edit won't move a fundamentally-too-hard task.
+- **too_hard (close)**: surgical single-operation — remove_bug, add_hints, or simplify_bug
+- **too_easy**: add_bug, make_subtler, or remove_hints + cheap Sonnet x3 quick-check before re-running expensive Opus eval
+- **First confirmed adjustment→learnable**: Batch 22 produced 2 learnable tasks via difficulty adjustment (CLI tool 33%, setup.py 33%) — both were initially too_hard
 
 Each edit uses exact string replacement (`old` → `new`) applied to existing files — no file renames, no restructuring, no test rewrites. If an edit's `old` string isn't found verbatim, it fails explicitly and retries. Tests verified on 2 known too_hard tasks: bash quoting (removed `$(ls)` bug, kept quoting bugs) and XML converter (fixed inverted flattening, deleted its test) — both applied 5/5 edits cleanly in 18.5s with tests/Dockerfile/run-tests.sh untouched.
+
+**Data-driven generation prompts** (`generate.py`) — Root-cause analysis of batch 17 too_hard vs learnable tasks revealed that task *structure* predicts Opus success better than topic domain. Updated all three generation prompts (SYSTEM_PROMPT, PHASE1_PROMPT, PHASE2_PROMPT) with data-driven structural guidance:
+- **PHASE1 (test design)**: Tests must invoke the program directly via subprocess/import inside each test function. run-tests.sh must NOT pre-execute the program and cache output to /tmp files. Task instructions must describe requirements, not line-by-line diffs.
+- **PHASE2 (bug design)**: Prefer "architectural" bugs (wrong algorithm, missing logic branch, wrong data structure) over "token-change" bugs (add a quote, change an operator). Each bug should break 1-2 tests, not all tests — enabling partial credit. Explicitly prohibit all-or-nothing designs.
+- **SYSTEM_PROMPT**: Added "Structural Patterns for Learnability" section documenting 4 data-driven rules (partial credit, behavioral tests, requirement-based instructions, architectural bugs).
+- Reverted 7 topic exclusions (bash quoting, config parser, DNS resolver, etc.) back into the pool — these topics should now generate learnable tasks with the improved structural guidance. Pool size: 28 topics (up from 21).
+- Softened PHASE2 bug guidance per feedback: changed from "prefer architectural bugs / avoid token-change bugs" to "use a MIX of 1-2 simple bugs + 1-2 subtle bugs." Data showed learnable tasks actually had simple bugs (wrong operator, missing return) — pure architectural bugs risk being too_hard.
+
+**Freestyle topic generation reverted** — Tested `--freestyle` mode (Sonnet picks its own topics) in batch 20. Results: worse functional pass rate (58% vs 75% with topic bank), poor diversity (5/12 tasks were "text processing CLI"), and concurrent launches couldn't dedup because `previous_topics` was empty for all threads. Topic bank approach retained — 28 topics remaining is sufficient.
 
 ### Reliability
 
@@ -46,7 +57,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 
 **Fix UnboundLocalError on generation failure** (`pipeline.py`) — `task_dir` was referenced before assignment when generation failed, causing a crash that masked the real error.
 
-**Cross-batch topic exclusion** (`prompts.py`) — Added 6 topics that always fail functional validation (0% pass rate across 2+ batches): Python ORM, Bash log counter, Python socket client, CMake project, Python HTTP client, Python state machine. Total exclusions: 25 topics, 29 remaining. Each exclusion has a documented reason (complex domain, blocking I/O, build config vs code, Bash weakness).
+**Cross-batch topic exclusion** (`prompts.py`) — Excluded topics that fail for infrastructure reasons (servers, concurrency, Node.js, Docker-in-Docker, etc.) and topics with 0% functional validation pass rate. Total exclusions: 26 topics, 28 remaining. Reverted 7 topic exclusions that were previously added as "fundamentally too hard" — root-cause analysis showed these fail due to task *structure* (all-or-nothing bugs, pre-computed output tests) not the topic domain. Fixed at the prompt level instead.
 
 **Fix NoneType crash in eval result parsing** (`evaluate.py`) — `parser_results` can be `null` in trial data (not just missing), causing `'NoneType' object has no attribute 'values'` during result aggregation. Two batch 13 tasks (CMake, state machine) that passed functional validation and Opus eval were lost to this bug. Fixed with `or {}` guard.
 
