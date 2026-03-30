@@ -118,6 +118,18 @@ CUSTOM_CSS = """
     .summary-value { font-size: 1.8em; font-weight: 700; color: #e8e8e8; }
     .summary-value.highlight { color: #00d4aa; }
     .summary-label { color: #8892b0; font-size: 0.8em; margin-top: 2px; }
+
+    /* Make detail expanders flush with the task row above */
+    .task-row + div .streamlit-expanderHeader {
+        font-size: 0.7em;
+        color: #4a5568;
+        padding: 2px 15px;
+        min-height: unset;
+    }
+    div[data-testid="stExpander"] {
+        margin-top: -8px;
+        margin-bottom: 4px;
+    }
 </style>
 """
 
@@ -580,67 +592,99 @@ def render_pipeline_view():
         st.progress((n_completed + n_failed) / n_total,
                      text=f"**{n_completed + n_failed}/{n_total}** tasks processed")
 
-    # Task rows — each row IS the expander
+    # Pipeline table header
+    st.markdown("""
+    <div class="header-row">
+        <div>Task</div>
+        <div style="text-align:center">Generate</div>
+        <div style="text-align:center">Structural</div>
+        <div style="text-align:center">Functional</div>
+        <div style="text-align:center">Sonnet</div>
+        <div style="text-align:center">Opus</div>
+        <div style="text-align:center">Time</div>
+        <div style="text-align:center">Result</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Task rows with color-coded pipeline + expandable details
     for t in tasks:
+        topic = t["topic"][:35] if t["topic"] else "?"
         full_topic = t.get("topic", "?")
         stage = t["stage"]
         cl = t.get("classification")
         pr = t.get("pass_rate")
-        dur = t.get("duration_sec")
 
-        # Build compact summary for the expander label
-        # Result indicator
+        # Row class
+        if cl == "learnable":
+            row_class = "learnable"
+        elif cl == "too_hard":
+            row_class = "too-hard"
+        elif cl == "too_easy":
+            row_class = "too-easy"
+        elif stage == "failed":
+            row_class = "failed"
+        elif stage in ("generating", "structural", "functional", "evaluating"):
+            row_class = "running"
+        else:
+            row_class = ""
+
+        # Stage cells
+        fs = t.get("failed_stage", "")
+        gen_cell = _render_stage_cell(stage, "generating", fs)
+        struct_cell = _render_stage_cell(stage, "structural", fs)
+        func_cell = _render_stage_cell(stage, "functional", fs)
+
+        if stage in ("completed", "evaluating") or cl:
+            sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
+            opus_cell = _render_stage_cell(stage, "evaluating", fs)
+        elif stage == "failed":
+            sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
+            opus_cell = '<div class="stage-cell stage-pending">—</div>'
+        else:
+            sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
+            opus_cell = '<div class="stage-cell stage-pending">—</div>'
+
+        # Result cell
         if cl == "learnable":
             pr_s = f"{pr:.0%}" if isinstance(pr, (int, float)) else ""
-            result_tag = f"✅ learnable {pr_s}"
+            result_cell = f'<div class="result-cell result-learnable">✓ {pr_s}</div>'
         elif cl == "too_hard":
-            result_tag = "🔴 too hard"
+            result_cell = '<div class="result-cell result-hard">TOO HARD</div>'
         elif cl == "too_easy":
-            result_tag = "🟡 too easy"
+            result_cell = '<div class="result-cell result-easy">TOO EASY</div>'
         elif stage == "failed":
-            result_tag = "❌ failed"
+            result_cell = '<div class="result-cell result-failed">FAIL</div>'
         elif stage == "queued":
-            result_tag = "⏳ queued"
+            result_cell = '<div class="result-cell" style="color:#4a5568">—</div>'
         else:
-            result_tag = f"🔵 {stage}"
+            result_cell = '<div class="result-cell result-running">⏳</div>'
 
-        # Stage progress as compact dots
-        fs = t.get("failed_stage", "")
-        stage_dots = _render_stage_dots(stage, fs)
-
-        # Time
+        # Time cell
+        dur = t.get("duration_sec")
         if dur and isinstance(dur, (int, float)):
             time_str = f"{dur/60:.0f}m" if dur >= 60 else f"{dur:.0f}s"
+            time_cell = f'<div style="text-align:center; color:#8892b0; font-size:0.8em">{time_str}</div>'
         else:
-            time_str = ""
+            time_cell = '<div style="text-align:center; color:#4a5568; font-size:0.8em">—</div>'
 
-        time_part = f" · {time_str}" if time_str else ""
-        label = f"{result_tag} · {stage_dots}{time_part} — {full_topic[:55]}"
+        # Color-coded pipeline row (always visible)
+        st.markdown(f"""
+        <div class="task-row {row_class}">
+            <div class="task-name" title="{full_topic}">{topic}</div>
+            {gen_cell}
+            {struct_cell}
+            {func_cell}
+            {sonnet_cell}
+            {opus_cell}
+            {time_cell}
+            {result_cell}
+        </div>
+        """, unsafe_allow_html=True)
 
+        # Flush expander for details — sits right below the row
         task_dir = t.get("dir")
-        with st.expander(label, expanded=False):
-            # Inline pipeline row inside the expander
-            gen_cell = _render_stage_cell(stage, "generating", fs)
-            struct_cell = _render_stage_cell(stage, "structural", fs)
-            func_cell = _render_stage_cell(stage, "functional", fs)
-            if stage in ("completed", "evaluating") or cl:
-                sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
-                opus_cell = _render_stage_cell(stage, "evaluating", fs)
-            else:
-                sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
-                opus_cell = '<div class="stage-cell stage-pending">—</div>'
-
-            st.markdown(f"""
-            <div class="header-row">
-                <div>Generate</div><div>Structural</div>
-                <div>Functional</div><div>Sonnet</div><div>Opus</div>
-            </div>
-            <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:12px;">
-                {gen_cell}{struct_cell}{func_cell}{sonnet_cell}{opus_cell}
-            </div>
-            """, unsafe_allow_html=True)
-
-            if task_dir and os.path.isdir(task_dir):
+        if task_dir and os.path.isdir(task_dir):
+            with st.expander("details", expanded=False):
                 _render_task_details(task_dir, t)
 
     # Aggregate stats across all batches at bottom
