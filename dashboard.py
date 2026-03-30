@@ -531,15 +531,14 @@ def _render_task_details(task_dir: str, task_info: dict):
             for batch in stages.get("evaluation", {}).get("tier_results", {}).get("opus", {}).get("trials", [])
             for trial in batch.get("trials", [])
         ]
-        opus_tok_in = sum((t.get("input_tokens") or 0) for t in opus_trials_flat)
-        opus_tok_out = sum((t.get("output_tokens") or 0) for t in opus_trials_flat)
-        parts = []
+        opus_tok = sum((t.get("input_tokens") or 0) + (t.get("output_tokens") or 0) for t in opus_trials_flat)
+        rows = []
         if gc > 0:
-            parts.append(f"Generation: **{_fmt_cost(gc)}** ({gen_tok:,} tokens)")
+            rows.append(f"| Generation | {_fmt_cost(gc)} | {gen_tok:,} tok |")
         if oc > 0:
-            parts.append(f"Opus eval: **{_fmt_cost(oc)}** ({opus_tok_in + opus_tok_out:,} tokens)")
-        parts.append(f"Total: **{_fmt_cost(gc + oc)}**")
-        st.markdown(" · ".join(parts))
+            rows.append(f"| Opus eval | {_fmt_cost(oc)} | {opus_tok:,} tok |")
+        rows.append(f"| **Total** | **{_fmt_cost(gc + oc)}** | |")
+        st.markdown("| | Cost | Tokens |\n|---|---|---|\n" + "\n".join(rows))
 
     # Task files summary
     st.markdown("**Task Files**")
