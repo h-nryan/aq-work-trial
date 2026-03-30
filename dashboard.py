@@ -126,7 +126,7 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
     tasks = []
     batch_name = os.path.basename(batch_dir)
 
-    # Get planned topics from meta
+    # Get planned topics from meta, or fall back to report results
     meta_files = glob.glob(os.path.join(batch_dir, "batch-*-meta.json"))
     planned_topics = []
     if meta_files:
@@ -134,6 +134,15 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             planned_topics = json.load(open(meta_files[0])).get("topics", [])
         except Exception:
             pass
+
+    # Fall back: extract topics from report if meta was cleaned up
+    if not planned_topics:
+        for f in glob.glob(os.path.join(batch_dir, "batch-*-report.json")):
+            try:
+                data = json.load(open(f))
+                planned_topics = [r.get("topic", "") for r in data.get("results", []) if r.get("topic")]
+            except Exception:
+                pass
 
     # Get completed results from incremental
     completed = {}
