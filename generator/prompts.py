@@ -299,6 +299,12 @@ PROMPT_BANK: list[TopicEntry] = [
 ]
 
 
+# Categories excluded from selection — Sonnet consistently fails to generate
+# valid tasks for these (0% functional pass rate for system-administration,
+# 25% for software-engineering, 33% for data-processing).
+EXCLUDED_CATEGORIES = {"system-administration", "software-engineering", "data-processing"}
+
+
 def select_entries(
     n: int = 10,
     category: str | None = None,
@@ -322,7 +328,7 @@ def select_entries(
     """
     rng = random.Random(seed)
 
-    pool = list(PROMPT_BANK)
+    pool = [t for t in PROMPT_BANK if t.category not in EXCLUDED_CATEGORIES]
 
     if category:
         pool = [t for t in pool if t.category == category]

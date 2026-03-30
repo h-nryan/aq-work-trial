@@ -131,7 +131,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 - Near-duplicate detection (Jaccard similarity on topic word sets, threshold 0.7)
 - CLI: `python3.12 generator/diversity.py <batch-report.json>`
 
-**Topic/prompt bank** (`prompts.py`) — 52 structured topics with category, difficulty, language metadata. Round-robin selection (`select_topics(diverse=True)`) maximizes coverage per batch.
+**Topic/prompt bank** (`prompts.py`) — 52 structured topics with category, difficulty, language metadata. Round-robin selection (`select_topics(diverse=True)`) maximizes coverage per batch. `EXCLUDED_CATEGORIES` filters out categories where Sonnet consistently fails to generate valid tasks: system-administration (0% functional pass rate), software-engineering (25%), and data-processing (33%). Remaining 26 topics across debugging, networking, and build-systems.
 
 ### Human-Likeness Comparison — Stretch Goal D
 
