@@ -20,6 +20,15 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Validated with retest on 3 previously-failing topics** — Ran generation-only (no eval) on the 3 topics that failed functional validation in batch 24 with 5 examples: backup rotation (0% pass rate across batches 22-24), curl wrapper (tests pass without solution), DNS resolver (solution doesn't fix bugs). With 9 examples, all 3 passed functional validation (backup rotation on attempt 3, curl wrapper on attempt 2, DNS resolver on attempt 3). The backup rotation topic had never passed functional validation in any prior batch — this is a direct improvement from more examples giving Sonnet better structural patterns for test/solution alignment.
 
+### Dashboard: Fix Spurious Eval Rows Before Any Trials Complete
+
+**Remove stale `runs/` fallback and fix batch-dict accumulation** (`dashboard.py`) — Two bugs caused "unknown_agent_errors 0/0" to appear before any evaluation had run:
+
+1. **Batch-level dicts appended as trial dicts**: when `trials: []` was empty, the `else` branch appended the batch dict itself (wrong schema) into `all_trials`, producing rows with spurious `failure_mode` values and 0/0 test counts.
+2. **Stale `runs/` directory fallback**: the fallback scanned `runs/eval-{dirname}-*` directories, which persisted from previous pipeline runs with different timestamps, causing stale trial data from prior batches to appear on current tasks.
+
+Both the `else: all_trials.append(batch)` branch and the entire `runs/` fallback block are removed. The eval section guard is tightened to `has_real_eval = bool(all_trials) or (eval_data.get("total") or 0) > 0`, so the block only renders when at least one real trial has completed.
+
 ### Dashboard: Expandable Task Details
 
 **Expandable task cards** (`dashboard.py`) — Each task row now has a "Details" expander showing:

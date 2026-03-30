@@ -377,26 +377,11 @@ def _render_task_details(task_dir: str, task_info: dict):
             sub = batch.get("trials", [])
             if sub:
                 all_trials.extend(sub)
-            else:
-                # batch itself might be a single trial result
-                all_trials.append(batch)
+            # Do NOT append batch-level dicts as trials — different schema.
 
-    # Fallback: look in runs/ if no trial data in batch results
-    # Only if task actually reached eval stage (not still in generation/functional)
-    task_stage = task_info.get("stage", "")
-    if not all_trials and task_stage in ("completed", "evaluating"):
-        eval_runs = sorted(glob.glob(os.path.join("runs", f"eval-{dirname}-*")))
-        for run_dir in eval_runs:
-            results_file = os.path.join(run_dir, "results.json")
-            if os.path.exists(results_file):
-                try:
-                    rdata = json.load(open(results_file))
-                    for trial in rdata.get("results", []):
-                        all_trials.append(trial)
-                except Exception:
-                    pass
-
-    if all_trials or opus_tier or eval_data.get("passes") is not None:
+    # Only show eval block when at least one real trial completed
+    has_real_eval = bool(all_trials) or (eval_data.get("total") or 0) > 0
+    if has_real_eval:
         passes = opus_tier.get("passes", eval_data.get("passes", 0))
         total = opus_tier.get("total", eval_data.get("total", 0))
         early = opus_tier.get("early_stopped", False)
