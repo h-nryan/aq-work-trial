@@ -703,6 +703,30 @@ def run_opus_eval(
     }
 
 
+def _write_eval_status(task_dir: str, tier: str, passes: int, total: int, filtered: bool = False) -> None:
+    """Update _status.json with eval tier results for dashboard visibility.
+
+    Run artifacts get cleaned up after parsing, so this is the durable
+    record of Sonnet/Opus scores for the dashboard to read.
+    """
+    status_path = os.path.join(task_dir, "_status.json")
+    try:
+        status = {}
+        if os.path.exists(status_path):
+            status = json.loads(Path(status_path).read_text())
+        eval_tiers = status.get("eval_tiers", {})
+        eval_tiers[tier] = {"passes": passes, "total": total, "filtered": filtered}
+        status["eval_tiers"] = eval_tiers
+        if tier == "sonnet" and not filtered:
+            status["detail"] = f"Sonnet {passes}/{total} — proceeding to Opus"
+        elif tier == "sonnet" and filtered:
+            status["detail"] = f"Sonnet {passes}/{total} — too easy, adjusting"
+        with open(status_path, "w") as f:
+            json.dump(status, f)
+    except Exception:
+        pass  # Non-critical
+
+
 def evaluate_task(
     task_dir: str,
     n_trials: int = EVAL_TRIALS,
@@ -764,6 +788,11 @@ def evaluate_task(
             output_path=output_path,
         )
         tier_results["sonnet"] = sonnet_tier
+
+        # Write Sonnet results to _status.json for dashboard visibility
+        # (run artifacts get cleaned up, but status persists)
+        _write_eval_status(task_dir, "sonnet", sonnet_tier["passes"], sonnet_tier["total"],
+                           filtered=sonnet_tier["should_skip"])
 
         if sonnet_tier["should_skip"]:
             print(f"\n  FILTERED at Tier 2: Sonnet passed {sonnet_tier['passes']}/{sonnet_tier['total']}")

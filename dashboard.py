@@ -850,13 +850,30 @@ def render_pipeline_view():
                 else:
                     sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
             elif stage == "evaluating":
-                # Live Sonnet scores from runs/, filtered to current batch
-                _dn = os.path.basename(t.get("dir", ""))
-                _sp, _st = _get_live_eval_scores(_dn, "claude-sonnet*", batch_start_ts)
-                if _st > 0:
-                    sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st}</div>'
+                # Check _status.json eval_tiers first (persists after run cleanup)
+                _status_path = os.path.join(t.get("dir", ""), "_status.json")
+                _eval_tiers = {}
+                if os.path.exists(_status_path):
+                    try:
+                        _eval_tiers = json.load(open(_status_path)).get("eval_tiers", {})
+                    except Exception:
+                        pass
+                _sonnet_status = _eval_tiers.get("sonnet", {})
+                if _sonnet_status:
+                    _sp = _sonnet_status.get("passes", 0)
+                    _st = _sonnet_status.get("total", 0)
+                    if _sonnet_status.get("filtered"):
+                        sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st} adj.</div>'
+                    else:
+                        sonnet_cell = f'<div class="stage-cell stage-done">{_sp}/{_st}</div>'
                 else:
-                    sonnet_cell = '<div class="stage-cell stage-active">...</div>'
+                    # Fallback: live scores from runs/
+                    _dn = os.path.basename(t.get("dir", ""))
+                    _sp, _st = _get_live_eval_scores(_dn, "claude-sonnet*", batch_start_ts)
+                    if _st > 0:
+                        sonnet_cell = f'<div class="stage-cell stage-active">{_sp}/{_st}</div>'
+                    else:
+                        sonnet_cell = '<div class="stage-cell stage-active">...</div>'
             else:
                 sonnet_cell = '<div class="stage-cell stage-skipped">—</div>'
 
