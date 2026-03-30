@@ -28,6 +28,40 @@ from metrics import (
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 
+# ── Model pricing ($ per token) ──────────────────────────────────────────────
+_SONNET_IN  = 3.00  / 1_000_000
+_SONNET_OUT = 15.00 / 1_000_000
+_OPUS_IN    = 15.00 / 1_000_000
+_OPUS_OUT   = 75.00 / 1_000_000
+
+
+def _task_cost(stages: dict) -> tuple[float, float]:
+    """Return (gen_cost_$, opus_cost_$) from a task's stages dict."""
+    gen_cost = 0.0
+    for key, data in stages.items():
+        if key in ("generate", "regenerate") or key.startswith("retry_") or key.startswith("difficulty_adj_"):
+            u = data.get("usage", {})
+            gen_cost += u.get("prompt_tokens", 0) * _SONNET_IN
+            gen_cost += u.get("completion_tokens", 0) * _SONNET_OUT
+
+    opus_cost = 0.0
+    opus_tier = stages.get("evaluation", {}).get("tier_results", {}).get("opus", {})
+    for batch in opus_tier.get("trials", []):
+        for trial in batch.get("trials", []):
+            opus_cost += (trial.get("input_tokens") or 0) * _OPUS_IN
+            opus_cost += (trial.get("output_tokens") or 0) * _OPUS_OUT
+
+    return gen_cost, opus_cost
+
+
+def _fmt_cost(dollars: float) -> str:
+    if dollars == 0:
+        return "—"
+    if dollars < 0.01:
+        return f"<$0.01"
+    return f"${dollars:.2f}"
+
+
 STAGE_ORDER = ["generating", "structural", "functional", "evaluating", "completed", "failed"]
 STAGE_ICONS = {
     "generating": "🔧",
@@ -118,7 +152,23 @@ CUSTOM_CSS = """
     }
     .summary-value { font-size: 1.8em; font-weight: 700; color: #e8e8e8; }
     .summary-value.highlight { color: #00d4aa; }
+    .summary-value.cost { color: #ffd93d; }
     .summary-label { color: #8892b0; font-size: 0.8em; margin-top: 2px; }
+
+    .cost-grid {
+        display: grid; grid-template-columns: repeat(3, 1fr);
+        gap: 12px; margin: 10px 0 15px 0;
+    }
+
+    .funnel-row {
+        display: flex; align-items: center; gap: 10px;
+        padding: 4px 0;
+    }
+    .funnel-label { color: #8892b0; font-size: 0.8em; width: 110px; text-align: right; flex-shrink: 0; }
+    .funnel-bar-bg { flex: 1; background: #1a202c; border-radius: 4px; height: 22px; overflow: hidden; }
+    .funnel-bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center;
+        padding-left: 8px; font-size: 0.75em; font-weight: 600; color: #e8e8e8; white-space: nowrap; }
+    .funnel-pct { color: #8892b0; font-size: 0.75em; width: 45px; text-align: right; flex-shrink: 0; }
 
     /* Make detail expanders flush with the task row above */
     .task-row + div .streamlit-expanderHeader {
@@ -466,6 +516,31 @@ def _render_task_details(task_dir: str, task_info: dict):
                 except Exception:
                     pass
 
+    # Cost breakdown
+    stages = task_info.get("stages", {})
+    gc, oc = _task_cost(stages)
+    if gc > 0 or oc > 0:
+        st.markdown("**Cost Breakdown**")
+        gen_tok = sum(
+            s.get("usage", {}).get("total_tokens", 0)
+            for k, s in stages.items()
+            if k in ("generate", "regenerate") or k.startswith("retry_") or k.startswith("difficulty_adj_")
+        )
+        opus_trials_flat = [
+            trial
+            for batch in stages.get("evaluation", {}).get("tier_results", {}).get("opus", {}).get("trials", [])
+            for trial in batch.get("trials", [])
+        ]
+        opus_tok_in = sum((t.get("input_tokens") or 0) for t in opus_trials_flat)
+        opus_tok_out = sum((t.get("output_tokens") or 0) for t in opus_trials_flat)
+        parts = []
+        if gc > 0:
+            parts.append(f"Generation: **{_fmt_cost(gc)}** ({gen_tok:,} tokens)")
+        if oc > 0:
+            parts.append(f"Opus eval: **{_fmt_cost(oc)}** ({opus_tok_in + opus_tok_out:,} tokens)")
+        parts.append(f"Total: **{_fmt_cost(gc + oc)}**")
+        st.markdown(" · ".join(parts))
+
     # Task files summary
     st.markdown("**Task Files**")
     files = [f for f in os.listdir(task_dir)
@@ -572,7 +647,17 @@ def render_pipeline_view():
     </div>
     """, unsafe_allow_html=True)
 
-    # Summary cards
+    # Compute batch costs from stages token data
+    batch_gen_cost = 0.0
+    batch_opus_cost = 0.0
+    for t in tasks:
+        gc, oc = _task_cost(t.get("stages", {}))
+        batch_gen_cost += gc
+        batch_opus_cost += oc
+    batch_total_cost = batch_gen_cost + batch_opus_cost
+    cost_per_learnable = (batch_total_cost / n_learnable) if n_learnable > 0 else 0.0
+
+    # Summary cards (row 1: counts)
     st.markdown(f"""
     <div class="summary-grid">
         <div class="summary-card"><div class="summary-value">{n_total}</div><div class="summary-label">Total</div></div>
@@ -583,10 +668,48 @@ def render_pipeline_view():
     </div>
     """, unsafe_allow_html=True)
 
+    # Cost cards (row 2)
+    st.markdown(f"""
+    <div class="cost-grid">
+        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_gen_cost)}</div><div class="summary-label">Generation cost</div></div>
+        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_opus_cost)}</div><div class="summary-label">Opus eval cost</div></div>
+        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(cost_per_learnable)}</div><div class="summary-label">Cost / learnable</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # Progress bar
     if n_total > 0:
         st.progress((n_completed + n_failed) / n_total,
                      text=f"**{n_completed + n_failed}/{n_total}** tasks processed")
+
+    # Pipeline funnel
+    n_generated = sum(1 for t in tasks if t.get("stages", {}).get("generate") or t["stage"] != "failed" or t.get("failed_stage") not in ("generation", "generating", ""))
+    n_structural = sum(1 for t in tasks if t.get("stages", {}).get("structural", {}).get("passed", False))
+    n_functional = sum(1 for t in tasks if t.get("stages", {}).get("functional", {}).get("passed", False))
+    n_evaluated = sum(1 for t in tasks if t.get("classification") and t["classification"] != "eval_skipped")
+    funnel_steps = [
+        ("Attempted", n_total, "#4dabf7"),
+        ("Generated", n_generated, "#74c0fc"),
+        ("Structural", n_structural, "#a9e34b"),
+        ("Functional", n_functional, "#69db7c"),
+        ("Evaluated", n_evaluated, "#ffd43b"),
+        ("Learnable", n_learnable, "#00d4aa"),
+    ]
+    funnel_html = ""
+    for label, count, color in funnel_steps:
+        pct = count / n_total if n_total > 0 else 0
+        bar_w = max(pct * 100, 1)
+        prev = next((c for l, c, _ in funnel_steps if c >= count), n_total)
+        step_pct = f"{count/funnel_steps[0][1]:.0%}" if funnel_steps[0][1] > 0 else "—"
+        funnel_html += f"""
+        <div class="funnel-row">
+            <div class="funnel-label">{label}</div>
+            <div class="funnel-bar-bg">
+                <div class="funnel-bar-fill" style="width:{bar_w:.1f}%;background:{color};">{count}</div>
+            </div>
+            <div class="funnel-pct">{step_pct}</div>
+        </div>"""
+    st.markdown(funnel_html, unsafe_allow_html=True)
 
     # Pipeline table header
     st.markdown("""
@@ -610,15 +733,23 @@ def render_pipeline_view():
         cl = t.get("classification")
         pr = t.get("pass_rate")
 
-        # Row class
-        if cl == "learnable":
+        # Row class — adjusting tasks show as running, not final
+        task_dir_rc = t.get("dir")
+        is_adj_rc = (
+            stage == "evaluating"
+            and task_dir_rc
+            and bool(glob.glob(task_dir_rc + ".pre_adj*"))
+        )
+        if is_adj_rc:
+            row_class = "running"
+        elif cl == "learnable":
             row_class = "learnable"
         elif cl == "too_hard":
             row_class = "too-hard"
         elif cl == "too_easy":
             row_class = "too-easy"
         elif cl == "eval_skipped":
-            row_class = "learnable"  # passed functional — show as positive
+            row_class = "learnable"
         elif stage == "failed":
             row_class = "failed"
         elif stage in ("generating", "structural", "functional", "evaluating"):
@@ -632,42 +763,53 @@ def render_pipeline_view():
         struct_cell = _render_stage_cell(stage, "structural", fs)
         func_cell = _render_stage_cell(stage, "functional", fs)
 
+        # Determine if task is actively adjusting
+        task_dir_adj = t.get("dir")
+        is_adjusting = (
+            stage == "evaluating"
+            and task_dir_adj
+            and bool(glob.glob(task_dir_adj + ".pre_adj*"))
+        )
+
         if cl == "eval_skipped":
             sonnet_cell = '<div class="stage-cell stage-skipped">skip</div>'
             opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
         elif stage in ("completed", "evaluating") or cl:
             eval_stages = t.get("stages", {}).get("evaluation", {})
             tier_results = eval_stages.get("tier_results", {})
+            filtered_at = eval_stages.get("filtered_at")
 
             # Sonnet filter cell
             sonnet_tier = tier_results.get("sonnet", {})
             if sonnet_tier:
                 sp = sonnet_tier.get("passes", 0)
                 st_total = sonnet_tier.get("total", 0)
-                sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
+                if filtered_at in ("sonnet", "haiku") and is_adjusting:
+                    # Too easy via Sonnet, adjusting — show score + adj indicator
+                    sonnet_cell = f'<div class="stage-cell stage-active">{sp}/{st_total} adj.</div>'
+                elif filtered_at in ("sonnet", "haiku"):
+                    # Sonnet filtered, final
+                    sonnet_cell = f'<div class="stage-cell stage-failed">{sp}/{st_total}</div>'
+                else:
+                    sonnet_cell = f'<div class="stage-cell stage-done">{sp}/{st_total}</div>'
             elif stage == "evaluating":
-                # In-progress — no stages data yet
                 sonnet_cell = '<div class="stage-cell stage-active">...</div>'
             else:
-                # Completed but stages data unavailable (older pipeline format)
                 sonnet_cell = '<div class="stage-cell stage-skipped">—</div>'
 
-            # Opus eval cell — check if Opus was skipped (Sonnet filtered)
-            filtered_at = eval_stages.get("filtered_at")
+            # Opus eval cell
             opus_tier = tier_results.get("opus", {})
-            if filtered_at in ("sonnet", "haiku") and stage == "completed":
-                # Sonnet filtered AND task is done — Opus was truly skipped
-                opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
-            elif filtered_at in ("sonnet", "haiku"):
-                # Sonnet filtered but task still in progress (adjusting) — Opus not reached yet
-                opus_cell = '<div class="stage-cell stage-pending">—</div>'
-            elif opus_tier and opus_tier.get("total"):
+            if opus_tier and opus_tier.get("total"):
                 op = opus_tier.get("passes", 0)
                 ot = opus_tier.get("total", 0)
-                if cl in ("too_hard", "too_easy"):
+                if is_adjusting:
+                    opus_cell = f'<div class="stage-cell stage-active">{op}/{ot} adj.</div>'
+                elif cl in ("too_hard", "too_easy"):
                     opus_cell = f'<div class="stage-cell stage-failed">{op}/{ot}</div>'
                 else:
                     opus_cell = f'<div class="stage-cell stage-done">{op}/{ot}</div>'
+            elif filtered_at in ("sonnet", "haiku") and stage == "completed":
+                opus_cell = '<div class="stage-cell stage-skipped">skip</div>'
             elif stage == "evaluating":
                 opus_cell = '<div class="stage-cell stage-active">...</div>'
             else:
@@ -686,21 +828,15 @@ def render_pipeline_view():
         elif cl == "eval_skipped":
             result_cell = '<div class="result-cell result-learnable">✓ func</div>'
         elif cl == "too_hard":
-            task_dir_h = t.get("dir")
-            has_adj_h = bool(glob.glob((task_dir_h or "") + ".pre_adj*")) if task_dir_h else False
-            if has_adj_h and stage == "evaluating":
-                result_cell = '<div class="result-cell result-easy">ADJUSTING</div>'
+            if is_adj_rc:
+                result_cell = '<div class="result-cell result-running">⏳</div>'
             else:
                 result_cell = '<div class="result-cell result-hard">TOO HARD</div>'
         elif cl == "too_easy":
-            # Check if this was Sonnet-filtered (no Opus ran) vs Opus-confirmed
             eval_stages_r = t.get("stages", {}).get("evaluation", {})
             filtered_at_r = eval_stages_r.get("filtered_at")
-            # Check if adjustment was attempted
-            task_dir_r = t.get("dir")
-            has_adj = bool(glob.glob((task_dir_r or "") + ".pre_adj*")) if task_dir_r else False
-            if has_adj and stage == "evaluating":
-                result_cell = '<div class="result-cell result-easy">ADJUSTING</div>'
+            if is_adj_rc:
+                result_cell = '<div class="result-cell result-running">⏳</div>'
             elif filtered_at_r in ("sonnet", "haiku"):
                 result_cell = f'<div class="result-cell result-easy">TOO EASY ({filtered_at_r})</div>'
             else:
@@ -740,15 +876,71 @@ def render_pipeline_view():
             with st.expander("details", expanded=False):
                 _render_task_details(task_dir, t)
 
-    # Aggregate stats across all batches at bottom
+    # Aggregate stats + trend charts at bottom
     with st.expander("All-time metrics"):
         batches = _load_batch_results(OUTPUT_DIR)
         if batches:
             agg = compute_aggregate_metrics(batches)
-            learnable = get_learnable_inventory(batches)
+            per_batch = compute_per_batch_metrics(batches)
+            learnable_inv = get_learnable_inventory(batches)
             st.write(f"**{agg.get('total_tasks', 0)}** tasks across **{agg.get('num_batches', 0)}** batches")
             st.write(f"**{agg.get('learnable', 0)}** learnable ({agg.get('learnable_yield', 0):.0%} yield)")
-            st.write(f"**{len(learnable) + 3}** total learnable (including hand-crafted + Opus)")
+            st.write(f"**{len(learnable_inv) + 3}** total learnable (including hand-crafted + Opus)")
+
+            # Per-batch cost + yield trend
+            batch_trend = []
+            for b in batches:
+                b_gen, b_opus = 0.0, 0.0
+                b_learnable = 0
+                for r in b["results"]:
+                    gc, oc = _task_cost(r.get("stages", {}))
+                    b_gen += gc
+                    b_opus += oc
+                    if r.get("classification") == "learnable":
+                        b_learnable += 1
+                b_total = b_gen + b_opus
+                batch_trend.append({
+                    "batch": b["name"].replace("sonnet-batch-", "b"),
+                    "learnable": b_learnable,
+                    "yield_pct": round(b_learnable / len(b["results"]) * 100, 1) if b["results"] else 0,
+                    "cost": round(b_total, 2),
+                    "cost_per_learnable": round(b_total / b_learnable, 2) if b_learnable > 0 else 0,
+                })
+
+            if batch_trend:
+                st.markdown("**Learnable yield % per batch**")
+                st.bar_chart(
+                    {t["batch"]: t["yield_pct"] for t in batch_trend},
+                    y_label="Yield %",
+                )
+
+                costs_available = [t for t in batch_trend if t["cost"] > 0]
+                if costs_available:
+                    st.markdown("**Cost per learnable task ($) per batch**")
+                    st.bar_chart(
+                        {t["batch"]: t["cost_per_learnable"] for t in costs_available},
+                        y_label="$/learnable",
+                    )
+
+            # Category diversity across current batch
+            st.markdown("**Category diversity (current batch)**")
+            import yaml
+            cat_counts: dict[str, int] = {}
+            for t in tasks:
+                task_dir_c = t.get("dir")
+                if task_dir_c:
+                    meta_path = os.path.join(task_dir_c, "_meta.yaml")
+                    if os.path.exists(meta_path):
+                        try:
+                            meta = yaml.safe_load(open(meta_path))
+                            cat = meta.get("category", "unknown")
+                            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                        except Exception:
+                            pass
+            if cat_counts:
+                st.bar_chart(cat_counts, y_label="Tasks")
+            else:
+                st.caption("No category data yet (tasks still generating)")
 
 
 # ── Main ──
