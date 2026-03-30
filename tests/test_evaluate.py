@@ -1,4 +1,4 @@
-"""Tests for evaluate.py — stale resource cleanup and result parsing."""
+"""Tests for evaluate.py — tiered evaluation logic, early stopping, and cleanup."""
 
 from __future__ import annotations
 
@@ -11,10 +11,13 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
 from evaluate import (
+    _build_result,
     _cleanup_stale_containers,
     _cleanup_stale_tb_processes,
     _parse_run_results,
+    _run_filter_tier,
     cleanup_stale_resources,
+    evaluate_task,
 )
 
 
@@ -217,3 +220,357 @@ class TestParseRunResults:
         assert result["passes"] == 0
         assert result["total"] == 1
         assert "parse_error" in result["trials"][0]["status"]
+
+
+# ── Helpers for tiered evaluation tests ───────────────────────────────────────
+
+def _make_tb_result(passes: int, total: int) -> dict:
+    """Build a mock _run_tb return value."""
+    return {
+        "passes": passes,
+        "total": total,
+        "duration_sec": 1.0,
+        "status": "completed",
+        "trials": [],
+    }
+
+
+class _MockRunTb:
+    """Configurable mock for _run_tb that returns results from a sequence.
+
+    Each call pops the next result from the sequence. Tracks call count
+    and the n_attempts passed to each call.
+    """
+    def __init__(self, results: list[dict]):
+        self._results = list(results)
+        self._idx = 0
+        self.calls = []
+
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._idx < len(self._results):
+            r = self._results[self._idx]
+            self._idx += 1
+            return r
+        return _make_tb_result(0, kwargs.get("n_attempts", 1))
+
+
+def _mock_cleanup(monkeypatch):
+    """Disable stale resource cleanup in tests."""
+    monkeypatch.setattr("evaluate.cleanup_stale_resources", lambda: 0)
+
+
+# ── Filter tier tests ────────────────────────────────────────────────────────
+
+class TestRunFilterTier:
+    """Tests for _run_filter_tier early stopping logic."""
+
+    def test_all_pass_parallel_batch_early_stops(self, tmp_path, monkeypatch):
+        """3/3 pass with threshold 4 and 5 total → can still reach 4, needs sequential."""
+        mock = _MockRunTb([
+            _make_tb_result(3, 3),  # parallel batch: 3/3
+            _make_tb_result(1, 1),  # sequential run 4: pass → 4/4 >= threshold
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+        _mock_cleanup(monkeypatch)
+
+        result = _run_filter_tier(
+            task_dir=str(tmp_path), model="test-model",
+            model_label="Test", n_runs=5, skip_threshold=4,
+        )
+        assert result["should_skip"] is True
+        assert result["passes"] == 4
+        assert result["early_stopped"] is True
+        assert len(mock.calls) == 2  # batch + 1 sequential, saved 1
+
+    def test_zero_pass_batch_early_stops(self, tmp_path, monkeypatch):
+        """0/3 pass with threshold 4, 2 remaining → can't reach 4 → proceed immediately."""
+        mock = _MockRunTb([_make_tb_result(0, 3)])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+        _mock_cleanup(monkeypatch)
+
+        result = _run_filter_tier(
+            task_dir=str(tmp_path), model="test-model",
+            model_label="Test", n_runs=5, skip_threshold=4,
+        )
+        assert result["should_skip"] is False
+        assert result["passes"] == 0
+        assert result["early_stopped"] is True
+        assert len(mock.calls) == 1  # only the parallel batch
+
+    def test_full_run_no_early_stop(self, tmp_path, monkeypatch):
+        """2/3 batch, then 1/1, 0/1 → 3/5 < threshold 4 → proceed, no early stop possible."""
+        mock = _MockRunTb([
+            _make_tb_result(2, 3),  # parallel: 2/3
+            _make_tb_result(1, 1),  # seq run 4: 3/4, remaining 1, could reach 4
+            _make_tb_result(0, 1),  # seq run 5: 3/5 < 4
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+        _mock_cleanup(monkeypatch)
+
+        result = _run_filter_tier(
+            task_dir=str(tmp_path), model="test-model",
+            model_label="Test", n_runs=5, skip_threshold=4,
+        )
+        assert result["should_skip"] is False
+        assert result["passes"] == 3
+        assert result["total"] == 5
+        assert result["early_stopped"] is False
+        assert len(mock.calls) == 3
+
+    def test_threshold_exactly_met(self, tmp_path, monkeypatch):
+        """Passes exactly reach skip_threshold → should_skip."""
+        mock = _MockRunTb([
+            _make_tb_result(2, 3),
+            _make_tb_result(1, 1),
+            _make_tb_result(1, 1),
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+        _mock_cleanup(monkeypatch)
+
+        result = _run_filter_tier(
+            task_dir=str(tmp_path), model="test-model",
+            model_label="Test", n_runs=5, skip_threshold=4,
+        )
+        assert result["should_skip"] is True
+        assert result["passes"] == 4
+
+    def test_small_n_runs_no_sequential(self, tmp_path, monkeypatch):
+        """n_runs <= 3 means only the parallel batch, no sequential phase."""
+        mock = _MockRunTb([_make_tb_result(2, 3)])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+        _mock_cleanup(monkeypatch)
+
+        result = _run_filter_tier(
+            task_dir=str(tmp_path), model="test-model",
+            model_label="Test", n_runs=3, skip_threshold=3,
+        )
+        assert result["should_skip"] is False
+        assert result["total"] == 3
+        assert len(mock.calls) == 1
+
+
+# ── evaluate_task orchestration tests ─────────────────────────────────────────
+
+class TestEvaluateTask:
+    """Tests for the full tiered evaluation pipeline."""
+
+    def _mock_filter_tier(self, monkeypatch, haiku_result=None, sonnet_result=None):
+        """Mock _run_filter_tier to return preconfigured results per model label."""
+        results = {}
+        if haiku_result:
+            results["Haiku"] = haiku_result
+        if sonnet_result:
+            results["Sonnet"] = sonnet_result
+
+        def fake_filter_tier(task_dir, model, model_label, n_runs, skip_threshold, **kw):
+            return results.get(model_label, {
+                "model": model, "model_label": model_label,
+                "passes": 0, "total": n_runs, "skip_threshold": skip_threshold,
+                "should_skip": False, "early_stopped": False, "results": [],
+            })
+
+        monkeypatch.setattr("evaluate._run_filter_tier", fake_filter_tier)
+
+    def _make_filter_result(self, model_label, passes, total, skip_threshold, should_skip):
+        return {
+            "model": "test-model", "model_label": model_label,
+            "passes": passes, "total": total,
+            "skip_threshold": skip_threshold, "should_skip": should_skip,
+            "early_stopped": False, "results": [],
+        }
+
+    def test_haiku_filters_too_easy(self, tmp_path, monkeypatch):
+        """Haiku 5/5 → too_easy, never reaches Sonnet or Opus."""
+        _mock_cleanup(monkeypatch)
+        self._mock_filter_tier(monkeypatch,
+            haiku_result=self._make_filter_result("Haiku", 5, 5, 4, True),
+        )
+
+        result = evaluate_task(
+            str(tmp_path), skip_haiku=False, skip_sonnet=False,
+        )
+        assert result["classification"] == "too_easy"
+        assert result["filtered_at"] == "haiku"
+        assert "haiku" in result["tier_results"]
+        assert "sonnet" not in result["tier_results"]
+        assert "opus" not in result["tier_results"]
+
+    def test_sonnet_filters_too_easy(self, tmp_path, monkeypatch):
+        """Haiku 1/5, Sonnet 4/5 → too_easy at Sonnet, never reaches Opus."""
+        _mock_cleanup(monkeypatch)
+        self._mock_filter_tier(monkeypatch,
+            haiku_result=self._make_filter_result("Haiku", 1, 5, 4, False),
+            sonnet_result=self._make_filter_result("Sonnet", 4, 5, 4, True),
+        )
+
+        result = evaluate_task(
+            str(tmp_path), skip_haiku=False, skip_sonnet=False,
+        )
+        assert result["classification"] == "too_easy"
+        assert result["filtered_at"] == "sonnet"
+        assert "haiku" in result["tier_results"]
+        assert "sonnet" in result["tier_results"]
+        assert "opus" not in result["tier_results"]
+
+    def test_reaches_opus_learnable(self, tmp_path, monkeypatch):
+        """Sonnet 2/5 → proceed to Opus. Opus 2/3 batch → learnable (early stop)."""
+        _mock_cleanup(monkeypatch)
+        self._mock_filter_tier(monkeypatch,
+            sonnet_result=self._make_filter_result("Sonnet", 2, 5, 4, False),
+        )
+        # Opus batch: 2/3 passes, remaining=2, max possible=4 → can't exceed LEARNABLE_MAX(3)
+        # with passes=2, remaining=2, passes+remaining=4 > LEARNABLE_MAX → undecided
+        # Actually: 2 passes, remaining 2 → passes(2) + remaining(2) = 4 > 3 → can't confirm
+        # Need to think about _can_stop:
+        #   passes >= LEARNABLE_MIN(1) and passes + remaining <= LEARNABLE_MAX(3)
+        #   2 >= 1 ✓ but 2 + 2 = 4 > 3 → not learnable yet
+        # So we need sequential runs. Let's make it 2/3 batch then 0/1 seq:
+        #   passes=2, remaining=1 → 2+1=3 <= 3 → learnable!
+        mock = _MockRunTb([
+            _make_tb_result(2, 3),  # Opus parallel batch: 2/3
+            _make_tb_result(0, 1),  # Opus sequential: 2/4, remaining=1, 2+1=3 <=3 → learnable
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+
+        result = evaluate_task(str(tmp_path), skip_haiku=True)
+        assert result["classification"] == "learnable"
+        assert result["filtered_at"] is None
+        assert result["passes"] == 2
+        assert "opus" in result["tier_results"]
+
+    def test_reaches_opus_too_hard(self, tmp_path, monkeypatch):
+        """Sonnet 0/5 → Opus 0/3 batch, 0/1 seq, 0/1 seq → 0/5 → too_hard."""
+        _mock_cleanup(monkeypatch)
+        self._mock_filter_tier(monkeypatch,
+            sonnet_result=self._make_filter_result("Sonnet", 0, 5, 4, False),
+        )
+        # _can_stop(0, 2) → 0+2=2 >= 1 → not too_hard yet
+        # _can_stop(0, 1) → 0+1=1 >= 1 → not too_hard yet
+        # _can_stop(0, 0) → 0+0=0 < 1 → too_hard
+        mock = _MockRunTb([
+            _make_tb_result(0, 3),  # batch: 0/3
+            _make_tb_result(0, 1),  # seq: 0/4
+            _make_tb_result(0, 1),  # seq: 0/5 → too_hard
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+
+        result = evaluate_task(str(tmp_path), skip_haiku=True)
+        assert result["classification"] == "too_hard"
+        assert result["passes"] == 0
+        assert result["total"] == 5
+
+    def test_reaches_opus_too_easy(self, tmp_path, monkeypatch):
+        """Sonnet 3/5 → proceed. Opus 3/3 batch + 1/1 seq → 4/4 > LEARNABLE_MAX → too_easy."""
+        _mock_cleanup(monkeypatch)
+        self._mock_filter_tier(monkeypatch,
+            sonnet_result=self._make_filter_result("Sonnet", 3, 5, 4, False),
+        )
+        # _can_stop: passes > LEARNABLE_MAX(3) is strictly greater
+        # 3/3 batch → 3 > 3 is False → undecided
+        # seq pass → 4/4, 4 > 3 → too_easy
+        mock = _MockRunTb([
+            _make_tb_result(3, 3),
+            _make_tb_result(1, 1),
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+
+        result = evaluate_task(str(tmp_path), skip_haiku=True)
+        assert result["classification"] == "too_easy"
+        assert result["filtered_at"] is None
+
+    def test_skip_filters_goes_straight_to_opus(self, tmp_path, monkeypatch):
+        """skip_filters=True bypasses Haiku and Sonnet."""
+        _mock_cleanup(monkeypatch)
+        mock = _MockRunTb([_make_tb_result(2, 3)])  # 2/3 → learnable (2+2<=3? no, undecided)
+        # 2/3, remaining 2 → undecided. Need more:
+        # Let's do 1/3 batch → 1+2=3 <=3 and 1>=1 → learnable
+        mock = _MockRunTb([_make_tb_result(1, 3)])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+
+        result = evaluate_task(str(tmp_path), skip_filters=True)
+        assert result["classification"] == "learnable"
+        assert "haiku" not in result["tier_results"]
+        assert "sonnet" not in result["tier_results"]
+        assert result["passes"] == 1
+
+    def test_haiku_skipped_by_default(self, tmp_path, monkeypatch):
+        """skip_haiku defaults to True — Haiku tier should not run."""
+        _mock_cleanup(monkeypatch)
+        filter_calls = []
+
+        original_filter = _run_filter_tier
+
+        def tracking_filter(task_dir, model, model_label, n_runs, skip_threshold, **kw):
+            filter_calls.append(model_label)
+            return self._make_filter_result(model_label, 0, n_runs, skip_threshold, False)
+
+        monkeypatch.setattr("evaluate._run_filter_tier", tracking_filter)
+        mock = _MockRunTb([_make_tb_result(0, 3)])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+
+        result = evaluate_task(str(tmp_path))  # default skip_haiku=True
+        assert "Haiku" not in filter_calls
+        assert "Sonnet" in filter_calls
+
+    def test_opus_sequential_phase_runs_to_completion(self, tmp_path, monkeypatch):
+        """Opus remains uncertain through sequential phase, classifies at end."""
+        _mock_cleanup(monkeypatch)
+        self._mock_filter_tier(monkeypatch,
+            sonnet_result=self._make_filter_result("Sonnet", 2, 5, 4, False),
+        )
+        # batch 2/3 → remaining 2, 2+2=4 > LEARNABLE_MAX(3) → undecided
+        # seq: pass → 3/4, remaining 1, 3+1=4 > 3 → undecided
+        # seq: fail → 3/5 → LEARNABLE_MIN(1) <= 3 <= LEARNABLE_MAX(3) → learnable
+        mock = _MockRunTb([
+            _make_tb_result(2, 3),
+            _make_tb_result(1, 1),
+            _make_tb_result(0, 1),
+        ])
+        monkeypatch.setattr("evaluate._run_tb", mock)
+
+        result = evaluate_task(str(tmp_path), skip_haiku=True, n_trials=5)
+        assert result["classification"] == "learnable"
+        assert result["passes"] == 3
+        assert result["total"] == 5
+
+
+class TestBuildResult:
+    def test_learnable_with_pass_rate(self):
+        result = _build_result(
+            task_dir="/tmp/test-task",
+            classification="learnable",
+            filtered_at=None,
+            tier_results={},
+            opus_passes=2,
+            opus_total=5,
+        )
+        assert result["classification"] == "learnable"
+        assert result["pass_rate"] == 0.4
+        assert result["task_name"] == "test-task"
+        assert result["filtered_at"] is None
+
+    def test_too_easy_filtered_at_sonnet(self):
+        result = _build_result(
+            task_dir="/tmp/easy-task",
+            classification="too_easy",
+            filtered_at="sonnet",
+            tier_results={"sonnet": {
+                "model_label": "Sonnet", "passes": 4, "total": 5, "should_skip": True,
+            }},
+        )
+        assert result["classification"] == "too_easy"
+        assert result["filtered_at"] == "sonnet"
+        assert result["pass_rate"] is None  # no Opus data
+        assert result["tier_results"]["sonnet"]["model"] == "Sonnet"
+
+    def test_zero_opus_total(self):
+        result = _build_result(
+            task_dir="/tmp/t",
+            classification="too_easy",
+            filtered_at="haiku",
+            tier_results={},
+            opus_passes=0,
+            opus_total=0,
+        )
+        assert result["pass_rate"] is None
