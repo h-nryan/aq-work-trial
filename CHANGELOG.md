@@ -121,6 +121,7 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 
 - **Slug generation**: Commas in topics produced invalid Docker tags. Fixed with character stripping + word-boundary truncation + SHA-256 hash suffix for collision safety.
 - **config-manifest-validator example**: Instruction said "manifest.txt" but tests checked "hello.txt" — appeared impossibly hard when it was actually a bug in the example.
+- **Timeout as valid failure**: Docker validator now accepts test timeout without solution as a valid failure mode (buggy code may hang due to infinite loops, deadlocks, or memory corruption). Previously blocked promotion of tasks like the C linked list exemplar where buggy code hangs but solution runs cleanly.
 - **Evaluation path resolution**: `evaluate.py` resolved paths relative to cwd instead of repo root.
 - **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
 
@@ -129,4 +130,5 @@ The `tb` harness was non-functional out of the box — all early evaluation resu
 - `X | None` syntax throughout (not `Optional[X]`)
 - Narrowed `except Exception` to specific types
 - `_slugify` in dependency-free `config.py`; `batch_io.py` for resume helpers (no openai/pydantic chain)
-- 175 tests across 10 modules (~0.6s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
+- End-to-end integration test (`test_pipeline_e2e.py`) — 15 tests exercising the full `run_pipeline` flow (generate → structural → functional → evaluate) with mocked API/Docker. Covers happy path, solution-first strategy, generation failure, structural/functional retry, infrastructure error detection, difficulty adjustment loop, and regeneration failure.
+- 190 tests across 11 modules (~4s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
