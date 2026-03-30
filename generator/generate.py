@@ -184,6 +184,10 @@ CRITICAL RULES:
 5. The Dockerfile MUST install tmux and asciinema alongside all other dependencies (required by the test harness). Example: `RUN apt-get update && apt-get install -y tmux asciinema curl && rm -rf /var/lib/apt/lists/*`
 6. run-tests.sh installs uv + pytest and runs the tests. Follow the exact boilerplate pattern from examples.
 7. task.yaml must have: instruction (detailed), difficulty, category, tags, parser_name: pytest, and timeout fields.
+8. The instruction in task.yaml MUST hint at what areas have bugs — e.g. "the delimiter \
+handling and header parsing have issues" or "there are bugs in the sorting logic and \
+edge case handling." The agent only reads the instruction and source code ONCE before \
+attempting a fix, so vague instructions like "fix the bugs" make the task too hard.
 
 MOST IMPORTANT — AVOID THESE COMMON FAILURES:
 A. Tests MUST actually FAIL before solution.sh runs. The source files must have REAL bugs that cause test failures. If you write source code that already works, the task is broken. Verify mentally: "will running these tests against the buggy source files produce failures?"
