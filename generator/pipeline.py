@@ -90,6 +90,7 @@ def run_pipeline(
     max_retries: int = MAX_GENERATION_RETRIES,
     model: str | None = None,
     solution_first: bool = False,
+    include_haiku: bool = False,
 ) -> dict:
     """Run the full pipeline for a single topic.
 
@@ -221,6 +222,7 @@ def run_pipeline(
                 task_dir=task_dir,
                 n_trials=n_eval_trials,
                 skip_filters=skip_filters,
+                skip_haiku=not include_haiku,
             )
             result["stages"]["evaluation"] = eval_result
             result["classification"] = eval_result["classification"]
@@ -289,6 +291,7 @@ if __name__ == "__main__":
     skip_functional = "--skip-functional" in sys.argv
     skip_filters = "--skip-filters" in sys.argv
     solution_first = "--solution-first" in sys.argv
+    include_haiku = "--include-haiku" in sys.argv
 
     gen_model = None
     for i, arg in enumerate(sys.argv):
@@ -302,6 +305,7 @@ if __name__ == "__main__":
         skip_filters=skip_filters,
         model=gen_model,
         solution_first=solution_first,
+        include_haiku=include_haiku,
     )
 
     print(json.dumps(result, indent=2, default=str))

@@ -271,14 +271,16 @@ def evaluate_task(
     task_dir: str,
     n_trials: int = EVAL_TRIALS,
     skip_filters: bool = False,
-    skip_haiku: bool = False,
+    skip_haiku: bool = True,
     skip_sonnet: bool = False,
     output_path: str = "runs",
 ) -> dict:
     """Full tiered evaluation pipeline for a single task.
 
-    Tier 1: Haiku × 5 runs — skip if >= 4/5 pass (definitely too easy)
-    Tier 2: Sonnet × 3 runs — skip if 3/3 pass (probably too easy for Opus)
+    Tier 1: Haiku × 5 runs — DISABLED by default (Haiku scores 0/5 on every
+        task tested, including trivially easy ones; pure overhead). Enable
+        with skip_haiku=False or --include-haiku CLI flag.
+    Tier 2: Sonnet × 5 runs — skip if >= 4/5 pass (very likely too easy for Opus)
     Tier 3: Opus × 5 runs — final calibration, classify as learnable/too_easy/too_hard
 
     Returns:
