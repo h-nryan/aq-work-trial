@@ -12,11 +12,15 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 from openai import OpenAI
 
 API_MAX_RETRIES = 3
 API_RETRY_DELAY = 5  # seconds, doubles each retry
-API_TIMEOUT = 120    # seconds — prevent indefinite hangs on stalled connections
+# Per-phase httpx timeout: short connect/write, 30s between chunks.
+# Detects stalled connections without cutting off a slow-but-progressing
+# response (unlike a blunt total timeout which would kill long generations).
+API_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=5.0)
 
 # Standard docker-compose.yaml — identical for every task.
 # The tb harness uses `docker compose` (not raw docker) to build and run tasks.

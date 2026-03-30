@@ -32,6 +32,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Validated with retest on 3 previously-failing topics** — Ran generation-only (no eval) on the 3 topics that failed functional validation in batch 24 with 5 examples: backup rotation (0% pass rate across batches 22-24), curl wrapper (tests pass without solution), DNS resolver (solution doesn't fix bugs). With 9 examples, all 3 passed functional validation (backup rotation on attempt 3, curl wrapper on attempt 2, DNS resolver on attempt 3). The backup rotation topic had never passed functional validation in any prior batch — this is a direct improvement from more examples giving Sonnet better structural patterns for test/solution alignment.
 
+### Use per-phase httpx timeout on generation API calls
+
+**Replace blunt total timeout with `httpx.Timeout`** (`generate.py`) — The previous `timeout=120` was a total-request timeout that would cut off a slow-but-progressing generation (large outputs can take >60s to stream). Replaced with `httpx.Timeout(connect=10, read=30, write=10, pool=5)`: the `read=30` fires only if **no bytes arrive for 30 seconds**, so a legitimate slow response keeps streaming while a truly stalled connection (e.g. OpenRouter holding a TCP socket open with no data while waiting for Anthropic capacity) is detected and retried. The existing `_api_call_with_retry` loop handles `openai.APITimeoutError` via the general `except Exception` branch.
+
 ### Lower max_tokens to avoid OpenRouter token-rate-limit 402s
 
 **Reduce max_tokens across all generate.py API calls** — OpenRouter enforces a per-model token-rate-limit bucket. With `max_tokens=32000`, each request consumed a large chunk of the bucket even when actual output was ~4,700 tokens (generation) or ~400-500 tokens (repairs/adjustments). This caused 402 errors mid-batch as the bucket depleted, manifesting as `"can only afford N"` with N decreasing across successive requests.
