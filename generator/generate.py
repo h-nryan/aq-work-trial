@@ -392,19 +392,31 @@ The bugs should:
 - NOT change tests, Dockerfile, run-tests.sh, or task.yaml
 - Be fixable — the original working code IS the solution
 
-IMPORTANT: The majority of tests should FAIL against the buggy code — the test suite \
-must exit non-zero. Mentally trace through a few key test functions to verify your bugs \
-cause real failures. Some tests passing is fine (and realistic), but the bugs should \
-affect enough functionality that the task clearly requires fixing.
+CRITICAL — VERIFY YOUR WORK:
+After introducing bugs, trace through EACH test function step by step:
+1. Read the test assertion
+2. Trace the code path with your buggy source files
+3. Confirm the test WILL FAIL (wrong return value, exception, etc.)
+
+If a test would still pass with your buggy code, you MUST add another bug \
+that breaks it. The test suite MUST exit non-zero.
+
+Common mistakes to avoid:
+- Introducing a bug in a code path that no test exercises
+- Changing a variable name that's only used internally (no observable effect)
+- Adding a bug that causes an import error (too obvious, agent fixes instantly)
 
 Here is the working program:
 ```json
 {working_json}
 ```
 
-Return a JSON object containing ONLY the modified source files (the buggy versions).
-Do NOT include task.yaml, Dockerfile, run-tests.sh, or tests/ — only the source files you modified.
-Return ONLY the JSON object: {{"files": {{"source_file.py": "buggy content", ...}}}}"""
+Return a JSON object with TWO keys:
+1. "verification" — for each test function, one line: "test_name: WILL FAIL because [reason]" or "test_name: STILL PASSES — need another bug"
+2. "files" — ONLY the modified source files (buggy versions)
+
+Example format:
+{{"verification": "test_add: WILL FAIL because add() returns x-y instead of x+y\\ntest_multiply: WILL FAIL because wrong variable used", "files": {{"math.py": "buggy content..."}}}}"""
 
 
 def generate_task_solution_first(
