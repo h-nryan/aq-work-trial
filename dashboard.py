@@ -52,7 +52,7 @@ CUSTOM_CSS = """
 
     .task-row {
         display: grid;
-        grid-template-columns: 250px repeat(5, 1fr) 120px;
+        grid-template-columns: 250px repeat(5, 1fr) 70px 120px;
         gap: 8px; align-items: center;
         padding: 10px 15px; margin: 4px 0;
         background: #1a1a2e; border-radius: 8px;
@@ -95,7 +95,7 @@ CUSTOM_CSS = """
 
     .header-row {
         display: grid;
-        grid-template-columns: 250px repeat(5, 1fr) 120px;
+        grid-template-columns: 250px repeat(5, 1fr) 70px 120px;
         gap: 8px; padding: 8px 15px;
         color: #8892b0; font-size: 0.75em; font-weight: 600;
         text-transform: uppercase; letter-spacing: 0.5px;
@@ -190,6 +190,7 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             "detail": "",
             "classification": None,
             "pass_rate": None,
+            "duration_sec": None,
         }
 
         # Check if in completed results
@@ -197,6 +198,7 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             r = completed[topic]
             cl = r.get("classification")
             status = r.get("status", "")
+            task_info["duration_sec"] = r.get("duration_sec")
             if cl:
                 task_info["stage"] = "completed"
                 task_info["classification"] = cl
@@ -290,10 +292,19 @@ def render_pipeline_view():
     n_running = sum(1 for t in tasks if t["stage"] in ("generating", "structural", "functional", "evaluating"))
     n_completed = sum(1 for t in tasks if t["stage"] == "completed")
 
+    # Batch total runtime
+    total_duration = sum(t.get("duration_sec") or 0 for t in tasks)
+    if total_duration >= 60:
+        duration_str = f"{total_duration/60:.0f}m"
+    elif total_duration > 0:
+        duration_str = f"{total_duration:.0f}s"
+    else:
+        duration_str = "—"
+
     st.markdown(f"""
     <div class="pipeline-header">
         <h2>{selected}</h2>
-        <div class="subtitle">{n_completed + n_failed}/{n_total} done · {n_running} running · {n_learnable} learnable</div>
+        <div class="subtitle">{n_completed + n_failed}/{n_total} done · {n_running} running · {n_learnable} learnable · {duration_str} total</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -322,6 +333,7 @@ def render_pipeline_view():
         <div style="text-align:center">Functional</div>
         <div style="text-align:center">Sonnet</div>
         <div style="text-align:center">Opus</div>
+        <div style="text-align:center">Time</div>
         <div style="text-align:center">Result</div>
     </div>
     """, unsafe_allow_html=True)
@@ -378,6 +390,17 @@ def render_pipeline_view():
         else:
             result_cell = '<div class="result-cell result-running">⏳</div>'
 
+        # Time cell
+        dur = t.get("duration_sec")
+        if dur and isinstance(dur, (int, float)):
+            if dur >= 60:
+                time_str = f"{dur/60:.0f}m"
+            else:
+                time_str = f"{dur:.0f}s"
+            time_cell = f'<div style="text-align:center; color:#8892b0; font-size:0.8em">{time_str}</div>'
+        else:
+            time_cell = '<div style="text-align:center; color:#4a5568; font-size:0.8em">—</div>'
+
         st.markdown(f"""
         <div class="task-row {row_class}">
             <div class="task-name" title="{t['topic']}">{topic}</div>
@@ -386,6 +409,7 @@ def render_pipeline_view():
             {func_cell}
             {sonnet_cell}
             {opus_cell}
+            {time_cell}
             {result_cell}
         </div>
         """, unsafe_allow_html=True)
