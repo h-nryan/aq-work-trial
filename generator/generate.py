@@ -348,69 +348,10 @@ Return your response as a JSON object with this structure:
 
 IMPORTANT: Return ONLY raw JSON. Do NOT wrap it in ```json``` markdown fences or any other formatting. Start your response with { and end with }."""
 
-# Variant B: trimmed prompt — fewer explicit constraints, relies on examples
-SYSTEM_PROMPT_B = """\
-You are an expert at creating coding tasks for evaluating AI agents. You generate \
-Terminal Bench tasks — self-contained coding challenges that run in Docker containers \
-and are verified by pytest.
-
-REQUIRED FILES: task.yaml, Dockerfile, run-tests.sh, solution.sh, tests/test_outputs.py, plus buggy source files.
-- solution.sh uses `cat > filename << 'EOF'` heredocs to write complete fixed files.
-- Dockerfile MUST install tmux and asciinema. Prefer Python/Bash/C stacks.
-- ALL source files must live in WORKDIR (usually /app). Never use system directories like /etc/.
-- Tests MUST FAIL before solution.sh and PASS after.
-- run-tests.sh installs uv + pytest. Follow the boilerplate from examples.
-
-DIFFICULTY — THE MOST IMPORTANT THING:
-Study the examples below. They show EXACTLY the right difficulty. Match them:
-- Put all bugs in ONE source file under 150 lines
-- 3-4 bugs that each produce a clear, distinct test failure
-- 5-7 tests total (not 9-11) — fewer tests with clear criteria give margin for implementation differences
-- {instruction_hint_rule_short}
-- The examples show what "learnable" looks like. Copy their style, not just their format.
-
-OUTPUT FORMAT:
-Return ONLY a raw JSON object: {{"files": {{"filename": "content", ...}}}}
-Start with {{ and end with }}. No markdown fences."""
-
-PHASE2_PROMPT_B = """\
-Given this WORKING program, introduce exactly 3-4 bugs in the source file(s) only.
-
-Rules:
-- Bugs must be realistic (off-by-one, wrong variable, missing edge case, wrong operator)
-- Do NOT change tests, Dockerfile, run-tests.sh, or task.yaml
-- Each bug should cause at least one test to fail with a clear error message
-- The original working code IS the solution
-
-VERIFY: For each test, confirm it WILL FAIL with your buggy code. If any test still \
-passes, add another bug that breaks it.
-
-Here is the working program:
-```json
-{working_json}
-```
-
-Return JSON with two keys:
-1. "verification" — one line per test: "test_name: WILL FAIL because [reason]"
-2. "files" — ONLY the modified source files (buggy versions)"""
-
-
-def _build_user_prompt(topic: str, variant: str = "A", target_category: str | None = None) -> str:
+def _build_user_prompt(topic: str, target_category: str | None = None) -> str:
     """Build the user prompt with topic and examples."""
     examples = select_examples(target_category=target_category)
 
-    if variant == "B":
-        # Trimmed variant: examples do the teaching, minimal reminders
-        return f"""Generate a Terminal Bench task for this topic: "{topic}"
-
-Study these examples — they define the target difficulty and format:
-
-{examples}
-
-Generate a task for: "{topic}"
-Match the examples' difficulty closely. Return ONLY the JSON object."""
-
-    # Variant A: verbose reminders (default)
     return f"""Generate a Terminal Bench task for this topic: "{topic}"
 
 Study these reference examples carefully and match their format exactly:
@@ -494,7 +435,7 @@ def _write_task_files(files: dict, output_dir: str) -> None:
             os.chmod(full_path, 0o755)
 
 
-def _format_prompt(template: str, hint_style: str = "none", variant: str = "A") -> str:
+def _format_prompt(template: str, hint_style: str = "none") -> str:
     """Fill instruction rule placeholders in a system prompt template."""
     result = template.replace("{instruction_hint_rule}", INSTRUCTION_RULE["long"])
     result = result.replace("{instruction_hint_rule_short}", INSTRUCTION_RULE["short"])
@@ -505,7 +446,6 @@ def generate_task(
     topic: str,
     output_dir: str | None = None,
     model: str | None = None,
-    prompt_variant: str = "A",
     hint_style: str = "none",
     target_category: str | None = None,
 ) -> dict:
@@ -515,7 +455,6 @@ def generate_task(
         topic: A short description of the task to generate.
         output_dir: Where to write the generated task files.
         model: Override the generator model.
-        prompt_variant: "A" (verbose constraints) or "B" (trimmed, example-driven).
         hint_style: "none", "soft", or "full" — controls instruction hints.
 
     Returns:
@@ -534,12 +473,11 @@ def generate_task(
     )
 
     gen_model = model or GENERATOR_MODEL
-    raw_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
-    sys_prompt = _format_prompt(raw_prompt, hint_style=hint_style, variant=prompt_variant)
-    user_prompt = _build_user_prompt(topic, variant=prompt_variant, target_category=target_category)
+    sys_prompt = _format_prompt(SYSTEM_PROMPT, hint_style=hint_style)
+    user_prompt = _build_user_prompt(topic, target_category=target_category)
 
     print(f"Generating task for: {topic}")
-    print(f"  Model: {gen_model}  |  Prompt variant: {prompt_variant}")
+    print(f"  Model: {gen_model}")
     print(f"  Output: {output_dir}")
 
     start = time.time()
@@ -713,7 +651,6 @@ def generate_task_solution_first(
     topic: str,
     output_dir: str | None = None,
     model: str | None = None,
-    prompt_variant: str = "A",
     hint_style: str = "none",
     target_category: str | None = None,
 ) -> dict:
@@ -728,9 +665,6 @@ def generate_task_solution_first(
 
     This approach has much higher functional validation pass rates because
     the solution is guaranteed correct — it was written first.
-
-    prompt_variant: "A" (verbose constraints) or "B" (trimmed, example-driven).
-    hint_style: "none", "soft", or "full" — controls instruction hints.
     """
     slug = _slugify(topic)
 
@@ -806,10 +740,8 @@ def generate_task_solution_first(
     print(f"  Phase 2: Introducing bugs...")
 
     working_json = json.dumps({"files": working_files}, indent=2)
-    p2_template = PHASE2_PROMPT_B if prompt_variant == "B" else PHASE2_PROMPT
-    phase2_prompt = p2_template.format(working_json=working_json)
-    raw_prompt = SYSTEM_PROMPT_B if prompt_variant == "B" else SYSTEM_PROMPT
-    sys_prompt = _format_prompt(raw_prompt, hint_style=hint_style, variant=prompt_variant)
+    phase2_prompt = PHASE2_PROMPT.format(working_json=working_json)
+    sys_prompt = _format_prompt(SYSTEM_PROMPT, hint_style=hint_style)
     phase2_messages = [
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": phase2_prompt},

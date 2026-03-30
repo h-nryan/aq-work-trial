@@ -245,7 +245,6 @@ def run_pipeline(
     model: str | None = None,
     solution_first: bool = True,
     include_haiku: bool = False,
-    prompt_variant: str = "A",
     hint_style: str = "none",
     target_category: str | None = None,
 ) -> dict:
@@ -297,12 +296,12 @@ def run_pipeline(
 
     if solution_first:
         gen_result = generate_task_solution_first(
-            topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
+            topic, output_dir=output_dir, model=model,
             hint_style=hint_style, target_category=target_category,
         )
     else:
         gen_result = generate_task(
-            topic, output_dir=output_dir, model=model, prompt_variant=prompt_variant,
+            topic, output_dir=output_dir, model=model,
             hint_style=hint_style, target_category=target_category,
         )
     result["stages"]["generate"] = gen_result

@@ -14,6 +14,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Prompt Cleanup
+
+**Removed prompt variant B** (`generate.py`, `pipeline.py`, `batch.py`) — Variant A (verbose constraints with data-driven structural rules) has been used exclusively in all successful batches (including batch 22's 75% learnable rate). Variant B (trimmed, example-driven) was tested once in batch 5 but never adopted. Removed SYSTEM_PROMPT_B, PHASE2_PROMPT_B, the variant-B user prompt path, and the `--prompt-variant` CLI flag to reduce dead code. Variant A is now the only generation prompt.
+
 ### Difficulty Adjustment Testing
 
 **Direct test of severity-based adjustment on batch 22 too_hard tasks** — Wrote `test_adjust_difficulty.py` to test `adjust_difficulty()` in isolation on the "fix-a-python-unit-test-suite-where-fixtures-have-411353" task (too_hard, 0% pass rate). Results: Sonnet picked `simplify_bug` operation, applied 4/6 edits successfully (2 failed on string matching — one exact match not found in test file, one ambiguous match in solution.sh). Changes: added BUG comments near all 3 bugs in fixture_manager.py, added missing `setup()` call hint, expanded task.yaml with specific function names and symptoms for each bug. Functional validation passed (tests fail without solution, pass with solution). Duration: 38s, 11.5K tokens. Confirms the severity-based prompt (0-pass aggressive mode) produces valid, functional edits.
