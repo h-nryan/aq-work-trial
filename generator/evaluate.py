@@ -172,7 +172,10 @@ def _run_filter_tier(
     skip_threshold: int,
     output_path: str = "runs",
 ) -> dict:
-    """Run a single filter tier and return verdict.
+    """Run a single filter tier with early stopping.
+
+    Hybrid strategy: first 3 runs in parallel, then sequential with
+    early-stop checks. Stops as soon as the skip/proceed decision is certain.
 
     Args:
         task_dir: Path to the task directory.
@@ -188,17 +191,59 @@ def _run_filter_tier(
     task_name = Path(task_dir).name
     print(f"\n  [Tier: {model_label} x{n_runs}] Running on {task_name}...")
 
-    result = _run_tb(
+    PARALLEL_BATCH = min(3, n_runs)
+    passes = 0
+    total = 0
+    all_results = []
+
+    # Phase A: parallel batch
+    batch_result = _run_tb(
         task_dir=task_dir,
         model=model,
-        n_attempts=n_runs,
+        n_attempts=PARALLEL_BATCH,
         output_path=output_path,
     )
+    passes = batch_result["passes"]
+    total = batch_result["total"] or PARALLEL_BATCH
+    all_results.append(batch_result)
+    remaining = n_runs - total
 
-    passes = result["passes"]
-    total = result["total"]
+    # Check if decision is already certain
+    def _decided(p: int, rem: int) -> bool | None:
+        """Returns True (skip/too_easy), False (proceed), or None (undecided)."""
+        if p >= skip_threshold:
+            return True  # already too easy
+        if p + rem < skip_threshold:
+            return False  # can't reach threshold
+        return None
+
+    decision = _decided(passes, remaining)
+    if decision is not None:
+        saved = remaining
+        if saved > 0:
+            print(f"    Batch 1-{total}: {passes}/{total} → early stop (saved {saved} runs)")
+    else:
+        # Phase B: sequential with early-stop
+        for _ in range(remaining):
+            single = _run_tb(
+                task_dir=task_dir,
+                model=model,
+                n_attempts=1,
+                output_path=output_path,
+            )
+            total += 1
+            if single["passes"] > 0:
+                passes += 1
+            all_results.append(single)
+
+            decision = _decided(passes, n_runs - total)
+            if decision is not None:
+                saved = n_runs - total
+                if saved > 0:
+                    print(f"    Run {total}/{n_runs}: {passes} passes → early stop (saved {saved} runs)")
+                break
+
     should_skip = passes >= skip_threshold
-
     verdict = "SKIP (too easy)" if should_skip else "PROCEED"
     print(f"  [Tier: {model_label}] {passes}/{total} passed → {verdict}")
 
@@ -209,7 +254,8 @@ def _run_filter_tier(
         "total": total,
         "skip_threshold": skip_threshold,
         "should_skip": should_skip,
-        "result": result,
+        "early_stopped": total < n_runs,
+        "results": all_results,
     }
 
 
