@@ -180,17 +180,19 @@ def run_pipeline(
             result["stages"]["functional"] = func_result
 
             if not func_result["passed"]:
-                # Distinguish infrastructure errors (Docker build failure, timeout)
-                # from content errors (tests pass without solution, solution doesn't fix).
-                # Infrastructure errors won't be fixed by regeneration.
+                # Only skip retries for environment errors that regeneration
+                # can't fix (Docker not available, image too large). Docker
+                # build failures from bad Dockerfiles ARE fixable by
+                # regeneration (e.g., conflicting packages).
                 issues = func_result.get("issues", [])
-                is_infra_error = any(
+                is_environment_error = any(
                     kw in issue.lower()
                     for issue in issues
-                    for kw in ("docker build", "timed out", "image size")
+                    for kw in ("docker is not available", "image size",
+                               "no space left", "disk full", "permission denied")
                 )
 
-                if attempt < effective_retries and not is_infra_error:
+                if attempt < effective_retries and not is_environment_error:
                     feedback = _build_feedback(None, func_result)
                     retry_result = regenerate_task(topic, task_dir, feedback, model=model)
                     result["stages"][f"retry_{attempt + 1}"] = retry_result
@@ -200,10 +202,10 @@ def run_pipeline(
                         result["duration_sec"] = round(time.time() - start, 2)
                         return result
                     continue  # re-validate from structural
-                if is_infra_error:
+                if is_environment_error:
                     result["status"] = "infrastructure_error"
                     result["failed_stage"] = "functional"
-                    print(f"  Infrastructure error — skipping retries")
+                    print(f"  True infrastructure error — skipping retries")
                 else:
                     result["status"] = "functional_validation_failed"
                     result["failed_stage"] = "functional"

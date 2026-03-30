@@ -629,7 +629,17 @@ def regenerate_task(
 
     # Determine repair strategy from feedback
     feedback_lower = feedback.lower()
-    if "tests failed" in feedback_lower and "with solution" in feedback_lower:
+    if "docker" in feedback_lower and ("build failed" in feedback_lower or "build error" in feedback_lower):
+        # Dockerfile issue — only fix the Dockerfile
+        repair_target = "dockerfile_only"
+        repair_instruction = (
+            "The Docker image failed to build. Fix ONLY the Dockerfile to resolve the "
+            "build error. Do NOT change any other files — the source code, tests, and "
+            "solution are fine. Common issues: conflicting packages, missing dependencies, "
+            "wrong base image.\n"
+            "Return a JSON object: {\"files\": {\"Dockerfile\": \"...\"}}"
+        )
+    elif "tests failed" in feedback_lower and "with solution" in feedback_lower:
         # Only fix solution.sh — source files and tests are fine
         repair_target = "solution_only"
         repair_instruction = (
