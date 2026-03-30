@@ -28,7 +28,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 **Few-shot example curation** (`generate.py`) — Three-way classification of reference examples:
 - **Positive** (learnable): shown as "GOOD EXAMPLES — target this difficulty"
 - **Negative** (too easy): shown as "TOO-EASY EXAMPLES — avoid this difficulty" (currently: `config-manifest-validator`)
-- **Too hard**: excluded entirely — showing impossible tasks miscalibrates difficulty upward and wastes tokens
+- **Too hard**: excluded entirely — 4 of 6 hand-crafted examples are too hard (coordinate-transform, flask-api, log-rotation-analyzer, maven). All annotated with WHY they're too hard and patterns to avoid
 - `examples-opus/` directory for Opus-generated exemplars that Sonnet can replicate cheaply at scale
 - **Bug annotations** (`_bugs.md`): Every example now has a structured annotation describing each bug's subtlety level (LOW/MODERATE/HIGH), the test-to-bug mapping, and WHY the task falls in its difficulty category. Too-easy and too-hard examples include "patterns to avoid" sections that teach Sonnet the boundaries of good difficulty.
 - *Design decision*: Subtlety ratings teach the QUALITY dimension of difficulty. Telling Sonnet "this is a HIGH subtlety bug because the wrong variable name looks correct at first glance" is more useful than "add 3-5 bugs."
