@@ -30,6 +30,10 @@ Comprehensive audit of all error paths in the pipeline. Previously, several fail
 
 **Phase 2 file guard** (`generate.py`) — After Phase 2 returns buggy files, the merge step now validates that Phase 2 only modified known source files from Phase 1. Unknown files and infrastructure/test modifications are logged and ignored, preventing Phase 2 from corrupting test data or introducing files the solution doesn't cover.
 
+### Known Limitation: Phase 1 test-data mismatches
+
+Batch 23 root cause analysis revealed that 2/3 functional validation failures were caused by Phase 1 generating test expectations that don't match test data (e.g., CSV with 7 "completed" records but test asserts 6). The solution and buggy code are both correct relative to Phase 1 — but Phase 1 itself has an internal inconsistency. The ideal fix is running tests against the working code in Phase 1 *before* proceeding to Phase 2, which would catch mismatches immediately. **Tradeoff**: this doubles Docker build cost per generation attempt (one build for Phase 1 validation + one for functional validation after Phase 2). Currently mitigated by the existing retry loop — functional validation catches the mismatch and regenerates from scratch, at the cost of wasted API calls for Phase 1 + Phase 2. If functional validation failure rates remain high, the Phase 1 pre-check may be worth the Docker cost.
+
 ### Sonnet Filter Calibration
 
 **Lowered SONNET_SKIP_THRESHOLD from 4 to 3** (`config.py`) — Cross-batch analysis shows Opus consistently scores >= Sonnet on the same tasks. A task Sonnet solves 3/5 is almost certainly too easy for Opus (likely 4-5/5). The one learnable case with Sonnet data (Docker build) had Sonnet 2/4, Opus 1/3 — Opus scored lower, confirming Sonnet is a conservative proxy. Threshold of 3 catches too_easy tasks earlier, enabling cheaper adjustment via Sonnet quick-check instead of burning Opus eval budget.
