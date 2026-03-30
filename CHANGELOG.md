@@ -136,6 +136,7 @@ Live UI for monitoring and controlling the pipeline:
 - **Exemplar Browser**: Browse hand-crafted, Opus, and Sonnet examples with bug annotations
 - **Live Status**: Running batch/eval processes, in-progress batch progress
 - **Launch Batch**: UI controls for n_tasks, concurrency, seed, solution-first, prompt variant, hint style
+- Active vs completed batch separation — running batches shown prominently with progress bars, completed collapsed
 - Auto-refresh toggle for monitoring active runs
 - Usage: `streamlit run dashboard.py`
 
