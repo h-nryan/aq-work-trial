@@ -684,18 +684,13 @@ def regenerate_task(
             "(3) All file paths are consistent."
         )
 
-    # Only send the relevant files for targeted repairs — saves tokens and reduces noise
+    # For Dockerfile fixes, only send the Dockerfile + error (self-contained).
+    # For solution/source fixes, send full context — the LLM needs to see all
+    # files to understand the relationships between source, tests, and solution.
     if repair_target == "dockerfile_only":
         context_files = {k: v for k, v in previous_files.items() if k == "Dockerfile"}
-    elif repair_target == "solution_only":
-        context_files = {k: v for k, v in previous_files.items()
-                         if k == "solution.sh" or k.startswith("tests/") or k == "task.yaml"}
-    elif repair_target == "source_only":
-        infrastructure = {"task.yaml", "Dockerfile", "run-tests.sh", "solution.sh", "docker-compose.yaml"}
-        context_files = {k: v for k, v in previous_files.items()
-                         if k not in infrastructure or k.startswith("tests/")}
     else:
-        context_files = previous_files  # full rebuild — send everything
+        context_files = previous_files
 
     context_json = json.dumps({"files": context_files}, indent=2)
 
