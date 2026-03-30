@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 from evaluate import (
     _build_result,
     _cleanup_stale_containers,
+    _cleanup_stale_networks,
     _cleanup_stale_tb_processes,
     _kill_containers_for_task,
     _parse_run_results,
@@ -173,11 +174,51 @@ class TestCleanupStaleProcesses:
         assert _cleanup_stale_tb_processes() == 0
 
 
+class TestCleanupStaleNetworks:
+    def test_removes_orphaned_networks(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            if "network" in cmd and "ls" in cmd:
+                output = "abc123 task-abc_default\ndef456 task-def_default\n"
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            if "network" in cmd and "rm" in cmd:
+                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _cleanup_stale_networks() == 2
+
+    def test_skips_in_use_networks(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            if "network" in cmd and "ls" in cmd:
+                output = "abc123 active-task_default\n"
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            if "network" in cmd and "rm" in cmd:
+                # Fails because container is still connected
+                return type("R", (), {"returncode": 1, "stdout": "", "stderr": "has active endpoints"})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _cleanup_stale_networks() == 0
+
+    def test_skips_builtin_networks(self, monkeypatch):
+        def fake_run(cmd, **kwargs):
+            if "network" in cmd and "ls" in cmd:
+                output = "aaa bridge\nbbb host\nccc none\nddd custom-net\n"
+                return type("R", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+            if "network" in cmd and "rm" in cmd:
+                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("evaluate.subprocess.run", fake_run)
+        assert _cleanup_stale_networks() == 1  # only custom-net
+
+
 class TestCleanupStaleResources:
-    def test_combines_both_cleanups(self, monkeypatch):
+    def test_combines_all_cleanups(self, monkeypatch):
         monkeypatch.setattr("evaluate._cleanup_stale_containers", lambda max_age_sec: 2)
         monkeypatch.setattr("evaluate._cleanup_stale_tb_processes", lambda max_age_sec: 3)
-        assert cleanup_stale_resources() == 5
+        monkeypatch.setattr("evaluate._cleanup_stale_networks", lambda: 1)
+        assert cleanup_stale_resources() == 6
 
 
 class TestKillContainersForTask:

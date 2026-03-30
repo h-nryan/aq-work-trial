@@ -146,15 +146,61 @@ def _cleanup_stale_tb_processes(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> i
     return killed
 
 
+def _cleanup_stale_networks() -> int:
+    """Remove orphaned Docker networks created by parallel task runs.
+
+    docker-compose creates a network per task. If the container is killed
+    without docker-compose down, the network leaks. Eventually Docker's
+    address pool is exhausted and new runs fail.
+
+    Returns the number of networks removed.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "network", "ls", "--format", "{{.ID}} {{.Name}}",
+             "--filter", "type=custom"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 0
+
+    removed = 0
+    for line in result.stdout.strip().splitlines():
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        net_id, name = parts
+        # Skip well-known networks
+        if name in ("bridge", "host", "none"):
+            continue
+        try:
+            # docker network rm only succeeds if no containers are connected
+            rm_result = subprocess.run(
+                ["docker", "network", "rm", net_id],
+                capture_output=True, text=True, timeout=10,
+            )
+            if rm_result.returncode == 0:
+                removed += 1
+        except subprocess.TimeoutExpired:
+            continue
+
+    if removed:
+        print(f"  Cleaned up {removed} orphaned Docker network(s)")
+    return removed
+
+
 def cleanup_stale_resources(max_age_sec: int = STALE_CONTAINER_AGE_SEC) -> int:
-    """Kill stale Docker containers and orphaned tb/evaluator processes.
+    """Kill stale Docker containers, orphaned processes, and leaked networks.
 
     Call this before starting new eval runs to prevent resource accumulation.
     Returns total number of resources cleaned up.
     """
     containers = _cleanup_stale_containers(max_age_sec)
     processes = _cleanup_stale_tb_processes(max_age_sec)
-    return containers + processes
+    networks = _cleanup_stale_networks()
+    return containers + processes + networks
 
 
 def _kill_containers_for_task(task_id: str) -> int:
