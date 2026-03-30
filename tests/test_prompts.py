@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "generator"))
 
 from prompts import (
-    EXCLUDED_CATEGORIES,
+    EXCLUDED_TOPICS,
     PROMPT_BANK,
     TopicEntry,
     get_bank_stats,
@@ -107,8 +107,9 @@ class TestSelectTopics:
     def test_diverse_covers_all_non_excluded_categories(self):
         result = select_entries(n=12, diverse=True, seed=42)
         categories = {e.category for e in result}
-        expected = {e.category for e in PROMPT_BANK if e.category not in EXCLUDED_CATEGORIES}
-        assert categories == expected, f"Expected {expected}, got {categories}"
+        expected = {e.category for e in PROMPT_BANK if e.topic not in EXCLUDED_TOPICS}
+        expected_cats = {e.category for e in PROMPT_BANK if e.topic not in EXCLUDED_TOPICS}
+        assert categories == expected_cats, f"Expected {expected_cats}, got {categories}"
 
     def test_seed_reproducibility(self):
         r1 = select_topics(n=5, seed=123)
@@ -123,7 +124,7 @@ class TestSelectTopics:
     def test_select_more_than_pool(self):
         result = select_topics(n=1000, difficulty="hard", seed=42)
         hard_count = sum(1 for e in PROMPT_BANK
-                         if e.difficulty == "hard" and e.category not in EXCLUDED_CATEGORIES)
+                         if e.difficulty == "hard" and e.topic not in EXCLUDED_TOPICS)
         assert len(result) == hard_count
 
 

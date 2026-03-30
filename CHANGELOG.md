@@ -16,6 +16,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ### Generation
 
+**Pre-batch prompt audit and refinements** (`generate.py`, `prompts.py`) — Systematic audit before committing to a $400-budget batch run:
+- Fixed Phase 1 test count mismatch: was "6-10 test functions", now "5-7" matching the rest of the pipeline. This was likely producing too-hard tasks.
+- Added Phase 1 guidance: source code <150 lines in a single file, modular structure to support clean bug injection
+- Fixed `adjust_difficulty()` too_easy prompt: was telling Sonnet to "make symptoms misleading" and "point error messages to wrong location", directly contradicting the independently-discoverable principle. Now focuses on subtlety within discoverability bounds.
+- Replaced `EXCLUDED_CATEGORIES` (blanket ban on 3 categories) with `EXCLUDED_TOPICS` (15 specific topics). Restores software-engineering and data-processing categories (both had learnable tasks) while pruning topics that violate pipeline constraints (server-based, concurrency, Node.js, Docker-in-Docker, /proc/systemd).
+
 **Metadata-driven example selection** (`generate.py`, `pipeline.py`) — Replaced hardcoded example classification with `_meta.yaml` metadata files on each example directory. New `select_examples()` function picks examples within a token budget (~20k tokens) using deterministic criteria:
 - Category diversity: one example per category first, then fill by score
 - Score = pass rate closeness to ideal (40-60%) + category match to target topic + token efficiency

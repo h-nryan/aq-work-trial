@@ -299,10 +299,38 @@ PROMPT_BANK: list[TopicEntry] = [
 ]
 
 
-# Categories excluded from selection — Sonnet consistently fails to generate
-# valid tasks for these (0% functional pass rate for system-administration,
-# 25% for software-engineering, 33% for data-processing).
-EXCLUDED_CATEGORIES = {"system-administration", "software-engineering", "data-processing"}
+# Individual topics excluded from selection — each violates a pipeline constraint
+# (server-based, concurrency/non-determinism, Node.js, Docker-in-Docker, etc.)
+EXCLUDED_TOPICS = {
+    # Server-based (rule F: tests should test concrete outputs, not require running servers)
+    "fix a broken Python Flask API with dependency, routing, and data format bugs",
+    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL termination errors",
+    # Concurrency/non-determinism (unreliable test results)
+    "debug a Go HTTP server with race conditions in shared state access",
+    "debug a multi-threaded Python producer-consumer with deadlocks and data loss",
+    "fix a Python async web scraper with rate limiting and connection pool bugs",
+    "fix a Python TCP proxy with broken connection pooling, half-close handling, and timeout bugs",
+    # Node.js (rule D: avoid Node.js/npm, slow and fragile in containers)
+    "fix a Node.js script that fails to parse JSON due to encoding issues",
+    # C++ undefined behavior (avoid UB bugs — non-deterministic, hard to test)
+    "fix a C++ program with undefined behavior from iterator invalidation and buffer overflows",
+    # Java/Maven (same failure pattern as excluded maven example)
+    "fix broken Maven POM files with dependency conflicts, incorrect plugin configs, and wrong artifact versions",
+    # Docker-in-Docker (can't run Docker inside Docker containers reliably)
+    "debug a broken Docker Compose setup with incorrect networking, port mapping, and service dependencies",
+    # Requires /proc or systemd (not available in minimal Docker containers)
+    "fix a Bash script that incorrectly parses /proc filesystem stats for CPU monitoring",
+    "repair a shell script that manages systemd services with incorrect status parsing",
+    # Signal handling / zombie processes (non-deterministic in containers)
+    "fix a process supervisor script with broken signal handling, zombie reaping, and restart logic",
+    # Binary data pipelines (fragile, encoding-dependent)
+    "fix a Bash pipeline that corrupts binary data when processing mixed text/binary streams",
+    # Streaming/backpressure (concurrency-adjacent, non-deterministic)
+    "fix a Python streaming JSON parser that loses events under backpressure with malformed input",
+    # Server-based networking (requires running servers)
+    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL issues",
+    "fix a Python TCP proxy with broken connection pooling, half-close handling, and backpressure bugs",
+}
 
 
 def select_entries(
@@ -328,7 +356,7 @@ def select_entries(
     """
     rng = random.Random(seed)
 
-    pool = [t for t in PROMPT_BANK if t.category not in EXCLUDED_CATEGORIES]
+    pool = [t for t in PROMPT_BANK if t.topic not in EXCLUDED_TOPICS]
 
     if category:
         pool = [t for t in pool if t.category == category]

@@ -605,11 +605,14 @@ You are an expert software engineer. Write a COMPLETE, WORKING program for the t
 Topic: "{topic}"
 
 Create a fully functional implementation with:
-1. All source files (working, bug-free code)
+1. All source files (working, bug-free code) — keep total source under 150 lines in a SINGLE file
 2. A Dockerfile (Ubuntu-based, include `tmux asciinema` in apt-get install)
 3. A run-tests.sh (use the uv + pytest boilerplate from examples)
-4. A tests/test_outputs.py with 6-10 thorough test functions that all PASS
+4. A tests/test_outputs.py with 5-7 test functions that all PASS — each test should check one distinct behavior
 5. A task.yaml with instruction, difficulty: medium, category, tags, parser_name: pytest
+
+The code should be modular enough that 3-4 realistic bugs can be introduced independently \
+(e.g., separate functions, clear data flow, distinct code paths for different features).
 
 The code must be CORRECT — all tests must pass when run against this code.
 
@@ -1088,12 +1091,14 @@ def adjust_difficulty(
         adjustment_instruction = (
             f"This task is TOO EASY. An expert AI agent (Claude Opus) scored {pass_rate:.0%} "
             f"({int(pass_rate * 5)} out of 5 attempts passed). The target is 1-3 out of 5 passes (~20-60%).\n\n"
-            "Make the task HARDER — focus on bug SUBTLETY, not quantity:\n"
-            "- Make bug symptoms misleading (error appears in file A, root cause is in file B)\n"
-            "- Move bugs from obvious code paths to edge cases (only fail with specific inputs)\n"
-            "- Add indirection — require tracing data flow across multiple functions/files to find the bug\n"
-            "- Replace obvious bugs (wrong variable name) with subtle ones (off-by-one, wrong operator, race condition)\n"
-            "- Make error messages point to the wrong location\n"
+            "Make the task HARDER — increase subtlety while keeping bugs independently discoverable:\n"
+            "- Replace obvious bugs (wrong variable name) with subtle ones (off-by-one, wrong operator in a correct-looking expression)\n"
+            "- Move bugs from obvious code paths to less-traveled ones (e.g., error handling, boundary conditions)\n"
+            "- Make the buggy code look MORE plausible — the bug should be a reasonable mistake, not obviously wrong\n"
+            "- Add one more bug if currently at 2 (target 3-4 total)\n"
+            "- Keep all bugs in a SINGLE source file — do NOT spread across files\n"
+            "- Each bug must STILL be independently discoverable from its test failure\n"
+            "- Do NOT create cascading bugs or misleading error messages that point to the wrong location\n"
             "- Update solution.sh to fix any new bugs too\n"
             "- Tests must still FAIL before solution and PASS after\n\n"
             "Return the complete adjusted task as a JSON object with ALL files."
