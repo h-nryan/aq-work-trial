@@ -117,8 +117,8 @@ def analyze_solution_diff(task_dir: str) -> dict:
         # Skip infrastructure files
         if filename in INFRA_FILES:
             continue
-        # Skip test files
-        if filename.startswith("test_") or "/tests/" in filename:
+        # Skip test files (filename is always a basename from _parse_solution_files)
+        if filename.startswith("test_"):
             continue
 
         buggy_path = _find_source_file(task_path, filename)
