@@ -346,6 +346,9 @@ def _try_adjustment(
     Handles: snapshot, adjust_difficulty call, functional re-validation,
     and restoring from snapshot on failure.
     """
+    from evaluate import _write_eval_phase
+    _write_eval_phase(task_dir, "adjusting")
+
     snapshot_dir = task_dir + f".pre_adj{adj_round + 1}"
     if os.path.exists(snapshot_dir):
         shutil.rmtree(snapshot_dir)

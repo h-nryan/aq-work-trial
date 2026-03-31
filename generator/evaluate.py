@@ -703,6 +703,25 @@ def run_opus_eval(
     }
 
 
+def _write_eval_phase(task_dir: str, phase: str) -> None:
+    """Write the current evaluation phase to _status.json.
+
+    Phases: 'sonnet', 'opus', 'adjusting', 'done'.
+    The dashboard reads this to know exactly which tier is active
+    instead of inferring from stale data.
+    """
+    status_path = os.path.join(task_dir, "_status.json")
+    try:
+        status = {}
+        if os.path.exists(status_path):
+            status = json.loads(Path(status_path).read_text())
+        status["eval_phase"] = phase
+        with open(status_path, "w") as f:
+            json.dump(status, f)
+    except Exception:
+        pass
+
+
 def _write_eval_status(task_dir: str, tier: str, passes: int, total: int, filtered: bool = False) -> None:
     """Update _status.json with eval tier results for dashboard visibility.
 
@@ -777,8 +796,9 @@ def evaluate_task(
                 opus_total=haiku_tier["total"],
             )
 
-    # ── Tier 2: Sonnet × 3 ──
+    # ── Tier 2: Sonnet × 5 ──
     if not skip_filters and not skip_sonnet:
+        _write_eval_phase(task_dir, "sonnet")
         sonnet_tier = _run_filter_tier(
             task_dir=task_dir,
             model=SONNET_FILTER_MODEL,
@@ -811,6 +831,7 @@ def evaluate_task(
     # ── Tier 3: Opus × 5 (ground truth) with early stopping ──
     # Hybrid strategy: first 3 runs in parallel for speed, then sequential
     # with early-stop checks for cost efficiency.
+    _write_eval_phase(task_dir, "opus")
     print(f"\n  [Tier: Opus x{n_trials}] Running on {task_name}...")
 
     opus_result = run_opus_eval(

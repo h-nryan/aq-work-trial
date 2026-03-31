@@ -40,7 +40,9 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **All-batch trend charts** (`dashboard.py`) — Inside the "All-time metrics" expander: learnable yield % per batch (bar chart) and cost per learnable per batch (bar chart), computed from token data in the incremental JSONL files.
 
-**Category diversity chart** (`dashboard.py`) — Inside "All-time metrics": bar chart of `_meta.yaml` category distribution across tasks in the current batch, showing coverage across the 6 task categories.
+**Stretch Goal C — Diversity panel** (`dashboard.py`) — Inside "All-time metrics": category coverage score (% of 6 categories present), evenness score (normalized Shannon entropy), category distribution bar chart, language distribution bar chart (inferred from PROMPT_BANK topic metadata with keyword fallback), and near-duplicate topic detector (Jaccard ≥ 0.7 threshold). Near-duplicate pairs are listed in an expander with similarity scores.
+
+**Stretch Goal D — Human-likeness panel** (`dashboard.py`) — Inside "All-time metrics": structural comparison table of current batch tasks vs learnable `examples-sonnet/` baseline. Metrics shown: instruction length, solution lines, test file lines, test count, and source file count — each with mean (min–max range) for both sets and a Δ mean column. Outlier tasks (any metric >50% outside baseline range) are listed in an expander. Uses `quality.py`'s `analyze_generated()` and `compare()` functions directly.
 
 ### Example Budget Increase
 
@@ -65,6 +67,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 | Adjust difficulty | 16000 | 4096 | ~400–500 |
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
+
+### Explicit eval_phase State Machine
+
+**Write eval_phase to _status.json** (`evaluate.py`, `pipeline.py`) — The dashboard was inferring which eval tier was active from stale data, runs/ dir presence, and process lists — all unreliable. For example, Sonnet showed as pulsing (active) even after completing because the dashboard couldn't distinguish "Sonnet done, Opus running" from "Sonnet re-running after adjustment." Added `_write_eval_phase()` which writes the current phase (`sonnet`, `opus`, `adjusting`) to `_status.json` at each tier transition. The dashboard reads this single authoritative field instead of guessing. Falls back to old inference for batches without `eval_phase`.
 
 ### Overshoot Context in Difficulty Adjustment
 
@@ -468,6 +474,36 @@ Once the pipeline worked on single tasks, running 10-20 concurrently exposed a n
 ### Chapter 7: Diversity Analysis — Stretch Goal C
 
 **Problem** — Without explicit controls, batches would converge on the same categories and topics, producing a task bank without coverage breadth.
+
+**Topic bank design** (`prompts.py`) — 52 structured topics organized into 6 categories that map to real terminal debugging scenarios:
+
+| Category | What it covers |
+|---|---|
+| `debugging` | Finding and fixing bugs in existing code — logic errors, memory bugs, async issues |
+| `data-processing` | ETL, parsing, transformation — CSV/JSON/XML/SQLite pipelines |
+| `system-administration` | Services, configs, monitoring — cron, log rotation, disk usage |
+| `software-engineering` | Design patterns, tooling — CLI tools, plugin systems, config parsers |
+| `build-systems` | Compilation, linking, packaging — Makefiles, CMake, pyproject.toml |
+| `networking` | Protocols, servers, configuration — HTTP clients, DNS resolvers, socket code |
+
+Each entry carries `(topic, category, difficulty, language)` metadata. The initial design targeted a 25/50/25 distribution across easy/medium/hard, with 7-10 languages (Python, Bash, C, Go, Java, Make, Docker). The 6 categories were chosen because they cover the full range of real-world terminal debugging tasks, are mutually exclusive and exhaustive for the types of tasks Terminal Bench is designed for, and map directly to what `diversity.py` measures.
+
+**How categories flow through the pipeline end-to-end:**
+1. `select_topics(diverse=True)` uses round-robin across categories to guarantee coverage — if n=10, all 6 categories are represented with some repeated rather than clustering on one.
+2. The topic string is passed verbatim into Phase 1 generation as the task description anchor.
+3. After evaluation completes, the category is looked up from the prompt bank and written to `_meta.yaml` (field: `category`) alongside `opus_passes`, `classification`, etc.
+4. `select_examples()` uses `category` as a scoring factor: same-category examples score higher in the few-shot context, giving Sonnet relevant structural patterns for the specific problem domain (e.g., a new networking task gets DNS or HTTP examples, not build system examples).
+5. `diversity.py` reads `category` from every `_meta.yaml` in `examples-sonnet/` to measure coverage (% of 6 categories present) and evenness (normalized Shannon entropy across categories, 0 = all one category, 1 = perfectly uniform).
+6. The dashboard reads `_meta.yaml` to display a category distribution chart in "All-time metrics."
+
+**Exclusion list grew from batch data** — The active pool shrank from 52 to ~28 topics as batch data revealed which topics consistently failed for structural (not difficulty) reasons:
+- **Server-based** (Nginx, Flask API): tasks require a running server during evaluation — rule F prohibits this
+- **Concurrency / non-determinism**: race conditions, deadlocks, async scrapers — tests are flaky across runs
+- **Infrastructure / packaging** (CI/CD, pyproject.toml): 0/12 learnable tasks had bugs outside application logic; Sonnet can't reliably scaffold dependency environments
+- **Container constraints** (Docker-in-Docker, `/proc`, systemd): not available inside the evaluation container
+- **Always-fail** (state machine, ORM, CMake): 0% functional validation rate across 2+ batches — pattern traced to test-code mismatches, not salvageable by difficulty adjustment
+
+Early batches excluded entire categories (networking, build-systems) before per-topic analysis showed the failures were specific to 2-3 topics per category, not the category as a whole. Switched to topic-level exclusions in commit `49ef4a2`, restoring both categories to the active pool. Eight topics previously excluded as "fundamentally too hard" (bash quoting, DNS resolver, SQLite migration, monitoring script) were re-added after batch 22 proved adjustment can recover them — 5 of 9 learnable tasks in the best batch came from previously-excluded topics.
 
 **Diversity module** (`diversity.py`) — Analyzes batch reports for category coverage (% of 6 categories present), evenness (normalized Shannon entropy, 0=all one category, 1=perfectly uniform), language distribution, and near-duplicate detection (Jaccard similarity on topic word sets, threshold 0.7).
 

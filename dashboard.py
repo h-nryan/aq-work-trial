@@ -30,6 +30,51 @@ from quality import analyze_task, analyze_generated, compare
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 RUNS_DIR = os.path.join(os.path.dirname(__file__), "runs")
+EXAMPLES_SONNET_DIR = os.path.join(os.path.dirname(__file__), "examples-sonnet")
+
+# ── Language lookup (prompts.py bank → fallback heuristic) ───────────────────
+_TOPIC_TO_LANGUAGE: dict[str, str] = {e.topic: e.language for e in PROMPT_BANK}
+
+def _infer_language(topic: str) -> str:
+    """Look up language from prompt bank; fall back to keyword heuristic."""
+    if topic in _TOPIC_TO_LANGUAGE:
+        return _TOPIC_TO_LANGUAGE[topic]
+    t = topic.lower()
+    for kw, lang in [
+        ("python", "python"), ("bash", "bash"), ("shell", "bash"),
+        ("node", "nodejs"), ("javascript", "nodejs"),
+        ("go ", "go"), ("golang", "go"), ("rust", "rust"),
+        ("c++", "cpp"), ("cpp", "cpp"), (" c ", "c"), ("c program", "c"),
+        ("java", "java"), ("makefile", "make"), ("cmake", "cmake"),
+        ("docker", "docker"), ("nginx", "nginx"),
+    ]:
+        if kw in t:
+            return lang
+    return "other"
+
+
+def _diversity_scores(cat_counts: dict[str, int]) -> tuple[float, float]:
+    """Return (coverage_score 0-1, evenness_score 0-1) for a category distribution."""
+    import math
+    all_cats = {"debugging", "data-processing", "system-administration",
+                "software-engineering", "build-systems", "networking"}
+    coverage = len(set(cat_counts) & all_cats) / len(all_cats)
+    counts = list(cat_counts.values())
+    total = sum(counts)
+    if total == 0 or len(counts) <= 1:
+        return coverage, 0.0
+    probs = [c / total for c in counts if c > 0]
+    entropy = -sum(p * math.log2(p) for p in probs)
+    max_entropy = math.log2(len(probs))
+    evenness = entropy / max_entropy if max_entropy > 0 else 0.0
+    return coverage, evenness
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 1.0
+    return len(a & b) / len(a | b) if a | b else 0.0
+
 
 # ── Model pricing ($ per token) ──────────────────────────────────────────────
 _SONNET_IN  = 3.00  / 1_000_000
@@ -191,8 +236,12 @@ def _render_eval_tier_cell(
     task_dirname: str,
     batch_start_ts: int,
     adj_trigger: str | None = None,
+    eval_phase: str | None = None,
 ) -> str:
     """Render a Sonnet or Opus eval cell.
+
+    eval_phase is the authoritative current phase from _status.json:
+    'sonnet', 'opus', 'adjusting', or None (not yet written / old batch).
 
     Step 1: Resolve scores from available data sources.
     Step 2: Determine the cell's display state.
@@ -226,29 +275,35 @@ def _render_eval_tier_cell(
     opus_has_data = bool(eval_tiers.get("opus", {}).get("total") or tier_results.get("opus", {}).get("total"))
     is_latest_tier = (tier == "opus") or (tier == "sonnet" and not opus_has_data)
 
-    # Determine state
+    # Determine state.
+    # eval_phase is authoritative when present (written by pipeline).
+    # Falls back to inference for older batches without it.
+    is_this_tier_active = (eval_phase == tier)
+    is_this_tier_done = (
+        eval_phase is not None
+        and eval_phase != tier
+        and has_scores
+        # Sonnet is done if we're on opus or adjusting; opus is done only if completed
+        and (tier == "sonnet" or stage == "completed")
+    )
+
     if opus_skipped_by_filter and stage == "completed":
         state = "skipped_filtered"
-    elif is_adjusting and is_latest_tier and has_scores:
+    elif eval_phase == "adjusting" and is_adjusting and is_latest_tier and has_scores:
         state = "adjusting"
-    elif has_scores and stage == "completed":
+    elif is_adjusting and is_latest_tier and has_scores and eval_phase is None:
+        state = "adjusting"  # fallback for old batches
+    elif has_scores and (stage == "completed" or is_this_tier_done):
         if was_filtered or (classification in ("too_hard", "too_easy") and tier == "opus"):
             state = "done_bad"
         else:
             state = "done_good"
-    elif has_scores and stage == "evaluating":
-        # If Sonnet has scores, check if it's truly done or re-running after adjustment
-        if tier == "sonnet" and opus_has_data:
-            # Opus has data — but is Sonnet currently re-running?
-            _, _, sonnet_active = _get_live_eval_scores(task_dirname, "claude-sonnet*", batch_start_ts)
-            state = "in_progress" if sonnet_active else "done_good"
-        else:
-            state = "in_progress"
-    elif stage == "evaluating":
-        # No scores — check if a run dir exists
-        model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
-        _, _, has_active = _get_live_eval_scores(task_dirname, model_glob, batch_start_ts)
-        state = "running" if has_active else "not_reached"
+    elif has_scores and is_this_tier_active:
+        state = "in_progress"
+    elif has_scores and stage == "evaluating" and eval_phase is None:
+        state = "in_progress"  # fallback for old batches
+    elif is_this_tier_active or (stage == "evaluating" and eval_phase is None):
+        state = "running" if not has_scores else "in_progress"
     else:
         state = "not_reached"
 
@@ -940,12 +995,15 @@ def render_pipeline_view():
             tier_results = eval_stages.get("tier_results", {})
             filtered_at = eval_stages.get("filtered_at")
 
-            # Read eval_tiers from _status.json (durable, survives run cleanup)
+            # Read eval_tiers and eval_phase from _status.json
             _eval_tiers = {}
+            _eval_phase = None  # "sonnet", "opus", "adjusting", or None
             _status_path = os.path.join(t.get("dir", ""), "_status.json")
             if os.path.exists(_status_path):
                 try:
-                    _eval_tiers = json.load(open(_status_path)).get("eval_tiers", {})
+                    _status_data = json.load(open(_status_path))
+                    _eval_tiers = _status_data.get("eval_tiers", {})
+                    _eval_phase = _status_data.get("eval_phase")
                 except Exception:
                     pass
 
@@ -955,10 +1013,12 @@ def render_pipeline_view():
             sonnet_cell = _render_eval_tier_cell(
                 "sonnet", tier_results, _eval_tiers, filtered_at,
                 is_adjusting, stage, cl, _dn, batch_start_ts, _adj_trigger,
+                eval_phase=_eval_phase,
             )
             opus_cell = _render_eval_tier_cell(
                 "opus", tier_results, _eval_tiers, filtered_at,
                 is_adjusting, stage, cl, _dn, batch_start_ts, _adj_trigger,
+                eval_phase=_eval_phase,
             )
         elif stage == "failed":
             sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
@@ -1068,17 +1128,123 @@ def render_pipeline_view():
                         y_label="$/learnable",
                     )
 
-            # Category diversity across current batch
-            st.markdown("**Category diversity (current batch)**")
+            # ── Stretch Goal C: Diversity ─────────────────────────────────
+            st.markdown("---")
+            st.markdown("### Stretch Goal C — Diversity")
+
+            # Category distribution + scores
             cat_counts: dict[str, int] = {}
             for t in tasks:
                 cat = t.get("category")
                 if cat:
                     cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
             if cat_counts:
+                cov, even = _diversity_scores(cat_counts)
+                c1, c2 = st.columns(2)
+                c1.metric("Category coverage", f"{cov:.0%}", help="% of 6 defined categories present in this batch")
+                c2.metric("Category evenness", f"{even:.0%}", help="Shannon entropy across categories (1.0 = perfectly uniform)")
+                st.markdown("**Category distribution (current batch)**")
                 st.bar_chart(cat_counts, y_label="Tasks")
             else:
                 st.caption("No category data yet (tasks still generating)")
+
+            # Language distribution
+            lang_counts: dict[str, int] = {}
+            for t in tasks:
+                lang = _infer_language(t.get("topic", ""))
+                lang_counts[lang] = lang_counts.get(lang, 0) + 1
+            if lang_counts:
+                st.markdown("**Language distribution (current batch)**")
+                st.bar_chart(lang_counts, y_label="Tasks")
+
+            # Near-duplicate detection
+            topic_words = []
+            for t in tasks:
+                topic = t.get("topic", "")
+                if topic:
+                    words = set(re.findall(r"[a-z]+", topic.lower()))
+                    topic_words.append((topic, words))
+            dup_pairs = []
+            for i in range(len(topic_words)):
+                for j in range(i + 1, len(topic_words)):
+                    sim = _jaccard(topic_words[i][1], topic_words[j][1])
+                    if sim >= 0.7:
+                        dup_pairs.append((topic_words[i][0], topic_words[j][0], sim))
+            unique_count = len(topic_words) - len(dup_pairs)
+            st.metric(
+                "Unique topics",
+                f"{unique_count}/{len(topic_words)}",
+                help="Topics with Jaccard similarity < 0.7 to all others",
+            )
+            if dup_pairs:
+                with st.expander(f"Near-duplicate pairs ({len(dup_pairs)})"):
+                    for ta, tb, sim in dup_pairs:
+                        st.caption(f"[{sim:.0%}] {ta[:50]} ~ {tb[:50]}")
+
+            # ── Stretch Goal D: Human-likeness ────────────────────────────
+            st.markdown("---")
+            st.markdown("### Stretch Goal D — Human-likeness")
+            st.caption("Structural metrics: current batch vs learnable sonnet examples baseline")
+
+            # Collect current-batch task dirs
+            batch_task_dirs = [t["dir"] for t in tasks if t.get("dir") and os.path.isdir(t["dir"])]
+
+            # Collect examples-sonnet baseline dirs
+            sonnet_ex_dirs = []
+            if os.path.isdir(EXAMPLES_SONNET_DIR):
+                for d in sorted(os.listdir(EXAMPLES_SONNET_DIR)):
+                    full = os.path.join(EXAMPLES_SONNET_DIR, d)
+                    if os.path.isdir(full) and os.path.exists(os.path.join(full, "task.yaml")):
+                        sonnet_ex_dirs.append(full)
+
+            if batch_task_dirs and sonnet_ex_dirs:
+                try:
+                    gen_metrics = analyze_generated(batch_task_dirs)
+                    ex_metrics = analyze_generated(sonnet_ex_dirs)
+                    if gen_metrics and ex_metrics:
+                        cmp = compare(ex_metrics, gen_metrics)
+                        metric_labels = {
+                            "instruction_length": "Instruction length (chars)",
+                            "solution_lines": "Solution lines",
+                            "test_lines": "Test file lines",
+                            "test_count": "Test count",
+                            "source_file_count": "Source files",
+                        }
+                        rows = []
+                        for key, label in metric_labels.items():
+                            if key in cmp:
+                                c = cmp[key]
+                                ex_s = c.get("examples", {})
+                                gen_s = c.get("generated", {})
+                                delta = c.get("delta_mean")
+                                rows.append({
+                                    "Metric": label,
+                                    "Examples (mean)": f"{ex_s.get('mean', 'N/A')}  ({ex_s.get('min', '?')}–{ex_s.get('max', '?')})" if ex_s.get("mean") is not None else "N/A",
+                                    "Generated (mean)": f"{gen_s.get('mean', 'N/A')}  ({gen_s.get('min', '?')}–{gen_s.get('max', '?')})" if gen_s.get("mean") is not None else "N/A",
+                                    "Δ mean": f"{delta:+.1f}" if delta is not None else "N/A",
+                                })
+                        if rows:
+                            import pandas as pd
+                            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                        # Outliers
+                        outliers = cmp.get("outliers", [])
+                        if outliers:
+                            with st.expander(f"Outlier tasks ({len(outliers)} flags)"):
+                                for o in outliers:
+                                    st.caption(
+                                        f"**{o['task']}**: {o['metric']} = {o['value']} "
+                                        f"(baseline range {o['example_range'][0]}–{o['example_range'][1]})"
+                                    )
+                        else:
+                            st.caption("✓ All generated tasks within example structural range")
+                except Exception as e:
+                    st.caption(f"Quality comparison unavailable: {e}")
+            elif not sonnet_ex_dirs:
+                st.caption("No examples-sonnet/ baseline tasks found")
+            else:
+                st.caption("No current-batch task directories available yet")
 
 
 # ── Main ──
