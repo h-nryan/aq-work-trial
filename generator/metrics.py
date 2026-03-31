@@ -41,7 +41,8 @@ def _load_batch_results(output_dir: str) -> list[dict]:
         results = []
         if report:
             try:
-                data = json.load(open(report[0]))
+                with open(report[0]) as f:
+                    data = json.load(f)
                 results = data.get("results", [])
             except (json.JSONDecodeError, KeyError):
                 pass
@@ -49,16 +50,17 @@ def _load_batch_results(output_dir: str) -> list[dict]:
             # Merge incremental data for tasks the report missed (crashed/aborted)
             if incremental:
                 incr_by_topic: dict[str, dict] = {}
-                for line in open(incremental[0]):
-                    line = line.strip()
-                    if line:
-                        try:
-                            r = json.loads(line)
-                            topic = r.get("topic")
-                            if topic and r.get("classification"):
-                                incr_by_topic[topic] = r
-                        except json.JSONDecodeError:
-                            pass
+                with open(incremental[0]) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                r = json.loads(line)
+                                topic = r.get("topic")
+                                if topic and r.get("classification"):
+                                    incr_by_topic[topic] = r
+                            except json.JSONDecodeError:
+                                pass
 
                 if incr_by_topic:
                     report_topics = {r.get("topic") for r in results}
@@ -75,13 +77,14 @@ def _load_batch_results(output_dir: str) -> list[dict]:
                             results.append(r)
 
         elif incremental:
-            for line in open(incremental[0]):
-                line = line.strip()
-                if line:
-                    try:
-                        results.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
+            with open(incremental[0]) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            results.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
 
         if results:
             batches.append({"name": batch_name, "results": results})

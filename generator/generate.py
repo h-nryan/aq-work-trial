@@ -440,7 +440,11 @@ def _write_task_files(files: dict, output_dir: str) -> None:
     files.setdefault("docker-compose.yaml", DOCKER_COMPOSE_TEMPLATE)
 
     for filepath, content in files.items():
-        full_path = os.path.join(output_dir, filepath)
+        full_path = os.path.normpath(os.path.join(output_dir, filepath))
+        # Guard against path traversal from LLM-generated file paths
+        if not full_path.startswith(os.path.normpath(output_dir) + os.sep) and full_path != os.path.normpath(output_dir):
+            print(f"  WARNING: Skipping file with path traversal: {filepath}")
+            continue
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         # Guard against LLM returning list instead of string for file content
         if isinstance(content, list):
@@ -455,7 +459,7 @@ def _write_task_files(files: dict, output_dir: str) -> None:
             os.chmod(full_path, 0o755)
 
 
-def _format_prompt(template: str, hint_style: str = "none") -> str:
+def _format_prompt(template: str) -> str:
     """Fill instruction rule placeholders in a system prompt template."""
     result = template.replace("{instruction_hint_rule}", INSTRUCTION_RULE["long"])
     result = result.replace("{instruction_hint_rule_short}", INSTRUCTION_RULE["short"])
@@ -466,7 +470,6 @@ def generate_task(
     topic: str,
     output_dir: str | None = None,
     model: str | None = None,
-    hint_style: str = "none",
     target_category: str | None = None,
 ) -> dict:
     """Generate a Terminal Bench task for the given topic.
@@ -475,7 +478,6 @@ def generate_task(
         topic: A short description of the task to generate.
         output_dir: Where to write the generated task files.
         model: Override the generator model.
-        hint_style: "none", "soft", or "full" — controls instruction hints.
 
     Returns:
         dict with task_dir, status, usage, and duration.
@@ -493,7 +495,7 @@ def generate_task(
     )
 
     gen_model = model or GENERATOR_MODEL
-    sys_prompt = _format_prompt(SYSTEM_PROMPT, hint_style=hint_style)
+    sys_prompt = _format_prompt(SYSTEM_PROMPT)
     user_prompt = _build_user_prompt(topic, target_category=target_category)
 
     print(f"Generating task for: {topic}")
@@ -671,7 +673,6 @@ def generate_task_solution_first(
     topic: str,
     output_dir: str | None = None,
     model: str | None = None,
-    hint_style: str = "none",
     target_category: str | None = None,
 ) -> dict:
     """Generate a task using solution-first strategy (two-phase).
@@ -761,7 +762,7 @@ def generate_task_solution_first(
 
     working_json = json.dumps({"files": working_files}, indent=2)
     phase2_prompt = PHASE2_PROMPT.format(working_json=working_json)
-    sys_prompt = _format_prompt(SYSTEM_PROMPT, hint_style=hint_style)
+    sys_prompt = _format_prompt(SYSTEM_PROMPT)
     phase2_messages = [
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": phase2_prompt},

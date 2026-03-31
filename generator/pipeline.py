@@ -37,7 +37,6 @@ def _write_status(task_dir: str, stage: str, detail: str = "", **extra) -> None:
 
     The dashboard reads _status.json to show real-time pipeline progress.
     """
-    import json as _json
     from datetime import datetime
     status = {
         "stage": stage,
@@ -48,9 +47,9 @@ def _write_status(task_dir: str, stage: str, detail: str = "", **extra) -> None:
     try:
         os.makedirs(task_dir, exist_ok=True)
         with open(os.path.join(task_dir, "_status.json"), "w") as f:
-            _json.dump(status, f)
+            json.dump(status, f)
     except Exception as e:
-        print(f"  WARNING: Failed to write status to {task_dir}: {e}", file=__import__('sys').stderr)
+        print(f"  WARNING: Failed to write status to {task_dir}: {e}", file=sys.stderr)
 
 
 def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None:
@@ -59,8 +58,6 @@ def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None
     Creates validation_attempt_{N}.json in the task dir with the full
     validation result (issues, execution times, phase details) for debugging.
     """
-    import json as _json
-
     log_path = os.path.join(task_dir, f"validation_attempt_{attempt}.json")
     try:
         # Extract the most useful debugging info
@@ -79,7 +76,7 @@ def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None
         if details:
             log_data["details"] = details
         with open(log_path, "w") as f:
-            _json.dump(log_data, f, indent=2, default=str)
+            json.dump(log_data, f, indent=2, default=str)
     except Exception:
         pass  # Non-critical
 
@@ -101,7 +98,8 @@ def _source_file_hash(task_dir: str) -> str:
                 continue
             fpath = os.path.join(root, fname)
             try:
-                h.update(open(fpath, "rb").read())
+                with open(fpath, "rb") as f:
+                    h.update(f.read())
             except OSError:
                 pass
     return h.hexdigest()[:16]
@@ -116,7 +114,8 @@ def _source_file_words(task_dir: str) -> set[str]:
                 continue
             fpath = os.path.join(root, fname)
             try:
-                words.update(open(fpath).read().split())
+                with open(fpath) as f:
+                    words.update(f.read().split())
             except (OSError, UnicodeDecodeError):
                 pass
     return words
@@ -395,7 +394,6 @@ def run_pipeline(
     model: str | None = None,
     solution_first: bool = True,
     include_haiku: bool = False,
-    hint_style: str = "none",
     target_category: str | None = None,
 ) -> dict:
     """Run the full pipeline for a single topic.
@@ -411,7 +409,6 @@ def run_pipeline(
         solution_first: If True, use two-phase generation (write working
             code first, then introduce bugs). Higher functional validation
             pass rate but uses 2 API calls.
-        hint_style: "none", "soft", or "full" — controls instruction hints.
 
     Returns:
         dict with all stage results and final classification.
@@ -449,12 +446,12 @@ def run_pipeline(
         if solution_first:
             gen_result = generate_task_solution_first(
                 topic, output_dir=output_dir, model=model,
-                hint_style=hint_style, target_category=target_category,
+                target_category=target_category,
             )
         else:
             gen_result = generate_task(
                 topic, output_dir=output_dir, model=model,
-                hint_style=hint_style, target_category=target_category,
+                target_category=target_category,
             )
     except Exception as e:
         task_dir = output_dir or ""
