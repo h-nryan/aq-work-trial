@@ -360,133 +360,161 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 
 **Harness compatibility** (`generate.py`) — Auto-injects `docker-compose.yaml` and requires `tmux asciinema` in every Dockerfile. Root cause of all early 0/5 results was infrastructure, not difficulty.
 
-### Evaluation — Stretch Goal A
+---
 
-**Tiered evaluation** (`evaluate.py`) — Progressive filtering through cheaper models:
-- **Tier 1: Haiku ×5** (~$0.05-0.25) — skip if ≥ 4/5 pass (definitely too easy for Opus)
-- **Tier 2: Sonnet ×5** (~$0.30-1.00) — skip if ≥ 4/5 pass (very likely too easy for Opus)
-- **Tier 3: Opus ×5** (~$2-5.00) — final classification: learnable (1-3/5), too_easy (4-5/5), too_hard (0/5)
-- *Design decision*: Model capability ordering (Haiku < Sonnet < Opus) means if a weaker model finds it easy, a stronger one definitely will. Filter from the "too easy" side cheaply.
+## Design History
 
-**Opus early stopping with hybrid parallelism** — First 3 Opus runs execute in parallel for speed. If classification is determined (e.g., 0/3 → too_hard, 3/3 → too_easy), stop. Otherwise run attempts 4-5 sequentially with early-stop checks. Saves ~$0.40-1.00 per skipped run; most tasks classify after 3 parallel runs.
+The sections below tell the story of how the pipeline evolved — each major decision backed by batch data, each new capability motivated by a concrete failure mode discovered in production.
 
-**Haiku filter disabled by default** — Haiku scored 0/5 on every task tested, including the trivially easy config-manifest-validator (Opus 5/5, Sonnet 3/3). The terminus-1 agent with Haiku via OpenRouter is too weak to solve anything through the harness, making the tier pure overhead (5 API calls + 5 Docker runs returning 0/5). Now opt-in via `--include-haiku`. The evaluation pipeline goes Sonnet → Opus by default.
+---
 
-**Early stopping on all tiers** — The hybrid parallel+sequential early-stop strategy applies to Sonnet filter and Opus eval tiers (and Haiku if enabled). For filters, the decision is simpler (skip vs proceed): after 3 parallel runs, if passes + remaining < threshold → proceed immediately.
+### Chapter 1: Getting the Harness Running
 
-**`--solution-first` in batch CLI** — Batch runs now support `--solution-first` flag, passing it through to each `run_pipeline` call. Kept as a flag (not default) to allow A/B comparison of generation strategies on learnable yield.
+**Starting point** — The Terminal Bench harness was non-functional out of the box. All early evaluation results returned 0/5 for every task, including the trivially easy `config-manifest-validator` (which Opus later solved 5/5). The root cause was infrastructure, not task difficulty.
 
-**Sonnet filter tuning** — Increased from 3 runs / threshold 3 to 5 runs / threshold 4. A 70% true solve rate has 34% chance of 3/3 but only 17% chance of 4+/5, reducing false positives.
+**Fixes required** — Missing prompt templates (`terminus.txt`, `timeout.txt`, `formatted-response.txt`); missing `add_anthropic_caching()`, `AsciinemaHandler`, `get-asciinema-timestamp.sh` implementations; `docker-compose.yaml` and `tmux asciinema` missing from all 6 example Dockerfiles; JSON extraction fallback in `terminus_1.py` for OpenRouter response format differences; `openrouter/` prefix required on all model names for litellm routing.
 
-### Difficulty Tuning — Stretch Goal B
+**Lesson** — Before any evaluation results can be trusted, the evaluation infrastructure itself must be verified end-to-end. The first working agent run took longer to achieve than expected because each layer (harness → Docker → API routing → model) had independent failure modes that were invisible until the layer below it was fixed.
 
-**Difficulty adjustment loop** (`generate.py`, `pipeline.py`) — After evaluation, if task is too_hard or too_easy, adjusts and re-evaluates (up to 2 rounds):
-- **too_hard**: Remove 1-2 bugs, make remaining more discoverable
-- **too_easy**: Add subtle interacting bugs, misleading symptoms
-- Re-validates functionally after each adjustment before re-evaluating (validation is one Docker run vs. 5+ Opus agent runs)
-- **Backup/restore on adjustment failure**: Task files are backed up before each adjustment. If the adjusted version fails validation, the backup is restored and the original classification is preserved. Previously, failed adjustments destroyed working (but wrong-difficulty) tasks.
-- *Design decision*: Full file replacement, not targeted repair — difficulty changes affect the relationship between source, tests, and solution.
+---
 
-### Post-Classification Analysis — Stretch Goal E
+### Chapter 2: First Tasks, Low Yield (~20% functional pass rate)
 
-**Analysis module** (`analyze.py`) — Extracts features from classified tasks and identifies patterns that correlate with learnability. Feature extraction:
-- **Bug type taxonomy**: Classifies diff hunks into categories (off_by_one, wrong_operator, wrong_variable, wrong_constant, missing_edge_case, missing_code, extra_code, logic_change) using heuristic pattern matching on the diff.
-- **Test diagnostic quality**: AST-based analysis of test files — counts tests, assertion types (equality, membership, type_check), docstrings, descriptive names, average assertions per test.
-- **Code structure**: Function/class count, max nesting depth, import count, LOC, language detection.
-- **Instruction specificity**: Word count, mentions of files/functions/bugs, specificity score (low/medium/high).
-- **Diff locality**: Spread ratio (0=clustered, 1=spread), gap distances between hunks.
-- **Cross-group pattern analysis**: Compares averages across classification groups and generates actionable findings ("too-hard tasks average 8 bugs vs 3 for learnable").
-- CLI: `python3.12 generator/analyze.py --learnable <dirs> --too-hard <dirs>` or `--batch-report <json>`
+**Problem** — Single-phase generation (write broken code and its fix simultaneously) produced tasks with ~20% functional validation pass rate. Most failures were caused by Phase 1/Phase 2 mismatches: the LLM would write broken code but then write a solution that fixed a different bug than the one in the broken code, or write tests that expected data not present in the task files.
 
-### Streamlit Dashboard (`dashboard.py`)
+**Solution: solution-first two-phase generation** — Phase 1 writes a complete, working program with passing tests (temperature 0.5 for correctness). Phase 2 introduces 3-5 interacting bugs into the source files (temperature 0.7 for creativity). The Phase 1 working code becomes `solution.sh`. This separates two individually-manageable tasks instead of combining them into one hard task. Functional validation pass rate improved substantially.
 
-Live UI for monitoring and controlling the pipeline:
-- **Overview**: Metric cards, pipeline funnel with progress bars, per-batch table
-- **Learnable Tasks**: Inventory with Opus pass rates
-- **Exemplar Browser**: Browse hand-crafted, Opus, and Sonnet examples with bug annotations
-- **Live Status**: Running batch/eval processes, in-progress batch progress
-- **Launch Batch**: UI controls for n_tasks, concurrency, seed, solution-first, prompt variant, hint style
-- Active vs completed batch separation — running batches shown prominently with progress bars, completed collapsed
-- Auto-refresh toggle for monitoring active runs
-- Usage: `streamlit run dashboard.py`
+**Supporting infrastructure built alongside:**
+- Docker base image (`tbench-base:latest`) pre-installs all common deps. Per-task Docker builds dropped from 60-280s to <1s, making concurrency of 12 feasible. Motivated by batch 12 where 12/12 tasks failed from build timeouts caused by simultaneous `apt-get update` across all threads.
+- `run-tests.sh` rewriting strips redundant apt-get/uv installs that were causing 48 simultaneous `apt-get update` calls at batch scale.
+- Targeted repair: on validation failure, analyze feedback and repair only broken files — `solution.sh` for solution failures, source files for test failures, Dockerfile for build failures. Full-rebuild retries caused whack-a-mole. Targeted repair cut retry cost ~80%.
+- Structural validator extended with diff analysis: flags too many bugs (>8 hunks), too few bugs (<2 hunks), multi-file changes, oversized diffs (>80 lines), and high LOC (>200). All thresholds calibrated against confirmed learnable and confirmed too-hard examples.
 
-### Pipeline Metrics — Part 3
+---
 
-**Metrics dashboard** (`metrics.py`) — Aggregates results across all batches:
-- Pipeline funnel visualization (attempted → generated → structural → functional → evaluated → learnable)
-- Per-batch breakdown table with functional/learnable/too-easy/too-hard counts
-- Learnable task inventory with Opus pass rates
-- Cost (generation tokens) and time totals
-- HTML dashboard (`--html report.html`) with styled cards, funnel, and tables
-- JSON export for programmatic consumption
-- Current state: 9 batches, 36 tasks, 3 learnable (8% overall yield, 25% of evaluated)
+### Chapter 3: All Tasks Too Hard — Prompt Calibration from Batch Data
 
-### Diversity Analysis — Stretch Goal C
+**Problem** — Early batches had near-zero learnable yield. The first learnable task was produced in batch 5 (template engine, eventually confirmed via manual inspection). Most tasks were 0/5 for Opus — not because the topics were wrong, but because of structural patterns in how Sonnet generated them.
 
-**Diversity module** (`diversity.py`) — Analyzes batch reports for:
-- Category coverage (fraction of 6 categories present) and evenness (Shannon entropy)
-- Language distribution
-- Near-duplicate detection (Jaccard similarity on topic word sets, threshold 0.7)
-- CLI: `python3.12 generator/diversity.py <batch-report.json>`
+**Root-cause analysis of batch 17** — Compared the few learnable tasks against the many too-hard ones. Finding: task *structure* predicts Opus success better than topic domain. Too-hard tasks shared patterns: cascading bugs (Bug A must be fixed before Bug B is diagnosable), all-or-nothing test design (one bug breaks all tests, leaving no debugging signal), and large source files (>200 lines that an agent can't fully read in 6 minutes).
 
-**Topic/prompt bank** (`prompts.py`) — 52 structured topics with category, difficulty, language metadata. Round-robin selection (`select_topics(diverse=True)`) maximizes coverage per batch. `EXCLUDED_CATEGORIES` filters out categories where Sonnet consistently fails to generate valid tasks: system-administration (0% functional pass rate), software-engineering (25%), and data-processing (33%). Remaining 26 topics across debugging, networking, and build-systems.
+**Data-driven prompt changes:**
+- Capped at 3-4 bugs (was 3-5) — 5+ bugs consistently produced Opus 0/5
+- Bugs must be independently discoverable from test output — banned cascading failures
+- Each bug should break 1-2 tests, not all tests — partial credit gives the agent debugging signal
+- Single source file ≤150 lines — agent must read and understand the full codebase in ~1 minute
+- "Architectural" bugs preferred over token-change bugs (wrong operator, off-by-one) — but softened to "mix of simple + subtle" after data showed learnable tasks actually included simple bugs
+- Instructions describe program behavior, not bug locations — hints made tasks too easy (Sonnet solved 1/2 on hinted variant)
+- 5-7 tests per task (was unbounded) — high test counts punish formatting differences rather than bug-finding
 
-### Human-Likeness Comparison — Stretch Goal D
+**Example curation** — Three-way classification of examples: positive (learnable, show as target), negative (too-easy, show as anti-target), too-hard (excluded entirely with annotations of *why* they're too hard). `_bugs.md` annotation files describe each bug's subtlety level (LOW/MODERATE/HIGH), test-to-bug mapping, and patterns to avoid. Scoring by pass rate closeness to ideal (40-60%) ensures solidly learnable examples, not borderline ones.
 
-**Quality comparison** (`quality.py`) — Compares generated tasks against hand-crafted examples using structural metrics (instruction length, test count, file count, Dockerfile checks). Outlier detection flags tasks outside example range by > 50%.
-- CLI: `python3.12 generator/quality.py <task_dir_or_output_dir>`
+**A/B prompt testing** — Infrastructure built for comparing Variant A (verbose constraints) vs Variant B (example-driven, trimmed). Variant B tested once in batch 5, never adopted. Variant A retained exclusively; dead Variant B code removed.
 
-**Limitation: thin hand-crafted baseline** — A rigorous human-likeness comparison requires enough hand-crafted examples to establish a meaningful statistical baseline. The `examples/` directory has 6 tasks, of which 4 are too-hard (coordinate-transform, flask-api, log-rotation-analyzer, maven) and only 1 is confirmed learnable (csv-to-json). A proper comparison of "does the generated task look like a human-written task" would require writing more learnable examples by hand — perhaps 10-20, covering all 6 categories. This was deprioritized in favour of pipeline development (functional correctness, difficulty calibration, reliability) given time constraints. Goal D is implemented and functional, but its conclusions are limited by the quality and diversity of the hand-crafted baseline.
+---
 
-### Batch Infrastructure
+### Chapter 4: Evaluation Cost — Stretch Goal A
 
-**Batch runner** (`batch.py`) — Orchestrates generation, validation, and evaluation for multiple tasks:
-- `--n-concurrent N` for parallel task execution (thread-safe incremental JSONL writes)
-- `--resume [BATCH_ID_OR_PATH]` to pick up interrupted batches (meta file preserves original topic list)
-- Pre-flight checks: API key, Docker daemon, `tb` CLI, output dir writable, disk space
-- Pipeline funnel report with yield metric (learnable/attempted)
-- Cost estimation from token counts (Sonnet, Haiku, Opus rates)
-- Error categorization by failed stage (generation, structural, functional, evaluation)
-- `--seed` for reproducible prompt bank selection
+**Problem** — Running 5 Opus trials on every task cost ~$2-5 per task. With a 20-task batch, that's $40-100 just for evaluation, before accounting for tasks that would be filtered out cheaply.
 
-**Crash safety** — Incremental JSONL appends (not full-array rewrites) preserve completed results. `threading.Lock` prevents byte-interleaving under concurrent writes. Worker count capped to `min(n_concurrent, remaining)`.
+**Insight** — Model capability is monotonic: Haiku < Sonnet < Opus. If a weaker model finds a task easy (high pass rate), a stronger model definitely will too. Filter from the "too easy" side cheaply before spending on Opus.
 
-### Harness Fixes
+**Tiered evaluation** (`evaluate.py`):
+- Tier 1: Haiku ×5 (~$0.05) — skip to Opus if ≥ 4/5 pass. **Disabled by default** after data showed Haiku scored 0/5 on every task, including `config-manifest-validator` (Opus 5/5). Terminus-1 with Haiku via OpenRouter is too weak to solve anything in the harness — the tier was pure overhead. Now opt-in via `--include-haiku`.
+- Tier 2: Sonnet ×5 (~$0.30-1.00) — skip to Opus if ≥ 3/5 pass. Skip threshold tuned from 4 to 3: cross-batch data shows Opus consistently scores ≥ Sonnet; a Sonnet-3/5 task is almost certainly Opus-4+/5 (too easy).
+- Tier 3: Opus ×5 (~$2-5) — final ground truth classification: learnable (1-3/5), too_easy (4-5/5), too_hard (0/5)
 
-The `tb` harness was non-functional out of the box — all early evaluation results were infrastructure failures. Fixes required to get the first successful agent run:
-- Created missing prompt templates (`terminus.txt`, `timeout.txt`, `formatted-response.txt`)
-- Implemented missing `add_anthropic_caching()`, `AsciinemaHandler`, `get-asciinema-timestamp.sh`
-- Added `docker-compose.yaml` and `tmux asciinema` to all 6 example Dockerfiles
-- JSON extraction fallback in `terminus_1.py` for OpenRouter responses
-- Auto-prefix `openrouter/` on model names for litellm routing
+**Early stopping with hybrid parallelism** — First 3 Opus runs execute in parallel. If classification is determined (0/3 → too_hard, 3/3 → too_easy), stop immediately. Otherwise run attempts 4-5 with early-stop checks. Saves ~$0.40-1.00 per skipped Opus run; most tasks classify after 3.
 
-### Bug Fixes
+**Early adjustment on clear too-hard signal** — After 0/3 parallel Opus runs AND average test pass rate < 30%, adjust difficulty immediately rather than wasting 2 more Opus runs on clearly-broken tasks. Test pass rate (% of individual tests passed, not % of full passes) is the key signal: a task where Opus fixes 5/7 tests consistently needs a small nudge; a task where Opus fixes 0/7 tests needs aggressive adjustment.
 
-- **Slug generation**: Commas in topics produced invalid Docker tags. Fixed with character stripping + word-boundary truncation + SHA-256 hash suffix for collision safety.
-- **config-manifest-validator example**: Instruction said "manifest.txt" but tests checked "hello.txt" — appeared impossibly hard when it was actually a bug in the example.
-- **Timeout as valid failure**: Docker validator now accepts test timeout without solution as a valid failure mode (buggy code may hang due to infinite loops, deadlocks, or memory corruption). Previously blocked promotion of tasks like the C linked list exemplar where buggy code hangs but solution runs cleanly.
-- **Evaluation path resolution**: `evaluate.py` resolved paths relative to cwd instead of repo root.
-- **Stale resource cleanup**: `cleanup_stale_resources()` runs before each `_run_tb` call, killing both Docker containers and orphaned processes older than 20 minutes. The `tb` harness has a 6-minute agent timeout but doesn't always clean up containers or its own process tree when it fires. Three layers of cleanup: (1) stale Docker containers, (2) stale `tb run` processes stuck on dead containers, (3) orphaned parent evaluator processes (`python -c "from evaluate import..."`) waiting on dead children.
-- **Targeted container kill on timeout**: When `_run_tb` hits `TimeoutExpired`, `_kill_containers_for_task(task_id)` immediately kills all containers matching the task — instead of relying on the age-based stale cleanup to catch them 20 minutes later. Root cause of persistent zombie containers: the `tb run` subprocess gets killed by the timeout, but its child Docker containers keep running with no parent to collect them.
-- **atexit cleanup in batch runner**: `batch.py` registers an `atexit` handler that calls `cleanup_stale_resources(max_age_sec=60)` on exit. Catches orphaned containers when the batch process itself crashes, gets killed, or finishes normally — previously, zombies persisted until the next batch started.
-- **Docker network cleanup**: `_cleanup_stale_networks()` removes orphaned Docker networks after containers are killed. `docker-compose` creates a network per task; if the container is killed without `docker-compose down`, the network leaks. Enough leaked networks exhaust Docker's address pool and block new runs. Safe: `docker network rm` only succeeds for networks with no connected containers.
-- **Evaluation run cleanup**: `_run_tb` now removes run artifact directories after parsing results. All pass/fail data is captured in the return dict; the raw trial files under `runs/` were pure waste.
-- **Docker build failures now retried**: Bad generated Dockerfiles (e.g., conflicting packages like `systemctl` vs `systemd`) are now retried with a `dockerfile_only` repair target that only sends the Dockerfile + error (not the full task). Only true environment errors (Docker not available, disk full, permission denied) skip retries.
-- **Targeted repair context**: Dockerfile repairs send only the Dockerfile. Solution and source repairs send full task context (needed to understand file relationships).
-- **API retry**: Exponential backoff (3 attempts, 5/10/20s) for transient OpenRouter failures. No retry on auth errors.
-- **Phase 1/2 parse retry**: Both solution-first phases now retry the API call up to 3 times when the response is unparseable JSON, instead of failing immediately.
+---
 
-- **Trial data preservation**: `_parse_run_results` now captures agent timing (`agent_started_at/ended_at`), test pass counts (`tests_passed/total`), and token usage before cleanup deletes the raw files. Enables analysis of agent behavior on too-hard tasks without disabling cleanup.
+### Chapter 5: Difficulty Adjustment — Stretch Goal B
 
-### Code Quality
+**Problem** — Even well-structured tasks landed in the wrong difficulty band ~60% of the time. Discarding all off-target tasks wastes the generation cost already spent on them.
 
-- `X | None` syntax throughout (not `Optional[X]`)
-- Narrowed `except Exception` to specific types
-- `_slugify` in dependency-free `config.py`; `batch_io.py` for resume helpers (no openai/pydantic chain)
-- End-to-end integration test (`test_pipeline_e2e.py`) — 15 tests exercising the full `run_pipeline` flow (generate → structural → functional → evaluate) with mocked API/Docker. Covers happy path, solution-first strategy, generation failure, structural/functional retry, infrastructure error detection, difficulty adjustment loop, and regeneration failure.
-- Generator unit tests (`test_generate.py`) — 26 new tests for `_parse_response` (JSON parsing edge cases, markdown fences, embedded backticks), `_load_examples` (three-way classification, opus examples), and `_slugify` (special chars, truncation, hash suffix).
-- Evaluate tests (`test_evaluate.py`) — 32 tests covering stale resource cleanup, result parsing, filter tier early stopping, full evaluate_task orchestration (Haiku/Sonnet filtering, Opus classification, skip_filters, default skip_haiku), and _build_result.
-- 302 tests across 14 modules (~5s, no Docker/API calls). Tests use `tmp_path` fixtures with synthetic tasks.
+**Surgical adjustment** (`adjust_difficulty()` in `generate.py`) — Replaced full-regeneration (which caused 5/5 adjusted tasks to still be 0% in batch 17) with constrained string-replacement edits. Sonnet picks one operation from a menu:
+- **too_hard (0 tests passing, aggressive mode)**: simplify the hardest bug + add comments near all bugs + improve instruction + remove a test
+- **too_hard (close, ≥30% test rate)**: surgical single-operation — `remove_bug`, `add_hints`, or `simplify_bug`
+- **too_easy**: `add_bug`, `make_subtler`, or `remove_hints`
+
+Each edit uses exact `old → new` string replacement on existing files. No file renames, no restructuring, no test rewrites. Backup/restore on failure: `.pre_adj{N}/` directories preserve the pre-adjustment state. If the adjusted version fails functional validation, the backup is restored and the original classification is preserved.
+
+**Overshoot handling** — If a task oscillates (too_hard → adjusted → too_easy), the second adjustment prompt includes the full history: "This was previously too_hard and your last adjustment made it too_easy. Find the MIDDLE GROUND." Prevents blind over-correction on round 2.
+
+**Result: batch 22, 75% learnable yield** — 9/12 tasks learnable, 5 of those via difficulty adjustment. Best batch produced. First confirmed adjustment→learnable conversions. Previously excluded topics (bash quoting, DNS resolver, SQLite migration, monitoring script) returned to the pool after confirming adjustment can recover them.
+
+---
+
+### Chapter 6: Scale and Reliability
+
+Once the pipeline worked on single tasks, running 10-20 concurrently exposed a new class of infrastructure failures.
+
+**Docker resource leaks** — The `tb` harness doesn't always clean up containers, networks, or process trees when it times out. Three-layer cleanup: (1) kill stale Docker containers (>20 min old), (2) kill stale `tb run` processes stuck on dead containers, (3) kill orphaned evaluator parent processes waiting on dead children. Docker network cleanup added separately — `docker-compose` creates a network per task; enough leaked networks exhaust Docker's address pool. `atexit` handler in batch runner catches zombies on crash or normal exit.
+
+**Crash-safe batch reports** — Batch runs now always write a report on exit, even on crash (OOM, KeyboardInterrupt, credit exhaustion). JSONL incremental appends with `flush()` + `fsync()` prevent data loss between write and OS flush. Metrics loader merges incremental results into crashed-batch reports — batch 5's learnable template engine task was invisible until this was added.
+
+**Timeout scaling fix** — Subprocess timeout was `timeout_sec × n_attempts` (e.g., 75 min for 5 trials). But `tb run` with `--n-concurrent 4` runs in ceil(n/4) waves, not n sequential trials. Actual wall time is 2 waves × 15 min = 30 min, not 75 min. Fixed: `ceil(n_attempts / min(n, 4)) × timeout_sec`. The old formula was 2-5× too large, masking genuinely hung runs.
+
+**API timeout fix** — Replaced blunt `timeout=120` total-request timeout with `httpx.Timeout(connect=10, read=30, write=10, pool=5)`. The `read=30` fires only when no bytes arrive for 30s, so a legitimate slow generation keeps streaming while a TCP socket stalled by OpenRouter waiting for capacity is detected and retried.
+
+**Token-rate-limit fix** — OpenRouter's per-model token-rate-limit bucket depletes by `max_tokens` reservation, not actual output. Reduced `max_tokens` from 32000 → 8192 (generation) and 16000 → 4096 (repair/adjustment), closely matching observed typical outputs of ~4700 and ~400-500 tokens respectively. This resolved mid-batch 402 errors as the bucket depleted.
+
+**Retry hardening** — API exponential backoff (3 attempts, 5/10/20s); Docker build retries on transient daemon errors; `tb run` subprocess retries on connection refused or timeout; Phase 1/2 JSON parse retries up to 3× on unparseable responses. Every error path either retries with context or logs diagnostics — no silent abandonment.
+
+---
+
+### Chapter 7: Diversity Analysis — Stretch Goal C
+
+**Problem** — Without explicit controls, batches would converge on the same categories and topics, producing a task bank without coverage breadth.
+
+**Diversity module** (`diversity.py`) — Analyzes batch reports for category coverage (% of 6 categories present), evenness (normalized Shannon entropy, 0=all one category, 1=perfectly uniform), language distribution, and near-duplicate detection (Jaccard similarity on topic word sets, threshold 0.7).
+
+**Topic/prompt bank** (`prompts.py`) — 52 structured topics with category, difficulty, and language metadata. Round-robin selection (`select_topics(diverse=True)`) maximizes coverage per batch. Excluded topics with 0% functional validation pass rate (server-based, concurrency, Node.js, Docker-in-Docker, /proc/systemd) and topics that violate pipeline constraints. Active pool: ~28 topics across debugging, networking, and build-systems.
+
+**Content-based deduplication** — Auto-promotion to `examples-sonnet/` now hashes all source files (excluding infrastructure) and rejects byte-identical content regardless of directory name. Topic-based dedup incorrectly rejected diverse implementations of the same topic (4/5 same-topic pairs had 14-36% Jaccard similarity with genuinely different code).
+
+**Same-topic example priority** — `select_examples()` guarantees that if a learnable example already exists for the current topic, it's included first in the few-shot context before category diversity selection. Previously the setup.py topic generated a poor task in batch 27 despite having a learnable example from batch 22 — the scoring algorithm ranked other build-systems examples higher by token efficiency.
+
+---
+
+### Chapter 8: Human-Likeness Comparison — Stretch Goal D
+
+**Quality comparison** (`quality.py`) — Compares generated tasks against hand-crafted examples on structural metrics: instruction length, solution line count, test line count, test function count, total file count, source file count, and Dockerfile checks. Per-metric outlier detection flags generated tasks outside the example range by >50%.
+
+**Post-classification analysis** (`analyze.py`) — Extracts features from classified tasks and identifies structural patterns correlated with learnability: bug type taxonomy (off_by_one, wrong_operator, wrong_variable, wrong_constant, missing_code, extra_code, logic_change), test diagnostic quality (assertion types, avg assertions per test, descriptive names), code structure (LOC, function/class count, max nesting depth), instruction specificity (word count, file/function/bug mentions), and diff locality (spread ratio, gap distances between hunks).
+
+**Limitation: thin hand-crafted baseline** — A rigorous human-likeness comparison requires enough hand-crafted examples to establish a meaningful statistical baseline. The `examples/` directory has 6 tasks, of which 4 are too-hard and only 1 is confirmed learnable (csv-to-json). Writing 10-20 learnable examples by hand — covering all 6 categories — was deprioritized in favour of pipeline development (functional correctness, difficulty calibration, reliability). Goal D is implemented and functional, but its conclusions are limited by the quality and diversity of the hand-crafted baseline. This is the right next investment if human-likeness is the primary evaluation criterion.
+
+---
+
+### Chapter 9: Dashboard
+
+**Streamlit dashboard** (`dashboard.py`) — Live monitoring and debugging UI. Key design: per-task colour-coded pipeline rows (generate → structural → functional → Sonnet filter → Opus eval), expandable detail views, real-time polling via `_status.json` files, and durability via persisted eval scores that survive run artifact cleanup.
+
+**Key problems the dashboard surfaced and fixed:**
+- Spurious eval rows before any trials completed (batch-level dicts appended as trial dicts)
+- "..." shown for completed tasks (broken `runs/` fallback reading wrong path)
+- 0/3 shown on learnable adjusted tasks (JSONL retained pre-adjustment scores; overridden from `_status.json` + `_meta.yaml`)
+- "too hard" shown for post-adjustment in-progress tasks on round 2 (replaced `passes == 0` heuristic with `adj_trigger` from latest `_adj_snapshot.json`)
+- Green Opus cell for still-evaluating post-adjustment tasks (added `is_adjusting and classification is None` → `stage-active`)
+
+**Metrics surfaces:**
+- Top cards: Total / Done / Learnable / Too Hard / Too Easy / Failed
+- Cost cards: Generation cost (Sonnet tokens, fully accurate) / Opus eval cost (underestimated ~3× due to known harness token-logging issue, not fixed — harness is intentionally left unchanged) / Cost per learnable task
+- Per-task cost breakdown in detail view
+- All-time: Learnable yield % per batch, cost per learnable per batch, category diversity chart
+
+---
+
+### Chapter 10: Test Coverage
+
+302 tests across 14 modules (~5s, no Docker/API calls):
+- **`test_pipeline_e2e.py`** (15 tests) — full `run_pipeline` flow with mocked API/Docker: happy path, solution-first, generation failure, structural/functional retry, infrastructure error detection, adjustment loop, regeneration failure
+- **`test_generate.py`** (26 tests) — `_parse_response` JSON edge cases, `_load_examples` three-way classification, `_slugify` special chars/truncation/hash
+- **`test_evaluate.py`** (32 tests) — stale cleanup, result parsing, filter tier early stopping, full `evaluate_task` orchestration
+- Content deduplication test verifies `examples-sonnet/` has no byte-identical tasks
 
 ### Scripts
 
