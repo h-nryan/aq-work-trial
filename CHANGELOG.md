@@ -84,7 +84,9 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Exclude same-topic examples from prompt** (`generate.py`) — Reverted the same-topic priority (Phase 0) and replaced with exclusion. Batch 27 analysis showed that including same-topic examples caused Sonnet to copy them verbatim: 5/11 tasks were byte-identical to existing examples, and 2 more had 85-99% Jaccard similarity. Now `select_examples` filters out any candidate whose `topic` matches `target_topic`, forcing Sonnet to generate fresh implementations. Other examples from the same category still provide format and difficulty calibration.
 
-**Pre-eval content dedup** (`pipeline.py`) — After functional validation passes but before expensive Opus eval, hashes the task's source files and compares against all existing `examples-sonnet/` tasks. If content-identical to an existing example, skips eval entirely (`status=duplicate`) and saves the Opus budget. This catches cases where Sonnet regenerates the same code despite the topic exclusion.
+**Jaccard similarity threshold for dedup** (`pipeline.py`) — Exact hash match only caught byte-identical tasks, missing near-duplicates (batch 27 had tasks at 85% and 99% Jaccard). Added `_jaccard_similarity()` and `_find_similar_example()` with `SIMILARITY_THRESHOLD = 0.7`. Both `_auto_promote` and the pre-eval dedup check use this — tasks above 70% similarity are rejected. Threshold chosen from batch 27 data: diverse implementations were 10-56% Jaccard, copies were 85-100%.
+
+**Pre-eval dedup triggers retry** (`pipeline.py`) — When a generated task is too similar to an existing example, it now triggers regeneration with explicit feedback ("generate a COMPLETELY DIFFERENT implementation") instead of silently skipping eval. If retries are exhausted, falls back to `status=duplicate`. This gives Sonnet a chance to produce diverse code before giving up on the task slot.
 
 ### Content-Based Task Dedup
 

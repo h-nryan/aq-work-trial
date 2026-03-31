@@ -84,19 +84,20 @@ def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None
         pass  # Non-critical
 
 
-def _source_file_hash(task_dir: str) -> str:
-    """Hash the source files of a task for content-based dedup.
+_INFRA_FILES = {"_meta.yaml", "Dockerfile", "docker-compose.yaml", "run-tests.sh",
+                "solution.sh", "task.yaml"}
 
-    Hashes all non-infrastructure files (excludes _meta.yaml, validation logs,
-    Dockerfile, docker-compose.yaml, run-tests.sh, solution.sh) sorted by name.
-    """
+# Jaccard similarity above this threshold = too similar to promote/eval
+SIMILARITY_THRESHOLD = 0.7
+
+
+def _source_file_hash(task_dir: str) -> str:
+    """Hash the source files of a task for exact-match dedup."""
     import hashlib
-    infra = {"_meta.yaml", "Dockerfile", "docker-compose.yaml", "run-tests.sh",
-             "solution.sh", "task.yaml"}
     h = hashlib.sha256()
     for root, _, files in os.walk(task_dir):
         for fname in sorted(files):
-            if fname.startswith("_") or fname.startswith("validation_") or fname in infra:
+            if fname.startswith("_") or fname.startswith("validation_") or fname in _INFRA_FILES:
                 continue
             fpath = os.path.join(root, fname)
             try:
@@ -106,11 +107,60 @@ def _source_file_hash(task_dir: str) -> str:
     return h.hexdigest()[:16]
 
 
+def _source_file_words(task_dir: str) -> set[str]:
+    """Get the set of words from source files for Jaccard similarity."""
+    words: set[str] = set()
+    for root, _, files in os.walk(task_dir):
+        for fname in sorted(files):
+            if fname.startswith("_") or fname.startswith("validation_") or fname in _INFRA_FILES:
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                words.update(open(fpath).read().split())
+            except (OSError, UnicodeDecodeError):
+                pass
+    return words
+
+
+def _jaccard_similarity(dir_a: str, dir_b: str) -> float:
+    """Compute Jaccard similarity between source files of two tasks."""
+    words_a = _source_file_words(dir_a)
+    words_b = _source_file_words(dir_b)
+    if not words_a or not words_b:
+        return 0.0
+    return len(words_a & words_b) / len(words_a | words_b)
+
+
+def _find_similar_example(task_dir: str) -> tuple[str | None, float]:
+    """Check if task is too similar to any existing example.
+
+    Returns (matching_example_name, similarity) or (None, 0.0).
+    Checks exact hash first (fast), then Jaccard similarity (slower).
+    """
+    new_hash = _source_file_hash(task_dir)
+
+    if not os.path.isdir(SONNET_EXAMPLES_DIR):
+        return None, 0.0
+
+    for existing in os.listdir(SONNET_EXAMPLES_DIR):
+        existing_path = os.path.join(SONNET_EXAMPLES_DIR, existing)
+        if not os.path.isdir(existing_path):
+            continue
+        # Fast path: exact hash match
+        if _source_file_hash(existing_path) == new_hash:
+            return existing, 1.0
+        # Slow path: Jaccard similarity
+        sim = _jaccard_similarity(task_dir, existing_path)
+        if sim >= SIMILARITY_THRESHOLD:
+            return existing, sim
+
+    return None, 0.0
+
+
 def _auto_promote(task_dir: str, result: dict) -> None:
     """Auto-promote a learnable task to examples-sonnet/.
 
-    Skips promotion if an example with identical source files already exists
-    (content-based dedup via hash). Same topic with different code is fine.
+    Skips if too similar to an existing example (Jaccard >= 0.7 or exact match).
     """
     from pathlib import Path
 
@@ -122,15 +172,10 @@ def _auto_promote(task_dir: str, result: dict) -> None:
         print(f"  [Auto-promote] Already exists: {dest}")
         return
 
-    # Content-based dedup: hash source files and compare with existing
-    new_hash = _source_file_hash(str(task_path))
-    if os.path.isdir(SONNET_EXAMPLES_DIR):
-        for existing in os.listdir(SONNET_EXAMPLES_DIR):
-            existing_path = os.path.join(SONNET_EXAMPLES_DIR, existing)
-            if os.path.isdir(existing_path):
-                if _source_file_hash(existing_path) == new_hash:
-                    print(f"  [Auto-promote] Duplicate content found: {existing}")
-                    return
+    match, sim = _find_similar_example(str(task_path))
+    if match:
+        print(f"  [Auto-promote] Too similar to existing example: {match} ({sim:.0%} similarity)")
+        return
 
     os.makedirs(SONNET_EXAMPLES_DIR, exist_ok=True)
     shutil.copytree(str(task_path), str(dest))
@@ -510,25 +555,33 @@ def run_pipeline(
         else:
             print(f"\n[Functional Validation] Skipped")
 
-        # Validation passed — break out of retry loop
-        break
-
-    # Dedup check: skip eval if this task is content-identical to an existing example.
-    # Saves expensive Opus budget on regenerated copies.
-    if not skip_eval:
-        new_hash = _source_file_hash(task_dir)
-        if os.path.isdir(SONNET_EXAMPLES_DIR):
-            for existing in os.listdir(SONNET_EXAMPLES_DIR):
-                existing_path = os.path.join(SONNET_EXAMPLES_DIR, existing)
-                if os.path.isdir(existing_path) and _source_file_hash(existing_path) == new_hash:
-                    print(f"\n[Dedup] Task is content-identical to existing example: {existing}")
-                    print(f"  Skipping eval to save Opus budget.")
-                    result["status"] = "duplicate"
+        # Dedup check: if too similar to existing example, regenerate
+        match, sim = _find_similar_example(task_dir)
+        if match:
+            print(f"\n[Dedup] Too similar to existing example: {match} ({sim:.0%})")
+            if attempt < effective_retries:
+                print(f"  Regenerating for diversity...")
+                feedback = f"Your generated task is too similar to an existing example ({match}, {sim:.0%} similarity). Generate a COMPLETELY DIFFERENT implementation — different variable names, different code structure, different bugs."
+                retry_result = regenerate_task(topic, task_dir, feedback, model=model)
+                result["stages"][f"retry_{attempt + 1}"] = retry_result
+                if retry_result["status"] != "success":
+                    result["status"] = "retry_generation_failed"
                     result["failed_stage"] = "dedup"
-                    _write_status(task_dir, "completed", "duplicate of existing example",
-                                  classification="duplicate")
+                    _write_status(task_dir, "failed", "dedup retry failed")
                     result["duration_sec"] = round(time.time() - start, 2)
                     return result
+                continue  # re-validate from structural
+            # Out of retries — skip eval to save Opus budget
+            print(f"  No retries left — skipping eval.")
+            result["status"] = "duplicate"
+            result["failed_stage"] = "dedup"
+            _write_status(task_dir, "completed", f"duplicate ({sim:.0%} similar to {match})",
+                          classification="duplicate")
+            result["duration_sec"] = round(time.time() - start, 2)
+            return result
+
+        # Validation passed + unique content — break out of retry loop
+        break
 
     # Stage 4+5+6: Tiered evaluation with difficulty adjustment loop
     #
