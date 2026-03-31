@@ -20,6 +20,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Post-adjustment in-progress cell shown correctly** (`dashboard.py`) — A task currently evaluating post-adjustment (stage=`evaluating`, no classification yet, `.pre_adj*` dir present) would render its live Opus score as green `stage-done` instead of the active/in-progress color. Added an `is_adjusting and classification is None` branch to `_render_eval_tier_cell` that renders as `stage-active` instead.
 
+**Multi-round adjustment difficulty label fixed** (`dashboard.py`) — The Opus cell for a task on its 2nd+ adjustment round showed "too hard: adjusting" even when the latest adjustment was triggered by "too easy" (because the live pass count happened to be 0). Replaced the unreliable `passes == 0` heuristic with an `adj_trigger` value read from the latest `.pre_adj*/_adj_snapshot.json`. The correct trigger classification is now threaded into `_render_eval_tier_cell` via a new `adj_trigger` parameter.
+
 ### Dashboard: Cost Summary, Funnel, Trends, and Diversity
 
 **Batch cost summary** (`dashboard.py`) — Three cost cards below the existing count cards: Generation cost (Sonnet API tokens from all generate/retry/adjustment stages), Opus eval cost (from agent token counts in trial data), and Cost per learnable task. Pricing constants: Sonnet 4.5 at $3/$15 per MTok in/out; Opus 4 at $15/$75 per MTok in/out.
