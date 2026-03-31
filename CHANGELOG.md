@@ -14,6 +14,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## Recent Changes
 
+### Fix Eval Token Tracking in Harness
+
+**Track actual API usage tokens** (`terminal_bench/llms/lite_llm.py`, `terminal_bench/llms/chat.py`) — Previously, token counts were recalculated from message history via `count_tokens()`. This returned 0 when the agent timed out or errored (no messages to count), causing ~50% of trial results to have `total_input_tokens: null`. Now accumulates actual `response.usage.prompt_tokens` and `completion_tokens` from each litellm API response. `chat.py` prefers these actual counts and falls back to recalculation only if the model doesn't report usage. This gives accurate cost tracking even for timed-out trials.
+
 ### Code Quality Audit and Fixes
 
 **Comprehensive codebase audit** — Systematic review of all Python modules, shell scripts, dashboard, validator, and test coverage. Fixes applied:

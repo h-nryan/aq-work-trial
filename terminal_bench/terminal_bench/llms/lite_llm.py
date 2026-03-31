@@ -91,6 +91,10 @@ class LiteLLM(BaseLLM):
 
         self._prompt_template = self.PROMPT_TEMPLATE_PATH.read_text()
 
+        # Actual API usage tracking (accumulated from response.usage)
+        self._actual_input_tokens = 0
+        self._actual_output_tokens = 0
+
     def _clean_value(self, value):
         match value:
             case _ if callable(value):
@@ -209,7 +213,23 @@ class LiteLLM(BaseLLM):
             )
             raise exc
 
+        # Track actual API usage tokens (more reliable than recounting from messages)
+        usage = getattr(response, "usage", None)
+        if usage:
+            self._actual_input_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            self._actual_output_tokens += getattr(usage, "completion_tokens", 0) or 0
+
         return response["choices"][0]["message"]["content"]
+
+    @property
+    def actual_input_tokens(self) -> int:
+        """Total input tokens from actual API responses (not recalculated)."""
+        return self._actual_input_tokens
+
+    @property
+    def actual_output_tokens(self) -> int:
+        """Total output tokens from actual API responses (not recalculated)."""
+        return self._actual_output_tokens
 
     def count_tokens(self, messages: list[dict]) -> int:
         return token_counter(model=self._model_name, messages=messages)
