@@ -293,8 +293,8 @@ class TestSelectExamples:
         assert "sonnet-c" in result
 
 
-    def test_same_topic_example_prioritized(self, monkeypatch, tmp_path):
-        """When target_topic matches an example, it's always included."""
+    def test_same_topic_example_excluded(self, monkeypatch, tmp_path):
+        """When target_topic matches an example, it's excluded to prevent copying."""
         examples_dir = tmp_path / "examples"
         self._make_example(examples_dir, "other-task", category="debugging",
                           tokens=2000, topic="some other topic")
@@ -306,23 +306,27 @@ class TestSelectExamples:
         monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
         result = select_examples(target_topic="fix the widget")
-        assert "matching-task" in result
+        assert "matching-task" not in result
+        assert "other-task" in result
 
-    def test_same_topic_not_duplicated(self, monkeypatch, tmp_path):
-        """Same-topic example isn't included twice (Phase 0 + Phase 1)."""
+    def test_same_topic_exclusion_other_category_still_selected(self, monkeypatch, tmp_path):
+        """Excluding same-topic doesn't prevent other examples from same category."""
         examples_dir = tmp_path / "examples"
         self._make_example(examples_dir, "match", category="debugging",
                           tokens=2000, topic="fix the widget")
-        self._make_example(examples_dir, "other", category="networking",
-                          tokens=2000, topic="other topic")
+        self._make_example(examples_dir, "other-debug", category="debugging",
+                          tokens=2000, topic="different debug topic")
+        self._make_example(examples_dir, "net-task", category="networking",
+                          tokens=2000, topic="network topic")
 
         monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
         monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
         monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
 
         result = select_examples(target_topic="fix the widget", token_budget=10000)
-        # Count occurrences — should appear exactly once
-        assert result.count("match") == 1
+        assert "match" not in result
+        assert "other-debug" in result
+        assert "net-task" in result
 
     def test_no_matching_topic_still_works(self, monkeypatch, tmp_path):
         """When no example matches the topic, selection still works normally."""

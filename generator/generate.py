@@ -217,33 +217,24 @@ def select_examples(
             elif classification == "learnable":
                 candidates.append((task_dir, meta, content))
 
-    # Phase 0: if a same-topic example exists, include it first
+    # Exclude same-topic examples to force diverse generation.
+    # Showing Sonnet the exact same topic's code causes verbatim copying
+    # (5/11 tasks in batch 27 were byte-identical to existing examples).
+    if target_topic:
+        candidates = [(td, m, c) for td, m, c in candidates if m.get("topic") != target_topic]
+
     selected = []
     selected_tokens = 0
     seen_categories = set()
+    selected_dirs: set = set()
 
-    if target_topic:
-        for td, m, c in candidates:
-            if m.get("topic") == target_topic:
-                tokens = m.get("approx_tokens", 5000)
-                if selected_tokens + tokens <= token_budget:
-                    selected.append((td, m, c))
-                    selected_tokens += tokens
-                    seen_categories.add(m.get("category", "unknown"))
-                break  # only include one same-topic example
-
-    # Sort candidates by score for each category
-    selected_dirs = {td for td, _, _ in selected}  # track already-selected (from Phase 0)
+    # Phase 1: category diversity — one example per category
     by_category: dict[str, list] = {}
     for task_dir, meta, content in candidates:
-        if task_dir in selected_dirs:
-            continue
         cat = meta.get("category", "unknown")
         by_category.setdefault(cat, []).append((task_dir, meta, content))
 
     for cat in sorted(by_category.keys()):
-        if cat in seen_categories:
-            continue  # already have one from this category (Phase 0)
         items = by_category[cat]
         items.sort(key=lambda x: _score_example(x[1], target_category), reverse=True)
         best = items[0]

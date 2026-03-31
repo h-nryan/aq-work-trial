@@ -513,6 +513,23 @@ def run_pipeline(
         # Validation passed — break out of retry loop
         break
 
+    # Dedup check: skip eval if this task is content-identical to an existing example.
+    # Saves expensive Opus budget on regenerated copies.
+    if not skip_eval:
+        new_hash = _source_file_hash(task_dir)
+        if os.path.isdir(SONNET_EXAMPLES_DIR):
+            for existing in os.listdir(SONNET_EXAMPLES_DIR):
+                existing_path = os.path.join(SONNET_EXAMPLES_DIR, existing)
+                if os.path.isdir(existing_path) and _source_file_hash(existing_path) == new_hash:
+                    print(f"\n[Dedup] Task is content-identical to existing example: {existing}")
+                    print(f"  Skipping eval to save Opus budget.")
+                    result["status"] = "duplicate"
+                    result["failed_stage"] = "dedup"
+                    _write_status(task_dir, "completed", "duplicate of existing example",
+                                  classification="duplicate")
+                    result["duration_sec"] = round(time.time() - start, 2)
+                    return result
+
     # Stage 4+5+6: Tiered evaluation with difficulty adjustment loop
     #
     # Early adjustment: after the initial 3-parallel Opus batch, if 0/3 passes

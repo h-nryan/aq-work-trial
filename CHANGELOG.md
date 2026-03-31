@@ -80,11 +80,11 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Skip Sonnet on re-eval after too_hard adjustment** (`pipeline.py`) — If a task was classified as too_hard by Opus (0-1/5 passes), the difficulty adjustment makes it easier. Re-evaluating through the Sonnet filter (5 runs) before Opus is wasteful — a task that was too hard for Opus can't be too easy for Sonnet. Now sets `skip_sonnet=True` on the `evaluate_task` call after a too_hard adjustment, going straight to Opus. Saves ~5 minutes per too_hard adjustment round. Does not apply to too_easy adjustments (which need Sonnet to verify the task is no longer trivial).
 
-### Same-Topic Example Priority in Prompt Selection
+### Exclude Same-Topic Examples, Add Pre-Eval Dedup
 
-**Prioritize same-topic examples** (`generate.py`) — `select_examples` now accepts `target_topic` and guarantees that if an existing learnable example matches the current topic, it's included first (Phase 0, before category diversity). This ensures Sonnet sees "here's what worked for this exact topic before" when regenerating a topic that already has a learnable example. Previously, the setup.py topic failed functional validation in batch 27 despite having a learnable example from batch 22 — because the scoring algorithm ranked other build-systems examples higher by token efficiency.
+**Exclude same-topic examples from prompt** (`generate.py`) — Reverted the same-topic priority (Phase 0) and replaced with exclusion. Batch 27 analysis showed that including same-topic examples caused Sonnet to copy them verbatim: 5/11 tasks were byte-identical to existing examples, and 2 more had 85-99% Jaccard similarity. Now `select_examples` filters out any candidate whose `topic` matches `target_topic`, forcing Sonnet to generate fresh implementations. Other examples from the same category still provide format and difficulty calibration.
 
-**No duplicate selection**: Phase 0 selection is tracked in `selected_dirs`, so the same example isn't picked again in Phase 1 (category diversity) or Phase 2 (fill remaining budget).
+**Pre-eval content dedup** (`pipeline.py`) — After functional validation passes but before expensive Opus eval, hashes the task's source files and compares against all existing `examples-sonnet/` tasks. If content-identical to an existing example, skips eval entirely (`status=duplicate`) and saves the Opus budget. This catches cases where Sonnet regenerates the same code despite the topic exclusion.
 
 ### Content-Based Task Dedup
 
