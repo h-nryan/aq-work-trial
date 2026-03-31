@@ -216,15 +216,21 @@ def _render_eval_tier_cell(
         # Also check eval_tiers for filter status (durable source)
         status_filtered = eval_tiers.get(tier, {}).get("filtered", False)
 
-        if is_adjusting and (is_filtered_by_this or status_filtered or
-                             classification in ("too_hard", "too_easy") or
-                             (tier == "opus" and passes == 0)):
-            # Infer difficulty from context
+        # Only show "adjusting" on the LATEST tier with results.
+        # If Opus has data, Sonnet's round is done — show Sonnet as final score.
+        opus_has_data = bool(eval_tiers.get("opus", {}).get("total"))
+        is_latest_tier = (tier == "opus") or (tier == "sonnet" and not opus_has_data)
+
+        if is_adjusting and is_latest_tier and (
+            is_filtered_by_this or status_filtered or
+            classification in ("too_hard", "too_easy") or
+            (tier == "opus" and passes == 0)
+        ):
             if classification == "too_easy" or status_filtered:
                 difficulty = "easy"
             else:
                 difficulty = "hard"
-            return f'<div class="stage-cell stage-adjusting">too {difficulty}: adjusting</div>'
+            return f'<div class="stage-cell stage-adjusting">too {difficulty} ({passes}/{total}): adjusting</div>'
         elif is_filtered_by_this:
             return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
         elif classification in ("too_hard", "too_easy") and tier == "opus":
