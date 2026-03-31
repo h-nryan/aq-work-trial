@@ -434,6 +434,8 @@ Live UI for monitoring and controlling the pipeline:
 **Quality comparison** (`quality.py`) — Compares generated tasks against hand-crafted examples using structural metrics (instruction length, test count, file count, Dockerfile checks). Outlier detection flags tasks outside example range by > 50%.
 - CLI: `python3.12 generator/quality.py <task_dir_or_output_dir>`
 
+**Limitation: thin hand-crafted baseline** — A rigorous human-likeness comparison requires enough hand-crafted examples to establish a meaningful statistical baseline. The `examples/` directory has 6 tasks, of which 4 are too-hard (coordinate-transform, flask-api, log-rotation-analyzer, maven) and only 1 is confirmed learnable (csv-to-json). A proper comparison of "does the generated task look like a human-written task" would require writing more learnable examples by hand — perhaps 10-20, covering all 6 categories. This was deprioritized in favour of pipeline development (functional correctness, difficulty calibration, reliability) given time constraints. Goal D is implemented and functional, but its conclusions are limited by the quality and diversity of the hand-crafted baseline.
+
 ### Batch Infrastructure
 
 **Batch runner** (`batch.py`) — Orchestrates generation, validation, and evaluation for multiple tasks:
