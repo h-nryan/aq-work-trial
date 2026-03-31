@@ -25,6 +25,8 @@ from metrics import (
     compute_per_batch_metrics,
     get_learnable_inventory,
 )
+from prompts import PROMPT_BANK
+from quality import analyze_task, analyze_generated, compare
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "output")
 RUNS_DIR = os.path.join(os.path.dirname(__file__), "runs")
@@ -235,9 +237,11 @@ def _render_eval_tier_cell(
         else:
             state = "done_good"
     elif has_scores and stage == "evaluating":
-        # If this tier has scores but a later tier is active, this tier is done
+        # If Sonnet has scores, check if it's truly done or re-running after adjustment
         if tier == "sonnet" and opus_has_data:
-            state = "done_good"
+            # Opus has data — but is Sonnet currently re-running?
+            _, _, sonnet_active = _get_live_eval_scores(task_dirname, "claude-sonnet*", batch_start_ts)
+            state = "in_progress" if sonnet_active else "done_good"
         else:
             state = "in_progress"
     elif stage == "evaluating":
