@@ -254,9 +254,9 @@ def _render_eval_tier_cell(
     if td:
         passes, total = td.get("passes"), td.get("total")
     if passes is None:
-        st = eval_tiers.get(tier, {})
-        if st:
-            passes, total = st.get("passes", 0), st.get("total", 0)
+        tier_status = eval_tiers.get(tier, {})
+        if tier_status:
+            passes, total = tier_status.get("passes", 0), tier_status.get("total", 0)
     if passes is None and stage == "evaluating":
         model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
         passes, total, has_active = _get_live_eval_scores(task_dirname, model_glob, batch_start_ts)
@@ -819,7 +819,7 @@ def render_pipeline_view():
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     # Find the most recent active or completed batch
-    all_batches = sorted(glob.glob(os.path.join(OUTPUT_DIR, "sonnet-batch-*")),
+    all_batches = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*batch*")) + glob.glob(os.path.join(OUTPUT_DIR, "excluded-*")),
                          key=lambda p: os.path.getmtime(p))
     if not all_batches:
         st.info("No batches found. Launch one from the sidebar.")
@@ -1171,7 +1171,11 @@ def render_pipeline_view():
                     sim = _jaccard(topic_words[i][1], topic_words[j][1])
                     if sim >= 0.7:
                         dup_pairs.append((topic_words[i][0], topic_words[j][0], sim))
-            unique_count = len(topic_words) - len(dup_pairs)
+            topics_in_dup = set()
+            for ta, tb, _sim in dup_pairs:
+                topics_in_dup.add(ta)
+                topics_in_dup.add(tb)
+            unique_count = len(topic_words) - len(topics_in_dup)
             st.metric(
                 "Unique topics",
                 f"{unique_count}/{len(topic_words)}",
