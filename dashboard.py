@@ -83,8 +83,8 @@ _OPUS_IN    = 15.00 / 1_000_000
 _OPUS_OUT   = 75.00 / 1_000_000
 
 
-def _task_cost(stages: dict) -> tuple[float, float]:
-    """Return (gen_cost_$, opus_cost_$) from a task's stages dict."""
+def _task_cost(stages: dict) -> tuple[float, float, float]:
+    """Return (gen_cost_$, sonnet_eval_cost_$, opus_eval_cost_$) from stages."""
     gen_cost = 0.0
     for key, data in stages.items():
         if key in ("generate", "regenerate") or key.startswith("retry_") or key.startswith("difficulty_adj_"):
@@ -92,14 +92,23 @@ def _task_cost(stages: dict) -> tuple[float, float]:
             gen_cost += u.get("prompt_tokens", 0) * _SONNET_IN
             gen_cost += u.get("completion_tokens", 0) * _SONNET_OUT
 
+    tier_results = stages.get("evaluation", {}).get("tier_results", {})
+
+    sonnet_eval_cost = 0.0
+    sonnet_tier = tier_results.get("sonnet", {})
+    for batch in sonnet_tier.get("trials", []):
+        for trial in batch.get("trials", []):
+            sonnet_eval_cost += (trial.get("input_tokens") or 0) * _SONNET_IN
+            sonnet_eval_cost += (trial.get("output_tokens") or 0) * _SONNET_OUT
+
     opus_cost = 0.0
-    opus_tier = stages.get("evaluation", {}).get("tier_results", {}).get("opus", {})
+    opus_tier = tier_results.get("opus", {})
     for batch in opus_tier.get("trials", []):
         for trial in batch.get("trials", []):
             opus_cost += (trial.get("input_tokens") or 0) * _OPUS_IN
             opus_cost += (trial.get("output_tokens") or 0) * _OPUS_OUT
 
-    return gen_cost, opus_cost
+    return gen_cost, sonnet_eval_cost, opus_cost
 
 
 def _fmt_cost(dollars: float) -> str:
@@ -760,26 +769,34 @@ def _render_task_details(task_dir: str, task_info: dict):
 
     # Cost breakdown
     stages = task_info.get("stages", {})
-    gc, oc = _task_cost(stages)
-    if gc > 0 or oc > 0:
+    gc, sc, oc = _task_cost(stages)
+    if gc > 0 or sc > 0 or oc > 0:
         st.markdown("**Cost Breakdown**")
-        gen_tok = sum(
-            s.get("usage", {}).get("total_tokens", 0)
-            for k, s in stages.items()
-            if k in ("generate", "regenerate") or k.startswith("retry_") or k.startswith("difficulty_adj_")
-        )
-        opus_trials_flat = [
-            trial
-            for batch in stages.get("evaluation", {}).get("tier_results", {}).get("opus", {}).get("trials", [])
-            for trial in batch.get("trials", [])
-        ]
-        opus_tok = sum((t.get("input_tokens") or 0) + (t.get("output_tokens") or 0) for t in opus_trials_flat)
         rows = []
         if gc > 0:
-            rows.append(f"| Generation | {_fmt_cost(gc)} | {gen_tok:,} tok |")
+            gen_tok = sum(
+                s.get("usage", {}).get("total_tokens", 0)
+                for k, s in stages.items()
+                if k in ("generate", "regenerate") or k.startswith("retry_") or k.startswith("difficulty_adj_")
+            )
+            rows.append(f"| Generation (Sonnet) | {_fmt_cost(gc)} | {gen_tok:,} tok |")
+        if sc > 0:
+            sonnet_trials_flat = [
+                trial
+                for batch in stages.get("evaluation", {}).get("tier_results", {}).get("sonnet", {}).get("trials", [])
+                for trial in batch.get("trials", [])
+            ]
+            sonnet_tok = sum((t.get("input_tokens") or 0) + (t.get("output_tokens") or 0) for t in sonnet_trials_flat)
+            rows.append(f"| Sonnet eval | {_fmt_cost(sc)} | {sonnet_tok:,} tok |")
         if oc > 0:
+            opus_trials_flat = [
+                trial
+                for batch in stages.get("evaluation", {}).get("tier_results", {}).get("opus", {}).get("trials", [])
+                for trial in batch.get("trials", [])
+            ]
+            opus_tok = sum((t.get("input_tokens") or 0) + (t.get("output_tokens") or 0) for t in opus_trials_flat)
             rows.append(f"| Opus eval | {_fmt_cost(oc)} | {opus_tok:,} tok |")
-        rows.append(f"| **Total** | **{_fmt_cost(gc + oc)}** | |")
+        rows.append(f"| **Total** | **{_fmt_cost(gc + sc + oc)}** | |")
         st.markdown("| | Cost | Tokens |\n|---|---|---|\n" + "\n".join(rows))
 
     # Task files summary
@@ -896,12 +913,14 @@ def render_pipeline_view():
 
     # Compute batch costs from stages token data
     batch_gen_cost = 0.0
+    batch_sonnet_eval_cost = 0.0
     batch_opus_cost = 0.0
     for t in tasks:
-        gc, oc = _task_cost(t.get("stages", {}))
+        gc, sc, oc = _task_cost(t.get("stages", {}))
         batch_gen_cost += gc
+        batch_sonnet_eval_cost += sc
         batch_opus_cost += oc
-    batch_total_cost = batch_gen_cost + batch_opus_cost
+    batch_total_cost = batch_gen_cost + batch_sonnet_eval_cost + batch_opus_cost
     cost_per_learnable = (batch_total_cost / n_learnable) if n_learnable > 0 else 0.0
 
     # Summary cards (row 1: counts)
@@ -919,8 +938,9 @@ def render_pipeline_view():
     # Cost cards (row 2)
     st.markdown(f"""
     <div class="cost-grid">
-        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_gen_cost)}</div><div class="summary-label">Generation cost</div></div>
-        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_opus_cost)}</div><div class="summary-label">Opus eval cost</div></div>
+        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_gen_cost)}</div><div class="summary-label">Generation</div></div>
+        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_sonnet_eval_cost)}</div><div class="summary-label">Sonnet eval</div></div>
+        <div class="summary-card"><div class="summary-value cost">{_fmt_cost(batch_opus_cost)}</div><div class="summary-label">Opus eval</div></div>
         <div class="summary-card"><div class="summary-value cost">{_fmt_cost(cost_per_learnable)}</div><div class="summary-label">Cost / learnable</div></div>
     </div>
     """, unsafe_allow_html=True)
@@ -1102,15 +1122,16 @@ def render_pipeline_view():
             # Per-batch cost + yield trend
             batch_trend = []
             for b in batches:
-                b_gen, b_opus = 0.0, 0.0
+                b_gen, b_sonnet, b_opus = 0.0, 0.0, 0.0
                 b_learnable = 0
                 for r in b["results"]:
-                    gc, oc = _task_cost(r.get("stages", {}))
+                    gc, sc, oc = _task_cost(r.get("stages", {}))
                     b_gen += gc
+                    b_sonnet += sc
                     b_opus += oc
                     if r.get("classification") == "learnable":
                         b_learnable += 1
-                b_total = b_gen + b_opus
+                b_total = b_gen + b_sonnet + b_opus
                 batch_trend.append({
                     "batch": b["name"].replace("sonnet-batch-", "b"),
                     "learnable": b_learnable,
