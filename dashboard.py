@@ -188,6 +188,7 @@ def _render_eval_tier_cell(
     classification: str | None,
     task_dirname: str,
     batch_start_ts: int,
+    adj_trigger: str | None = None,
 ) -> str:
     """Render a Sonnet or Opus eval cell with unified data source logic.
 
@@ -210,6 +211,13 @@ def _render_eval_tier_cell(
             passes = status_tier.get("passes", 0)
             total = status_tier.get("total", 0)
 
+    # If Opus was skipped by Sonnet filter on final eval, show skip even if
+    # stale Opus data exists from a prior adjustment round
+    if tier == "opus" and filtered_at in ("sonnet", "haiku") and stage == "completed" and not is_adjusting:
+        difficulty = "easy" if classification == "too_easy" else ""
+        label = f"skip (too {difficulty})" if difficulty else "skip"
+        return f'<div class="stage-cell stage-skipped">{label}</div>'
+
     # We have scores — render them
     if passes is not None and total:
         is_filtered_by_this = filtered_at == tier
@@ -221,16 +229,20 @@ def _render_eval_tier_cell(
         opus_has_data = bool(eval_tiers.get("opus", {}).get("total"))
         is_latest_tier = (tier == "opus") or (tier == "sonnet" and not opus_has_data)
 
-        if is_adjusting and is_latest_tier and (
+        # Determine adjustment difficulty from explicit sources only (not pass-count heuristics).
+        # adj_trigger comes from the latest _adj_snapshot.json and is authoritative.
+        adj_difficulty: str | None = None
+        if classification == "too_easy" or status_filtered or adj_trigger == "too_easy":
+            adj_difficulty = "easy"
+        elif classification == "too_hard" or adj_trigger == "too_hard":
+            adj_difficulty = "hard"
+
+        if is_adjusting and is_latest_tier and adj_difficulty is not None and (
             is_filtered_by_this or status_filtered or
             classification in ("too_hard", "too_easy") or
-            (tier == "opus" and passes == 0)
+            adj_trigger in ("too_hard", "too_easy")
         ):
-            if classification == "too_easy" or status_filtered:
-                difficulty = "easy"
-            else:
-                difficulty = "hard"
-            return f'<div class="stage-cell stage-adjusting">too {difficulty} ({passes}/{total}): adjusting</div>'
+            return f'<div class="stage-cell stage-adjusting">too {adj_difficulty} ({passes}/{total}): adjusting</div>'
         elif is_filtered_by_this:
             return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
         elif classification in ("too_hard", "too_easy") and tier == "opus":
@@ -240,7 +252,6 @@ def _render_eval_tier_cell(
 
     # No persisted scores — check if task is in progress
     if stage != "evaluating":
-        # Completed with no data for this tier
         if tier == "opus" and filtered_at in ("sonnet", "haiku"):
             return '<div class="stage-cell stage-skipped">skip</div>'
         return '<div class="stage-cell stage-skipped">—</div>'
@@ -453,6 +464,18 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
                 # Has dir but no status — probably generating
                 has_yaml = os.path.exists(os.path.join(matched_dir, "task.yaml"))
                 task_info["stage"] = "generating" if not has_yaml else "structural"
+
+            # Read the latest _adj_snapshot.json to know WHY we're currently adjusting
+            # (e.g. round 2 triggers on "too_easy" even though live score may be 0)
+            pre_adj_dirs = sorted(glob.glob(matched_dir + ".pre_adj*"))
+            if pre_adj_dirs:
+                snap_path = os.path.join(pre_adj_dirs[-1], "_adj_snapshot.json")
+                if os.path.exists(snap_path):
+                    try:
+                        snap = json.load(open(snap_path))
+                        task_info["adj_trigger"] = snap.get("pre_adjustment_classification")
+                    except Exception:
+                        pass
 
         # Category: _meta.yaml is authoritative for completed tasks; _status.json for in-progress
         if matched_dir and "category" not in task_info:
@@ -921,13 +944,14 @@ def render_pipeline_view():
 
             # Render each tier with unified logic
             _dn = os.path.basename(t.get("dir", ""))
+            _adj_trigger = t.get("adj_trigger")
             sonnet_cell = _render_eval_tier_cell(
                 "sonnet", tier_results, _eval_tiers, filtered_at,
-                is_adjusting, stage, cl, _dn, batch_start_ts,
+                is_adjusting, stage, cl, _dn, batch_start_ts, _adj_trigger,
             )
             opus_cell = _render_eval_tier_cell(
                 "opus", tier_results, _eval_tiers, filtered_at,
-                is_adjusting, stage, cl, _dn, batch_start_ts,
+                is_adjusting, stage, cl, _dn, batch_start_ts, _adj_trigger,
             )
         elif stage == "failed":
             sonnet_cell = '<div class="stage-cell stage-pending">—</div>'
