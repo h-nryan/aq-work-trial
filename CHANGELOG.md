@@ -8,11 +8,43 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Stretch goals implemented**: A (cost-efficient evaluation), B (difficulty tuning), C (diversity analysis), D (human-likeness comparison).
 
-**Current state**: 23 learnable tasks in examples-sonnet/, 2 Opus-generated exemplars, 1 hand-crafted exemplar (26 total). Batch 22 achieved 75% learnable rate (9/12) — best batch yet — with 5 of those via difficulty adjustment (first confirmed adjustment→learnable conversions). Pipeline validates structurally and functionally in Docker with solution-first generation, then evaluates with tiered Opus eval with early stopping.
+**Current state**: 25 learnable tasks in examples-sonnet/, 2 Opus-generated exemplars, 1 hand-crafted exemplar (28 total). Batch 22 achieved 75% learnable rate (9/12) — best batch yet — with 5 of those via difficulty adjustment (first confirmed adjustment→learnable conversions). Pipeline validates structurally and functionally in Docker with solution-first generation, then evaluates with tiered Opus eval with early stopping. 446 tests across 15 modules.
 
 ---
 
 ## Recent Changes
+
+### Code Quality Audit and Fixes
+
+**Comprehensive codebase audit** — Systematic review of all Python modules, shell scripts, dashboard, validator, and test coverage. Fixes applied:
+
+**Security fixes:**
+
+- **Path traversal guard in `_write_task_files`** (`generate.py`) — LLM-generated file paths are now validated to stay within the output directory. Previously, a malicious or malformed LLM response with `../../` paths could write outside the intended task directory.
+- **`tarfile.extractall` with `filter="data"`** (`docker_compose_manager.py`) — Prevents path traversal via crafted tar archives when copying files from Docker containers. Also resolves Python 3.12+ deprecation warning.
+
+**Bug fixes:**
+
+- **`RuntimeError` received a tuple instead of string** (`docker_compose_manager.py`) — Error message was displayed as `('Error...', 'Please ensure...')` instead of a readable string.
+- **`st` variable shadowed Streamlit import** (`dashboard.py`) — Local variable `st = eval_tiers.get(tier, {})` shadowed the `streamlit` import `st`, causing the subsequent `st.get(...)` to work by accident on the dict, not the module. Renamed to `tier_status`.
+- **Unique topic count could go negative** (`dashboard.py`) — `len(topic_words) - len(dup_pairs)` subtracted pair count from topic count. If topic A is similar to both B and C, that's 2 pairs but only 3 topics involved. Fixed to count distinct topics appearing in any duplicate pair.
+- **OS environment overrode T_BENCH vars** (`env_model.py`) — `to_env_dict(include_os_env=True)` called `env_dict.update(os.environ)` after setting T_BENCH vars, so OS env vars with colliding names silently won. Reversed the update order.
+- **`pass@1` never computed** (`harness/models.py`) — `k_values` started at `2^1=2`, skipping the most commonly reported metric `pass@1`. Changed `range(1, ...)` to `range(0, ...)`.
+- **Mutable default argument `[]`** (`lite_llm.py`) — `message_history: list = []` is a classic Python mutable-default bug. Changed to `None` with explicit initialization.
+- **Dead `/tests/` check in validator** (`validate.py`) — The `"/tests/" in filename` check was unreachable because `filename` is always a basename (from `_parse_solution_files`). Removed the dead branch.
+
+**Code quality:**
+
+- **Removed dead `hint_style` parameter** (`generate.py`, `pipeline.py`, `batch.py`) — The `hint_style` parameter (`"none"/"soft"/"full"`) was threaded through `_format_prompt`, `generate_task`, `generate_task_solution_first`, `run_pipeline`, `run_batch`, and the `--hint-style` CLI flag — but `_format_prompt` always used `INSTRUCTION_RULE["long"]` regardless of the value. Variant B prompt testing (which used it) was removed in a prior cleanup, leaving a dead parameter chain with no effect.
+- **File handle leaks** (`pipeline.py`, `metrics.py`) — Replaced `open(fpath).read()` / `json.load(open(f))` patterns with `with` context managers in `_source_file_hash`, `_source_file_words`, and `_load_batch_results`.
+- **Redundant inline imports** (`pipeline.py`) — Removed `import json as _json` inside `_write_status` and `_save_validation_log` (json already imported at module level). Removed `__import__('sys').stderr` hack (sys already imported).
+- **Shell scripts use `python3.12`** (`docker-validate.sh`, `generate.sh`, `validate.sh`) — Three of four scripts used bare `python` which points to Python 3.9 on the target system (broken pydantic). Now consistent with `generate-exemplar.sh` and `promote-exemplar.sh`.
+
+**Test coverage:**
+
+- **`test_metrics.py`** (40 tests) — New test module covering `compute_aggregate_metrics`, `compute_per_batch_metrics`, `get_learnable_inventory`, `_load_batch_results`, incremental JSONL merge logic, and `render_html`.
+- **`test_dashboard.py`** (36 tests) — New test module covering `_infer_language`, `_diversity_scores`, `_jaccard`, `_task_cost`, `_fmt_cost`, and `_render_stage_cell`.
+- Total test count: 370 → 446 across 15 modules.
 
 ### Known Issue: Opus eval cost underreported (~3×)
 
@@ -58,15 +90,29 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Reduce max_tokens across all generate.py API calls** — OpenRouter enforces a per-model token-rate-limit bucket. With `max_tokens=32000`, each request consumed a large chunk of the bucket even when actual output was ~4,700 tokens (generation) or ~400-500 tokens (repairs/adjustments). This caused 402 errors mid-batch as the bucket depleted, manifesting as `"can only afford N"` with N decreasing across successive requests.
 
-| Call | Old | New | Typical actual |
-|---|---|---|---|
-| Phase 1 generation | 32000 | 8192 | ~4700 |
-| Phase 2 bug intro | 32000 | 8192 | ~500 |
-| Phase 2 phase | 16000 | 8192 | ~500 |
-| Repair | 32000 | 4096 | ~400–500 |
-| Adjust difficulty | 16000 | 4096 | ~400–500 |
+
+| Call               | Old   | New  | Typical actual |
+| ------------------ | ----- | ---- | -------------- |
+| Phase 1 generation | 32000 | 8192 | ~4700          |
+| Phase 2 bug intro  | 32000 | 8192 | ~500           |
+| Phase 2 phase      | 16000 | 8192 | ~500           |
+| Repair             | 32000 | 4096 | ~400–500       |
+| Adjust difficulty  | 16000 | 4096 | ~400–500       |
+
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
+
+### Weighted Topic Sampling (Replaces Binary Exclusions)
+
+**Replaced EXCLUDED_TOPICS with TOPIC_WEIGHTS** (`prompts.py`) — Previously, 26 topics were binary-excluded from selection. Retest showed 7/12 excluded topics now pass functional validation with 9 examples. Instead of guessing which topics are "impossible," all 52 topics are now eligible with weights reflecting historical performance:
+
+- **1.0** (default): topics with good functional validation and learnable rates
+- **0.5-0.6**: previously excluded but passed functional retest (Flask API, Maven, Nginx, systemd, ORM, CI/CD, Node.js)
+- **0.2**: historical always-fail or fragile (/proc, binary pipelines, CMake)
+- **0.1**: concurrency/non-determinism, C/C++ memory bugs, signal handling
+- **0.01**: Docker-in-Docker (fundamentally can't work but never fully zero)
+
+Weights are tunable hyperparameters — updated as retest data accumulates. Selection uses `random.choices` with weights for both diverse (round-robin) and non-diverse modes. Pool expanded from 28 to 52 topics.
 
 ### Eval Pipeline: No Further Shortcuts (Design Decision)
 
@@ -129,6 +175,7 @@ The eval pipeline is as lean as possible while maintaining classification certai
 **Remove broken `runs/` fallback from main row SONNET and OPUS cells** (`dashboard.py`) — Both cells had a `runs/` directory fallback that was doubly broken: (1) it read stale dirs from previous pipeline runs, and (2) the `results.json` path was wrong — it looked for `runs/{run_id}/results.json` but the actual structure is `runs/{run_id}/{task_id}/{trial_dir}/results.json`. This caused "..." to appear for completed tasks whenever a stale `runs/` dir existed.
 
 Fixed behavior:
+
 - **Completed tasks with stages data**: show `passes/total` (unchanged)
 - **Completed tasks without stages data** (older pipeline format): show `—` instead of misleading `...`
 - **In-progress evaluating tasks**: show `...` (no stages written yet — genuinely pending)
@@ -149,6 +196,7 @@ Both the `else: all_trials.append(batch)` branch and the entire `runs/` fallback
 ### Dashboard: Expandable Task Details
 
 **Expandable task cards** (`dashboard.py`) — Each task row now has a "Details" expander showing:
+
 - **Stage timeline**: current stage, last updated timestamp
 - **Functional validation**: per-attempt results with pass/fail, execution times (build, test_without, test_with), error messages, and expandable test output excerpts
 - **Opus evaluation**: per-trial results showing tests passed/total, agent duration, token usage, failure mode, and expandable per-test pass/fail breakdown
@@ -165,7 +213,7 @@ This surfaces retry counts, per-stage durations, and debug output that were prev
 
 **Move inline imports to module level** (`pipeline.py`) — Four imports were scattered inside function bodies: `import json` in `_write_adjustment_snapshot` (already at module level — pure redundancy), `from evaluate import run_opus_eval as _run_opus_resume` in `run_pipeline` (already imported at module level as `run_opus_eval`), and `from evaluate import _run_tb` + `from config import SONNET_FILTER_MODEL` inside the too_easy adjustment branch. All moved to module-level imports. The redundant re-import alias is removed; callers now use `run_opus_eval` directly.
 
-**Extract `_strip_fences` helper** (`generate.py`) — The markdown fence-stripping logic (strip ` ```json ` wrappers from LLM responses) was copy-pasted identically in `_parse_response` and `adjust_difficulty`. Extracted into a shared `_strip_fences(text: str) -> str` helper. Both call sites simplified to a single line. The helper comment explains why regex can't be used (JSON content may itself contain triple backticks).
+**Extract `_strip_fences` helper** (`generate.py`) — The markdown fence-stripping logic (strip ````json` wrappers from LLM responses) was copy-pasted identically in `_parse_response` and `adjust_difficulty`. Extracted into a shared `_strip_fences(text: str) -> str` helper. Both call sites simplified to a single line. The helper comment explains why regex can't be used (JSON content may itself contain triple backticks).
 
 **Use `yaml.dump` in `_write_task_meta`** (`pipeline.py`) — `_meta.yaml` was written with hand-rolled f-string writes. If any value (particularly `category`) contained a YAML special character (`:`, `#`, `"`, etc.) the output would be silently malformed and fail to parse. Replaced with `yaml.dump(..., sort_keys=True)` which handles all edge cases. `yaml` (pyyaml) was already a declared generator dependency; added module-level import to `pipeline.py`.
 
@@ -234,6 +282,7 @@ Batch 23 root cause analysis revealed that 2/3 functional validation failures we
 ### Difficulty Adjustment
 
 **Surgical difficulty adjustment** (`generate.py`) — Replaced the full-regeneration approach in `adjust_difficulty()` with constrained surgical string-replacement edits. Previously, when a task was too_hard or too_easy, Sonnet would regenerate ALL task files from scratch — renaming functions, restructuring code, rewriting tests — which broke test/code alignment and created new failure modes (batch 17: 5/5 adjusted tasks still 0% after 2 rounds). Now Sonnet must pick exactly ONE operation from a constrained menu:
+
 - **too_hard (0 tests passing)**: aggressive multi-edit — simplify hardest bug, add code comments near all bugs, improve instruction, remove a test. One surgical edit won't move a fundamentally-too-hard task.
 - **too_hard (close)**: surgical single-operation — remove_bug, add_hints, or simplify_bug
 - **too_easy**: add_bug, make_subtler, or remove_hints + cheap Sonnet x3 quick-check before re-running expensive Opus eval
@@ -242,6 +291,7 @@ Batch 23 root cause analysis revealed that 2/3 functional validation failures we
 Each edit uses exact string replacement (`old` → `new`) applied to existing files — no file renames, no restructuring, no test rewrites. If an edit's `old` string isn't found verbatim, it fails explicitly and retries. Tests verified on 2 known too_hard tasks: bash quoting (removed `$(ls)` bug, kept quoting bugs) and XML converter (fixed inverted flattening, deleted its test) — both applied 5/5 edits cleanly in 18.5s with tests/Dockerfile/run-tests.sh untouched.
 
 **Data-driven generation prompts** (`generate.py`) — Root-cause analysis of batch 17 too_hard vs learnable tasks revealed that task *structure* predicts Opus success better than topic domain. Updated all three generation prompts (SYSTEM_PROMPT, PHASE1_PROMPT, PHASE2_PROMPT) with data-driven structural guidance:
+
 - **PHASE1 (test design)**: Tests must invoke the program directly via subprocess/import inside each test function. run-tests.sh must NOT pre-execute the program and cache output to /tmp files. Task instructions must describe requirements, not line-by-line diffs.
 - **PHASE2 (bug design)**: Prefer "architectural" bugs (wrong algorithm, missing logic branch, wrong data structure) over "token-change" bugs (add a quote, change an operator). Each bug should break 1-2 tests, not all tests — enabling partial credit. Explicitly prohibit all-or-nothing designs.
 - **SYSTEM_PROMPT**: Added "Structural Patterns for Learnability" section documenting 4 data-driven rules (partial credit, behavioral tests, requirement-based instructions, architectural bugs).
@@ -281,6 +331,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 ### Generation
 
 **Pre-batch prompt audit and refinements** (`generate.py`, `prompts.py`) — Systematic audit before committing to a $400-budget batch run:
+
 - Fixed Phase 1 test count mismatch: was "6-10 test functions", now "5-7" matching the rest of the pipeline. This was likely producing too-hard tasks.
 - Added Phase 1 guidance: source code <150 lines in a single file, modular structure to support clean bug injection
 - Fixed `adjust_difficulty()` too_easy prompt: was telling Sonnet to "make symptoms misleading" and "point error messages to wrong location", directly contradicting the independently-discoverable principle. Now focuses on subtlety within discoverability bounds.
@@ -289,6 +340,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 **Application-logic-only constraint** (`generate.py`, `prompts.py`) — Analysis of all 12 learnable tasks showed zero have bugs outside application logic, and all functional validation failures in batch 11 involved infrastructure/packaging bugs (pip install, CI/CD orchestration, environment scaffolding). Added Phase 1 prompt constraint: bugs must be in application logic only, tests must verify program behavior not infrastructure state. Excluded 2 more topics (`pyproject.toml` package build, CI/CD pipeline script) from the prompt bank.
 
 **Metadata-driven example selection** (`generate.py`, `pipeline.py`) — Replaced hardcoded example classification with `_meta.yaml` metadata files on each example directory. New `select_examples()` function picks examples within a token budget (~20k tokens) using deterministic criteria:
+
 - Category diversity: one example per category first, then fill by score
 - Score = pass rate closeness to ideal (40-60%) + category match to target topic + token efficiency
 - Too-hard examples excluded, at most 1 too-easy negative example included
@@ -302,6 +354,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 **Evaluate CLI: skip Haiku by default** (`evaluate.py`) — Fixed CLI to match function default (`skip_haiku=True`). Haiku tier was accidentally running on CLI invocations, wasting ~$0.20/task. Use `--include-haiku` to opt in.
 
 **Solution-first strategy** (`generate.py`) — Phase 1 writes a complete working program with passing tests; Phase 2 introduces 3-5 interacting bugs into the source files. The working code becomes `solution.sh`. This inverts the original single-phase approach which asked the LLM to write broken code AND its fix simultaneously — that had ~20% functional validation pass rate. Solution-first separates two easy tasks (write correct code; introduce bugs) instead of one hard task.
+
 - Phase 1 uses temperature 0.5 (correctness); Phase 2 uses 0.7 (creative bugs)
 - Phase 2 requires majority of tests to fail, not all — some passing tests give the agent useful debugging signal
 - Retry budget `MAX_SOLUTION_FIRST_RETRIES=3` (reduced from 6 — retries 4-6 rarely succeed)
@@ -316,6 +369,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 - Usage: `python3.12 pipeline.py "topic" --solution-first`
 
 **Few-shot example curation** (`generate.py`) — Three-way classification of reference examples:
+
 - **Positive** (learnable): shown as "GOOD EXAMPLES — target this difficulty"
 - **Negative** (too easy): shown as "TOO-EASY EXAMPLES — avoid this difficulty" (currently: `config-manifest-validator`)
 - **Too hard**: excluded entirely — 4 of 6 hand-crafted examples are too hard (coordinate-transform, flask-api, log-rotation-analyzer, maven). All annotated with WHY they're too hard and patterns to avoid
@@ -324,6 +378,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 - *Design decision*: Subtlety ratings teach the QUALITY dimension of difficulty. Telling Sonnet "this is a HIGH subtlety bug because the wrong variable name looks correct at first glance" is more useful than "add 3-5 bugs."
 
 **Prompt calibration** (`generate.py`) — Prompts recalibrated based on Sonnet→Opus correlation analysis (Sonnet 33% → Opus 0% pattern). Root cause: Sonnet generates bugs that are too clever — cascading failures, hidden cross-file bugs, 5+ interacting bugs. Key changes across SYSTEM_PROMPT, PHASE2_PROMPT, and user prompt:
+
 - Cap at 3-4 bugs (was 3-5) — 5+ bugs consistently produces Opus 0/5
 - Bugs must be independently discoverable from test output (was "interact with each other")
 - Banned cascading bugs where Bug A must be fixed before Bug B can be diagnosed
@@ -338,12 +393,14 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 - **JSON parse retry on repair**: `regenerate_task()` now retries up to 3 times when Sonnet returns invalid JSON, feeding back the parse error and asking for raw JSON only. Previously a single parse failure killed the entire retry chain.
 
 **Prompt variant A/B testing** (`generate.py`, `pipeline.py`, `batch.py`) — Infrastructure for comparing verbose vs trimmed prompts. Variant A is the current full prompt (~35-40 constraints across SYSTEM_PROMPT, PHASE2_PROMPT, user prompt reminders). Variant B collapses the difficulty section to 3 core points ("match the examples"), removes redundant user-prompt reminders, and lets examples do the teaching instead of explicit rules. Hypothesis: Sonnet may internalize constraints better when not overloaded with rules that partly overlap the examples.
+
 - `--prompt-variant B` flag on pipeline.py and batch.py
 - Selects `SYSTEM_PROMPT_B`, `PHASE2_PROMPT_B`, and trimmed user prompt
 - A/B comparison requires same seed/topics — use `--seed` flag in batch.py
 - *Design decision*: Examples consume 80-95% of prompt tokens. If Sonnet already learns difficulty from examples, verbose constraint lists may cause attention dilution rather than reinforcement.
 
 **Targeted repair** (`generate.py`, `pipeline.py`) — On validation failure, analyzes feedback to repair only broken files:
+
 - "Tests FAILED with solution" → regenerate only `solution.sh`
 - "Tests PASSED without solution" → regenerate only source files (with test code included so LLM knows what to break)
 - "Docker build failed" → regenerate only Dockerfile (conflicting packages, wrong base image)
@@ -356,6 +413,7 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 ### Validation
 
 **Solution diff analysis** (`validator/validate.py`) — Pre-Docker calibration check that diffs buggy source files against solution.sh heredocs. Parses `cat > path << 'DELIM'` patterns to extract fixed file contents, then computes: files changed, change regions (hunks, proxy for bug count), total lines changed, and source LOC. Generates warnings for:
+
 - Too many change regions (>8 hunks — likely too many bugs)
 - Too few change regions (<2 hunks — likely too easy)
 - Multi-file changes (>2 source files modified)
@@ -363,15 +421,18 @@ Each edit uses exact string replacement (`old` → `new`) applied to existing fi
 - High source LOC (>200 lines)
 
 **WORKDIR file layout check** (`validator/validate.py`) — Structural validation now fails if solution.sh writes files outside the Dockerfile's WORKDIR. Tasks with source files in system directories (e.g. `/etc/nginx/`) cause the agent to waste time navigating instead of debugging. Parses WORKDIR from Dockerfile and checks all heredoc/echo write targets in solution.sh. Both prompt variants updated to explicitly require all source files in WORKDIR.
+
 - Validated against confirmed learnable tasks (csv-to-json: 5 hunks/24 LOC, C linked list: 5 hunks/125 LOC) and too-hard tasks (flask-api: 3 files/7 hunks, coordinate-transform: 8 hunks/51 lines changed). Thresholds calibrated so learnable tasks pass clean while too-hard tasks get flagged.
 
 **Docker-based functional validator** (`validator/docker_validate.py`) — End-to-end correctness verification:
+
 1. Pre-Docker sanity checks (instruction length, file sizes)
 2. Docker image build + size check (fail > 2 GB, warn > 1 GB)
 3. Tests FAIL without solution
 4. Tests PASS with solution
 5. Solution idempotency (re-run solution, re-run tests — catches irreversible state changes)
 6. Test determinism (3x pass — catches flaky tests that waste Opus budget)
+
 - `--skip-extended` for fast dev iteration; full 5-phase for production
 - Execution time tracking per phase; warns if tests > 60s (multiplied by 5 Opus trials)
 - *Design decision*: Bind-mount tests/solution read-only instead of baking into image — test same image in both states without rebuilding.
@@ -405,6 +466,7 @@ The sections below tell the story of how the pipeline evolved — each major dec
 **Solution: solution-first two-phase generation** — Phase 1 writes a complete, working program with passing tests (temperature 0.5 for correctness). Phase 2 introduces 3-5 interacting bugs into the source files (temperature 0.7 for creativity). The Phase 1 working code becomes `solution.sh`. This separates two individually-manageable tasks instead of combining them into one hard task. Functional validation pass rate improved substantially.
 
 **Supporting infrastructure built alongside:**
+
 - Docker base image (`tbench-base:latest`) pre-installs all common deps. Per-task Docker builds dropped from 60-280s to <1s, making concurrency of 12 feasible. Motivated by batch 12 where 12/12 tasks failed from build timeouts caused by simultaneous `apt-get update` across all threads.
 - `run-tests.sh` rewriting strips redundant apt-get/uv installs that were causing 48 simultaneous `apt-get update` calls at batch scale.
 - Targeted repair: on validation failure, analyze feedback and repair only broken files — `solution.sh` for solution failures, source files for test failures, Dockerfile for build failures. Full-rebuild retries caused whack-a-mole. Targeted repair cut retry cost ~80%.
@@ -419,6 +481,7 @@ The sections below tell the story of how the pipeline evolved — each major dec
 **Root-cause analysis of batch 17** — Compared the few learnable tasks against the many too-hard ones. Finding: task *structure* predicts Opus success better than topic domain. Too-hard tasks shared patterns: cascading bugs (Bug A must be fixed before Bug B is diagnosable), all-or-nothing test design (one bug breaks all tests, leaving no debugging signal), and large source files (>200 lines that an agent can't fully read in 6 minutes).
 
 **Data-driven prompt changes:**
+
 - Capped at 3-4 bugs (was 3-5) — 5+ bugs consistently produced Opus 0/5
 - Bugs must be independently discoverable from test output — banned cascading failures
 - Each bug should break 1-2 tests, not all tests — partial credit gives the agent debugging signal
@@ -440,6 +503,7 @@ The sections below tell the story of how the pipeline evolved — each major dec
 **Insight** — Model capability is monotonic: Haiku < Sonnet < Opus. If a weaker model finds a task easy (high pass rate), a stronger model definitely will too. Filter from the "too easy" side cheaply before spending on Opus.
 
 **Tiered evaluation** (`evaluate.py`):
+
 - Tier 1: Haiku ×5 (~$0.05) — skip to Opus if ≥ 4/5 pass. **Disabled by default** after data showed Haiku scored 0/5 on every task, including `config-manifest-validator` (Opus 5/5). Terminus-1 with Haiku via OpenRouter is too weak to solve anything in the harness — the tier was pure overhead. Now opt-in via `--include-haiku`.
 - Tier 2: Sonnet ×5 (~$0.30-1.00) — skip to Opus if ≥ 3/5 pass. Skip threshold tuned from 4 to 3: cross-batch data shows Opus consistently scores ≥ Sonnet; a Sonnet-3/5 task is almost certainly Opus-4+/5 (too easy).
 - Tier 3: Opus ×5 (~$2-5) — final ground truth classification: learnable (1-3/5), too_easy (4-5/5), too_hard (0/5)
@@ -455,6 +519,7 @@ The sections below tell the story of how the pipeline evolved — each major dec
 **Problem** — Even well-structured tasks landed in the wrong difficulty band ~60% of the time. Discarding all off-target tasks wastes the generation cost already spent on them.
 
 **Surgical adjustment** (`adjust_difficulty()` in `generate.py`) — Replaced full-regeneration (which caused 5/5 adjusted tasks to still be 0% in batch 17) with constrained string-replacement edits. Sonnet picks one operation from a menu:
+
 - **too_hard (0 tests passing, aggressive mode)**: simplify the hardest bug + add comments near all bugs + improve instruction + remove a test
 - **too_hard (close, ≥30% test rate)**: surgical single-operation — `remove_bug`, `add_hints`, or `simplify_bug`
 - **too_easy**: `add_bug`, `make_subtler`, or `remove_hints`
@@ -491,18 +556,21 @@ Once the pipeline worked on single tasks, running 10-20 concurrently exposed a n
 
 **Topic bank design** (`prompts.py`) — 52 structured topics organized into 6 categories that map to real terminal debugging scenarios:
 
-| Category | What it covers |
-|---|---|
-| `debugging` | Finding and fixing bugs in existing code — logic errors, memory bugs, async issues |
-| `data-processing` | ETL, parsing, transformation — CSV/JSON/XML/SQLite pipelines |
-| `system-administration` | Services, configs, monitoring — cron, log rotation, disk usage |
-| `software-engineering` | Design patterns, tooling — CLI tools, plugin systems, config parsers |
-| `build-systems` | Compilation, linking, packaging — Makefiles, CMake, pyproject.toml |
-| `networking` | Protocols, servers, configuration — HTTP clients, DNS resolvers, socket code |
+
+| Category                | What it covers                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `debugging`             | Finding and fixing bugs in existing code — logic errors, memory bugs, async issues |
+| `data-processing`       | ETL, parsing, transformation — CSV/JSON/XML/SQLite pipelines                       |
+| `system-administration` | Services, configs, monitoring — cron, log rotation, disk usage                     |
+| `software-engineering`  | Design patterns, tooling — CLI tools, plugin systems, config parsers               |
+| `build-systems`         | Compilation, linking, packaging — Makefiles, CMake, pyproject.toml                 |
+| `networking`            | Protocols, servers, configuration — HTTP clients, DNS resolvers, socket code       |
+
 
 Each entry carries `(topic, category, difficulty, language)` metadata. The initial design targeted a 25/50/25 distribution across easy/medium/hard, with 7-10 languages (Python, Bash, C, Go, Java, Make, Docker). The 6 categories were chosen because they cover the full range of real-world terminal debugging tasks, are mutually exclusive and exhaustive for the types of tasks Terminal Bench is designed for, and map directly to what `diversity.py` measures.
 
 **How categories flow through the pipeline end-to-end:**
+
 1. `select_topics(diverse=True)` uses round-robin across categories to guarantee coverage — if n=10, all 6 categories are represented with some repeated rather than clustering on one.
 2. The topic string is passed verbatim into Phase 1 generation as the task description anchor.
 3. After evaluation completes, the category is looked up from the prompt bank and written to `_meta.yaml` (field: `category`) alongside `opus_passes`, `classification`, etc.
@@ -511,6 +579,7 @@ Each entry carries `(topic, category, difficulty, language)` metadata. The initi
 6. The dashboard reads `_meta.yaml` to display a category distribution chart in "All-time metrics."
 
 **Exclusion list grew from batch data** — The active pool shrank from 52 to ~28 topics as batch data revealed which topics consistently failed for structural (not difficulty) reasons:
+
 - **Server-based** (Nginx, Flask API): tasks require a running server during evaluation — rule F prohibits this
 - **Concurrency / non-determinism**: race conditions, deadlocks, async scrapers — tests are flaky across runs
 - **Infrastructure / packaging** (CI/CD, pyproject.toml): 0/12 learnable tasks had bugs outside application logic; Sonnet can't reliably scaffold dependency environments
@@ -544,6 +613,7 @@ Early batches excluded entire categories (networking, build-systems) before per-
 **Streamlit dashboard** (`dashboard.py`) — Live monitoring and debugging UI. Key design: per-task colour-coded pipeline rows (generate → structural → functional → Sonnet filter → Opus eval), expandable detail views, real-time polling via `_status.json` files, and durability via persisted eval scores that survive run artifact cleanup.
 
 **Key problems the dashboard surfaced and fixed:**
+
 - Spurious eval rows before any trials completed (batch-level dicts appended as trial dicts)
 - "..." shown for completed tasks (broken `runs/` fallback reading wrong path)
 - 0/3 shown on learnable adjusted tasks (JSONL retained pre-adjustment scores; overridden from `_status.json` + `_meta.yaml`)
@@ -551,6 +621,7 @@ Early batches excluded entire categories (networking, build-systems) before per-
 - Green Opus cell for still-evaluating post-adjustment tasks (added `is_adjusting and classification is None` → `stage-active`)
 
 **Metrics surfaces:**
+
 - Top cards: Total / Done / Learnable / Too Hard / Too Easy / Failed
 - Cost cards: Generation cost (Sonnet tokens, fully accurate) / Opus eval cost (underestimated ~3× due to known harness token-logging issue, not fixed — harness is intentionally left unchanged) / Cost per learnable task
 - Per-task cost breakdown in detail view
@@ -560,20 +631,23 @@ Early batches excluded entire categories (networking, build-systems) before per-
 
 ### Chapter 10: Test Coverage
 
-302 tests across 14 modules (~5s, no Docker/API calls):
-- **`test_pipeline_e2e.py`** (15 tests) — full `run_pipeline` flow with mocked API/Docker: happy path, solution-first, generation failure, structural/functional retry, infrastructure error detection, adjustment loop, regeneration failure
-- **`test_generate.py`** (26 tests) — `_parse_response` JSON edge cases, `_load_examples` three-way classification, `_slugify` special chars/truncation/hash
-- **`test_evaluate.py`** (32 tests) — stale cleanup, result parsing, filter tier early stopping, full `evaluate_task` orchestration
+446 tests across 15 modules (~11s, no Docker/API calls):
+
+- `**test_pipeline_e2e.py`** (15 tests) — full `run_pipeline` flow with mocked API/Docker: happy path, solution-first, generation failure, structural/functional retry, infrastructure error detection, adjustment loop, regeneration failure
+- `**test_generate.py**` (26 tests) — `_parse_response` JSON edge cases, `_load_examples` three-way classification, `_slugify` special chars/truncation/hash
+- `**test_evaluate.py**` (32 tests) — stale cleanup, result parsing, filter tier early stopping, full `evaluate_task` orchestration
+- `**test_metrics.py**` (40 tests) — aggregate/per-batch metrics, learnable inventory, batch loading, incremental JSONL merge, HTML rendering
+- `**test_dashboard.py**` (36 tests) — language inference, diversity scores, Jaccard similarity, cost calculation, formatting, stage cell rendering
 - Content deduplication test verifies `examples-sonnet/` has no byte-identical tasks
 
 ### Scripts
 
-- **`generate-exemplar.sh`** — Generates a high-quality task using Opus (`--model anthropic/claude-opus-4 --solution-first`), validates structurally + functionally, and prints next-step commands for eval and promotion. Use this to build up `examples-opus/` before running Sonnet batches.
-- **`promote-exemplar.sh`** — Copies a confirmed-learnable task to `examples-opus/`, strips pipeline artifacts, and commits. Takes `--opus-passes` and `--opus-total` for the commit message.
+- `**generate-exemplar.sh**` — Generates a high-quality task using Opus (`--model anthropic/claude-opus-4 --solution-first`), validates structurally + functionally, and prints next-step commands for eval and promotion. Use this to build up `examples-opus/` before running Sonnet batches.
+- `**promote-exemplar.sh**` — Copies a confirmed-learnable task to `examples-opus/`, strips pipeline artifacts, and commits. Takes `--opus-passes` and `--opus-total` for the commit message.
 
 ### Known Issues
 
 - **Token tracking on timeout**: When the agent times out (`failure_mode=agent_timeout`), the harness returns 0 input/output tokens even though the agent may have made multiple LLM calls and partially fixed the task. The `AgentResult` partial result constructed on timeout doesn't pull token counts from the chat history. This means: (1) cost estimates are underreported for timed-out trials, (2) `resolved=True` with 0 tokens is valid — the agent fixed the code before timing out, and tests passed on the modified container.
 - **4/7 tests pass on buggy webhook code**: The webhook receiver task has 4 tests passing without any fixes applied, meaning only 3 tests actually verify bug fixes. Tasks should aim for majority of tests failing on buggy code to properly measure agent capability.
-
 - **Docker concurrency limit**: `--n-concurrent 12` caused all 12 tasks to fail functional validation — 36 simultaneous Docker containers triggered OOM kills (exit 137) and timeouts. Safe limit is `--n-concurrent 6` (18 containers peak). Batch 12 was a total loss; batch 13 reverts to 6 concurrent.
+

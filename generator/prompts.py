@@ -299,50 +299,48 @@ PROMPT_BANK: list[TopicEntry] = [
 ]
 
 
-# Individual topics excluded from selection — each violates a pipeline constraint
-# (server-based, concurrency/non-determinism, Node.js, Docker-in-Docker, etc.)
-EXCLUDED_TOPICS = {
-    # Server-based (rule F: tests should test concrete outputs, not require running servers)
-    "fix a broken Python Flask API with dependency, routing, and data format bugs",
-    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL termination errors",
-    # Concurrency/non-determinism (unreliable test results)
-    "debug a Go HTTP server with race conditions in shared state access",
-    "debug a multi-threaded Python producer-consumer with deadlocks and data loss",
-    "fix a Python async web scraper with rate limiting and connection pool bugs",
-    "fix a Python TCP proxy with broken connection pooling, half-close handling, and timeout bugs",
-    # Node.js (rule D: avoid Node.js/npm, slow and fragile in containers)
-    "fix a Node.js script that fails to parse JSON due to encoding issues",
-    # C++ undefined behavior (avoid UB bugs — non-deterministic, hard to test)
-    "fix a C++ program with undefined behavior from iterator invalidation and buffer overflows",
-    # Java/Maven (same failure pattern as excluded maven example)
-    "fix broken Maven POM files with dependency conflicts, incorrect plugin configs, and wrong artifact versions",
-    # Docker-in-Docker (can't run Docker inside Docker containers reliably)
-    "debug a broken Docker Compose setup with incorrect networking, port mapping, and service dependencies",
-    # Requires /proc or systemd (not available in minimal Docker containers)
-    "fix a Bash script that incorrectly parses /proc filesystem stats for CPU monitoring",
-    "repair a shell script that manages systemd services with incorrect status parsing",
-    # Signal handling / zombie processes (non-deterministic in containers)
-    "fix a process supervisor script with broken signal handling, zombie reaping, and restart logic",
-    # Binary data pipelines (fragile, encoding-dependent)
-    "fix a Bash pipeline that corrupts binary data when processing mixed text/binary streams",
-    # Streaming/backpressure (concurrency-adjacent, non-deterministic)
-    "fix a Python streaming JSON parser that loses events under backpressure with malformed input",
-    # Server-based networking (requires running servers)
-    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL issues",
-    "fix a Python TCP proxy with broken connection pooling, half-close handling, and backpressure bugs",
-    # Infrastructure/packaging bugs (Sonnet can't reliably scaffold environment deps;
-    # 0/12 learnable tasks have bugs outside application logic)
-    "repair a broken Python package build with incorrect pyproject.toml, missing entry points, and version bugs",
-    "debug a broken CI/CD pipeline script with incorrect artifact handling, test parallelization, and caching bugs",
-    # Always-fail topics (0% functional pass rate across 2+ batches)
-    "debug a broken Python ORM layer with incorrect query generation, lazy loading, and transaction handling",
-    "fix a Bash script that fails to count and summarize log file entries correctly",
-    "fix a Python socket client that drops messages due to incorrect buffer handling",
-    "fix a broken CMake project with incorrect library linking, missing find_package, and install rules",
-    "fix a broken Python HTTP client with retry logic, timeout handling, and redirect bugs",
-    "repair a Python state machine implementation with incorrect transition validation and event handling",
-    # C memory bugs (too hard in container context, 0/5 in batch 2)
-    "debug a C program with memory corruption in a linked list implementation",
+# Kept for backward compat — empty set, all topics use weighted sampling now
+EXCLUDED_TOPICS: set[str] = set()
+
+# Static weight overrides for topics with known issues.
+# Weight 1.0 = normal, 0.1 = very unlikely to be selected, 0.0 = never selected.
+# Topics not listed default to 1.0.
+# These weights reflect structural constraints (Docker-in-Docker, /proc, etc.)
+# and historical performance. Updated based on retest results.
+TOPIC_WEIGHTS: dict[str, float] = {
+    # Docker-in-Docker: fundamentally can't work in our eval containers
+    "debug a broken Docker Compose setup with incorrect networking, port mapping, and service dependencies": 0.01,
+    # Concurrency/non-determinism: tests are unreliable
+    "debug a Go HTTP server with race conditions in shared state access": 0.1,
+    "debug a multi-threaded Python producer-consumer with deadlocks and data loss": 0.1,
+    "fix a Python async web scraper with rate limiting and connection pool bugs": 0.1,
+    "fix a Python TCP proxy with broken connection pooling, half-close handling, and timeout bugs": 0.1,
+    "fix a Python TCP proxy with broken connection pooling, half-close handling, and backpressure bugs": 0.1,
+    "fix a Python streaming JSON parser that loses events under backpressure with malformed input": 0.1,
+    "fix a process supervisor script with broken signal handling, zombie reaping, and restart logic": 0.1,
+    # C/C++ memory bugs: non-deterministic, hard to test in containers
+    "debug a C program with memory corruption in a linked list implementation": 0.1,
+    "fix a C++ program with undefined behavior from iterator invalidation and buffer overflows": 0.1,
+    # Requires /proc (not in minimal containers)
+    "fix a Bash script that incorrectly parses /proc filesystem stats for CPU monitoring": 0.2,
+    # Binary data pipelines: fragile, encoding-dependent
+    "fix a Bash pipeline that corrupts binary data when processing mixed text/binary streams": 0.2,
+    # Historical always-fail (0% functional across 2+ batches) — low weight, not zero
+    "fix a Bash script that fails to count and summarize log file entries correctly": 0.2,
+    "fix a Python socket client that drops messages due to incorrect buffer handling": 0.2,
+    "fix a broken CMake project with incorrect library linking, missing find_package, and install rules": 0.2,
+    "fix a broken Python HTTP client with retry logic, timeout handling, and redirect bugs": 0.2,
+    "repair a Python state machine implementation with incorrect transition validation and event handling": 0.2,
+    # Previously excluded but passed functional validation in retest — moderate weight
+    "fix a broken Python Flask API with dependency, routing, and data format bugs": 0.6,
+    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL termination errors": 0.5,
+    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL issues": 0.5,
+    "fix a Node.js script that fails to parse JSON due to encoding issues": 0.6,
+    "fix broken Maven POM files with dependency conflicts, incorrect plugin configs, and wrong artifact versions": 0.6,
+    "repair a shell script that manages systemd services with incorrect status parsing": 0.5,
+    "debug a broken CI/CD pipeline script with incorrect artifact handling, test parallelization, and caching bugs": 0.5,
+    "debug a broken Python ORM layer with incorrect query generation, lazy loading, and transaction handling": 0.5,
+    "repair a broken Python package build with incorrect pyproject.toml, missing entry points, and version bugs": 0.3,
 }
 
 
@@ -369,7 +367,7 @@ def select_entries(
     """
     rng = random.Random(seed)
 
-    pool = [t for t in PROMPT_BANK if t.topic not in EXCLUDED_TOPICS]
+    pool = list(PROMPT_BANK)  # all topics eligible, weighted by historical performance
 
     if category:
         pool = [t for t in pool if t.category == category]
@@ -381,18 +379,32 @@ def select_entries(
     if not pool:
         return []
 
-    if not diverse or n >= len(pool):
-        rng.shuffle(pool)
-        return pool[:n]
+    def _weight(t: TopicEntry) -> float:
+        return TOPIC_WEIGHTS.get(t.topic, 1.0)
 
-    # Round-robin across categories for diversity
+    if not diverse or n >= len(pool):
+        # Weighted sample without replacement
+        selected: list[TopicEntry] = []
+        remaining = list(pool)
+        for _ in range(min(n, len(remaining))):
+            weights = [_weight(t) for t in remaining]
+            total_w = sum(weights)
+            if total_w == 0:
+                break
+            chosen = rng.choices(remaining, weights=weights, k=1)[0]
+            selected.append(chosen)
+            remaining.remove(chosen)
+        return selected
+
+    # Round-robin across categories for diversity, weighted within each category
     by_category: dict[str, list[TopicEntry]] = {}
     for t in pool:
         by_category.setdefault(t.category, []).append(t)
+    # Sort within each category by weight (highest first) with random tiebreaking
     for entries in by_category.values():
-        rng.shuffle(entries)
+        entries.sort(key=lambda t: (-_weight(t), rng.random()))
 
-    selected: list[TopicEntry] = []
+    selected = []
     categories = list(by_category.keys())
     rng.shuffle(categories)
     idx = {cat: 0 for cat in categories}
@@ -403,10 +415,21 @@ def select_entries(
             if len(selected) >= n:
                 break
             entries = by_category[cat]
-            if idx[cat] < len(entries):
-                selected.append(entries[idx[cat]])
-                idx[cat] += 1
-                added = True
+            # Find next unselected entry, sampling by weight
+            remaining_in_cat = entries[idx[cat]:]
+            if not remaining_in_cat:
+                continue
+            weights = [_weight(t) for t in remaining_in_cat]
+            total_w = sum(weights)
+            if total_w == 0:
+                idx[cat] = len(entries)
+                continue
+            chosen = rng.choices(remaining_in_cat, weights=weights, k=1)[0]
+            selected.append(chosen)
+            # Move past chosen (and anything before it)
+            chosen_idx = entries.index(chosen)
+            entries.pop(chosen_idx)
+            added = True
         if not added:
             break
 
