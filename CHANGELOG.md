@@ -68,6 +68,16 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Eval Pipeline: No Further Shortcuts (Design Decision)
+
+**Keeping 5 Opus runs, 5 Sonnet runs, and 2 adjustment rounds** — Investigated reducing Opus runs from 5 to 3, Sonnet filter from 5 to 3, and adjustment rounds from 2 to 1. All were rejected:
+
+- **Opus 5→3**: 0/3 doesn't preclude 1/5 or 2/5 (learnable). 3 runs gives ambiguous results for every outcome except 3/3. Violates 100% certainty requirement on learnable classification.
+- **Sonnet filter 5→3 with threshold 2**: Could misclassify learnable tasks where Sonnet passes 2/3 but Opus would only pass 2/5. Same certainty violation.
+- **Adjustment rounds 2→1**: Data shows 6/17 (35%) of second-round adjustments produced learnable tasks. The second round is pulling its weight.
+
+The eval pipeline is as lean as possible while maintaining classification certainty. Worst-case runtime is ~15 min/task (Sonnet 5 + Opus 5 + adjustment + Opus 5 + adjustment + Opus 5). Cost savings come from the generation side (9 examples, dedup checks, topic exclusion) not the eval side.
+
 ### Remove Early Adjustment (0/3 Premature Stop)
 
 **Removed early adjustment after 0/3 Opus batch** (`evaluate.py`, `pipeline.py`) — The feature stopped Opus eval at 3 runs (instead of 5) when 0/3 + low test rate, then triggered difficulty adjustment. This was incorrect: 0/3 doesn't preclude 1/5 or 2/5 (learnable), and the cost math didn't favor it — adjustment restarts a full 5-run eval, so stopping at 3 saves 2 runs but spends 5 more on the adjusted task. Batch 27's CLI tool was classified as too_hard (0/3) when runs 4-5 might have produced a pass. Now all tasks run the full 5 Opus trials before adjustment decisions.
