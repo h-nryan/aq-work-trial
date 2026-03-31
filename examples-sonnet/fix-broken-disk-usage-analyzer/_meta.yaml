@@ -1,7 +1,9 @@
+approx_tokens: 4298
+category: system-administration
 classification: learnable
 opus_pass_rate: 0.25
 opus_passes: 1
 opus_total: 4
-category: system-administration
-approx_tokens: 4298
 source: pipeline-generated
+topic: fix a broken disk usage analyzer script with incorrect recursive traversal
+  and size calculations

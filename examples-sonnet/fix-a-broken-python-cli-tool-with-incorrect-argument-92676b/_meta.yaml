@@ -1,7 +1,9 @@
+approx_tokens: 5116
+category: software-engineering
 classification: learnable
 opus_pass_rate: 0.5
 opus_passes: 2
 opus_total: 4
-category: software-engineering
-approx_tokens: 5116
 source: pipeline-generated
+topic: fix a broken Python CLI tool with incorrect argument parsing and missing help
+  text

@@ -1,7 +1,9 @@
+approx_tokens: 4739
+category: networking
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: networking
-approx_tokens: 4739
 source: pipeline-generated
+topic: debug a broken webhook receiver with incorrect signature verification, replay
+  protection, and retry handling

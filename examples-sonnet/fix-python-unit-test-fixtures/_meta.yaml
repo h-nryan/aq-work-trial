@@ -1,7 +1,8 @@
+approx_tokens: 3778
+category: debugging
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: debugging
-approx_tokens: 3778
 source: pipeline-generated
+topic: fix a Python unit test suite where fixtures have scoping and teardown bugs

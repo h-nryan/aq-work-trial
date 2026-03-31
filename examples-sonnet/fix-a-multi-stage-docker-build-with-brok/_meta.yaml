@@ -1,8 +1,10 @@
+approx_tokens: 3100
+category: build-systems
 classification: learnable
+difficulty: medium
 opus_pass_rate: 0.4
 opus_passes: 2
 opus_total: 5
-category: build-systems
-difficulty: medium
-approx_tokens: 3100
 source: sonnet-generated
+topic: fix a multi-stage Docker build with broken layer caching, wrong build args,
+  and missing runtime deps

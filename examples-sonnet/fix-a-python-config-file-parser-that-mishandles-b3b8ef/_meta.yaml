@@ -1,7 +1,8 @@
+approx_tokens: 6474
+category: software-engineering
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: software-engineering
-approx_tokens: 6474
 source: pipeline-generated
+topic: fix a Python config file parser that mishandles default values and type coercion

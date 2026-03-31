@@ -1,7 +1,8 @@
+approx_tokens: 8502
+category: build-systems
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: build-systems
-approx_tokens: 8502
 source: pipeline-generated
+topic: fix a Python setup.py with wrong package discovery and missing dependencies

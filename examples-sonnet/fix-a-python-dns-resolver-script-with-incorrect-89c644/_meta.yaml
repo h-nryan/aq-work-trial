@@ -1,7 +1,9 @@
+approx_tokens: 6715
+category: networking
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: networking
-approx_tokens: 6715
 source: pipeline-generated
+topic: fix a Python DNS resolver script with incorrect record type handling and cache
+  expiry bugs

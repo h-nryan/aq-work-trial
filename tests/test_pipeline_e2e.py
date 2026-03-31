@@ -401,3 +401,129 @@ class TestRetryRegenFailure:
 
         assert result["status"] == "retry_generation_failed"
         assert result["failed_stage"] == "functional"
+
+
+class TestWriteTaskMeta:
+    """Tests for _write_task_meta topic field population."""
+
+    def test_meta_includes_topic(self, tmp_path):
+        import yaml
+        from pipeline import _write_task_meta
+
+        task_dir = str(tmp_path / "test-task")
+        os.makedirs(task_dir)
+        # Write a dummy file so approx_tokens > 0
+        with open(os.path.join(task_dir, "main.py"), "w") as f:
+            f.write("print('hello')\n")
+
+        result = {
+            "topic": "fix a Python script that crashes on empty input",
+            "classification": "learnable",
+            "passes": 2,
+            "total": 5,
+            "pass_rate": 0.4,
+        }
+        _write_task_meta(task_dir, result, category="debugging")
+
+        meta = yaml.safe_load(open(os.path.join(task_dir, "_meta.yaml")))
+        assert meta["topic"] == "fix a Python script that crashes on empty input"
+        assert meta["classification"] == "learnable"
+        assert meta["category"] == "debugging"
+        assert meta["opus_passes"] == 2
+
+    def test_meta_without_topic(self, tmp_path):
+        import yaml
+        from pipeline import _write_task_meta
+
+        task_dir = str(tmp_path / "test-task")
+        os.makedirs(task_dir)
+        with open(os.path.join(task_dir, "main.py"), "w") as f:
+            f.write("x = 1\n")
+
+        result = {"classification": "too_hard", "passes": 0, "total": 5, "pass_rate": 0.0}
+        _write_task_meta(task_dir, result)
+
+        meta = yaml.safe_load(open(os.path.join(task_dir, "_meta.yaml")))
+        assert meta["topic"] == ""  # empty but present
+        assert meta["classification"] == "too_hard"
+
+    def test_meta_not_written_without_classification(self, tmp_path):
+        from pipeline import _write_task_meta
+
+        task_dir = str(tmp_path / "test-task")
+        os.makedirs(task_dir)
+
+        result = {"topic": "some topic", "classification": None}
+        _write_task_meta(task_dir, result)
+
+        assert not os.path.exists(os.path.join(task_dir, "_meta.yaml"))
+
+
+class TestAutoPromoteDedup:
+    """Tests for _auto_promote duplicate prevention."""
+
+    def test_skips_duplicate_topic(self, tmp_path, monkeypatch):
+        import yaml
+        from pipeline import _auto_promote
+
+        # Create existing example with a topic
+        examples_dir = tmp_path / "examples-sonnet"
+        existing = examples_dir / "existing-task"
+        existing.mkdir(parents=True)
+        meta = {"topic": "fix a broken widget", "classification": "learnable"}
+        (existing / "_meta.yaml").write_text(yaml.dump(meta))
+        (existing / "task.yaml").write_text("instruction: fix it\n")
+
+        # Point SONNET_EXAMPLES_DIR to our temp dir
+        monkeypatch.setattr("pipeline.SONNET_EXAMPLES_DIR", str(examples_dir))
+
+        # Try to promote a new task with the same topic
+        new_task = tmp_path / "new-task-abc123"
+        new_task.mkdir()
+        (new_task / "task.yaml").write_text("instruction: fix it differently\n")
+
+        result = {"topic": "fix a broken widget", "classification": "learnable",
+                  "passes": 1, "total": 5, "pass_rate": 0.2}
+        _auto_promote(str(new_task), result)
+
+        # Should NOT have been promoted
+        assert not (examples_dir / "new-task-abc123").exists()
+
+    def test_no_duplicate_topics_in_examples_sonnet(self):
+        """Validate no duplicate topics exist in the actual examples-sonnet/ dir."""
+        import yaml
+        from collections import defaultdict
+
+        examples_dir = os.path.join(os.path.dirname(__file__), "..", "examples-sonnet")
+        if not os.path.isdir(examples_dir):
+            pytest.skip("examples-sonnet/ not found")
+
+        topics = defaultdict(list)
+        for d in sorted(os.listdir(examples_dir)):
+            meta_path = os.path.join(examples_dir, d, "_meta.yaml")
+            if os.path.exists(meta_path):
+                meta = yaml.safe_load(open(meta_path))
+                topic = meta.get("topic", "")
+                if topic:
+                    topics[topic].append(d)
+
+        dupes = {t: dirs for t, dirs in topics.items() if len(dirs) > 1}
+        assert not dupes, f"Duplicate topics in examples-sonnet/: {dupes}"
+
+    def test_promotes_new_topic(self, tmp_path, monkeypatch):
+        import yaml
+        from pipeline import _auto_promote
+
+        examples_dir = tmp_path / "examples-sonnet"
+        examples_dir.mkdir(parents=True)
+        monkeypatch.setattr("pipeline.SONNET_EXAMPLES_DIR", str(examples_dir))
+
+        new_task = tmp_path / "new-task-abc123"
+        new_task.mkdir()
+        (new_task / "task.yaml").write_text("instruction: fix it\n")
+
+        result = {"topic": "brand new topic", "classification": "learnable",
+                  "passes": 2, "total": 5, "pass_rate": 0.4}
+        _auto_promote(str(new_task), result)
+
+        assert (examples_dir / "new-task-abc123").exists()

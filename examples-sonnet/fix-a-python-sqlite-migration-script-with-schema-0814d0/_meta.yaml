@@ -1,7 +1,8 @@
+approx_tokens: 6702
+category: data-processing
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: data-processing
-approx_tokens: 6702
 source: pipeline-generated
+topic: fix a Python SQLite migration script with schema versioning and data type bugs

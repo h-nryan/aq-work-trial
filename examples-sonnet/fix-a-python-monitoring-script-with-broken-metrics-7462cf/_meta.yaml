@@ -1,7 +1,9 @@
+approx_tokens: 7469
+category: system-administration
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: system-administration
-approx_tokens: 7469
 source: pipeline-generated
+topic: fix a Python monitoring script with broken metrics collection, alerting thresholds,
+  and stale data

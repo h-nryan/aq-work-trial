@@ -1,8 +1,10 @@
+approx_tokens: 4100
+category: data-processing
 classification: learnable
+difficulty: medium
 opus_pass_rate: 0.4
 opus_passes: 2
 opus_total: 5
-category: data-processing
-difficulty: medium
-approx_tokens: 4100
 source: sonnet-generated
+topic: fix a Python script that incorrectly converts CSV to JSON due to header parsing
+  bugs

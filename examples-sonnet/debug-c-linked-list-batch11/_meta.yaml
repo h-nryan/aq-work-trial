@@ -1,7 +1,8 @@
+approx_tokens: 3913
+category: debugging
 classification: learnable
 opus_pass_rate: 0.5
 opus_passes: 2
 opus_total: 4
-category: debugging
-approx_tokens: 3913
 source: pipeline-generated
+topic: debug a C program with memory corruption in a linked list implementation

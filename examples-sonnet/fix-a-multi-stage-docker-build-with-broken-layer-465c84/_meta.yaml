@@ -1,7 +1,0 @@
-classification: learnable
-opus_pass_rate: 0.5
-opus_passes: 2
-opus_total: 4
-category: build-systems
-approx_tokens: 5875
-source: pipeline-generated

@@ -1,8 +1,10 @@
+approx_tokens: 3800
+category: software-engineering
 classification: learnable
+difficulty: medium
 opus_pass_rate: 0.4
 opus_passes: 2
 opus_total: 5
-category: software-engineering
-difficulty: medium
-approx_tokens: 3800
 source: sonnet-generated
+topic: fix a broken Python template engine with incorrect variable substitution and
+  escaping

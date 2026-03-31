@@ -1,7 +1,9 @@
+approx_tokens: 6888
+category: software-engineering
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: software-engineering
-approx_tokens: 6888
 source: pipeline-generated
+topic: fix a Python dependency resolver with circular dependency detection and version
+  conflict bugs

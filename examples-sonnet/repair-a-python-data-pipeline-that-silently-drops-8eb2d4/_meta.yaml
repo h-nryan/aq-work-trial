@@ -1,7 +1,8 @@
+approx_tokens: 7520
+category: data-processing
 classification: learnable
 opus_pass_rate: 0.3333
 opus_passes: 1
 opus_total: 3
-category: data-processing
-approx_tokens: 7520
 source: pipeline-generated
+topic: repair a Python data pipeline that silently drops records during CSV transformation

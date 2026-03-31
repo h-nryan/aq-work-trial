@@ -18,7 +18,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 **Batch cost summary** (`dashboard.py`) — Three cost cards below the existing count cards: Generation cost (Sonnet API tokens from all generate/retry/adjustment stages), Opus eval cost (from agent token counts in trial data), and Cost per learnable task. Pricing constants: Sonnet 4.5 at $3/$15 per MTok in/out; Opus 4 at $15/$75 per MTok in/out.
 
-**Pipeline funnel visualization** (`dashboard.py`) — Horizontal bar chart between the progress bar and task table showing attrition at each stage: Attempted → Generated → Structural → Functional → Evaluated → Learnable, with absolute counts and cumulative yield % on each bar.
+**Pipeline funnel visualization** (`dashboard.py`) — Removed. The funnel was added and subsequently removed as the visual did not render well.
 
 **Per-task cost in detail view** (`dashboard.py`) — Cost breakdown added to every task expander: generation tokens + cost, Opus eval tokens + cost, and total.
 

@@ -161,15 +161,6 @@ CUSTOM_CSS = """
         gap: 12px; margin: 10px 0 15px 0;
     }
 
-    .funnel-row {
-        display: flex; align-items: center; gap: 10px;
-        padding: 4px 0;
-    }
-    .funnel-label { color: #8892b0; font-size: 0.8em; width: 110px; text-align: right; flex-shrink: 0; }
-    .funnel-bar-bg { flex: 1; background: #1a202c; border-radius: 4px; height: 22px; overflow: hidden; }
-    .funnel-bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center;
-        padding-left: 8px; font-size: 0.75em; font-weight: 600; color: #e8e8e8; white-space: nowrap; }
-    .funnel-pct { color: #8892b0; font-size: 0.75em; width: 45px; text-align: right; flex-shrink: 0; }
 
     /* Make detail expanders flush with the task row above */
     .task-row + div .streamlit-expanderHeader {
@@ -798,35 +789,6 @@ def render_pipeline_view():
     if n_total > 0:
         st.progress((n_completed + n_failed) / n_total,
                      text=f"**{n_completed + n_failed}/{n_total}** tasks processed")
-
-    # Pipeline funnel
-    n_generated = sum(1 for t in tasks if t.get("failed_stage") not in ("generation", "generating") and t["stage"] != "queued")
-    n_structural = sum(1 for t in tasks if t.get("stages", {}).get("structural", {}).get("passed", False))
-    n_functional = sum(1 for t in tasks if t.get("stages", {}).get("functional", {}).get("passed", False))
-    n_evaluated = sum(1 for t in tasks if t.get("classification") and t["classification"] != "eval_skipped")
-    funnel_steps = [
-        ("Attempted", n_total, "#4dabf7"),
-        ("Generated", n_generated, "#74c0fc"),
-        ("Structural", n_structural, "#a9e34b"),
-        ("Functional", n_functional, "#69db7c"),
-        ("Evaluated", n_evaluated, "#ffd43b"),
-        ("Learnable", n_learnable, "#00d4aa"),
-    ]
-    funnel_html = ""
-    for label, count, color in funnel_steps:
-        pct = count / n_total if n_total > 0 else 0
-        bar_w = max(pct * 100, 1)
-        prev = next((c for l, c, _ in funnel_steps if c >= count), n_total)
-        step_pct = f"{count/funnel_steps[0][1]:.0%}" if funnel_steps[0][1] > 0 else "—"
-        funnel_html += f"""
-        <div class="funnel-row">
-            <div class="funnel-label">{label}</div>
-            <div class="funnel-bar-bg">
-                <div class="funnel-bar-fill" style="width:{bar_w:.1f}%;background:{color};">{count}</div>
-            </div>
-            <div class="funnel-pct">{step_pct}</div>
-        </div>"""
-    st.markdown(funnel_html, unsafe_allow_html=True)
 
     # Pipeline table header
     st.markdown("""

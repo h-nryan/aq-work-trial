@@ -85,7 +85,11 @@ def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None
 
 
 def _auto_promote(task_dir: str, result: dict) -> None:
-    """Auto-promote a learnable task to examples-sonnet/."""
+    """Auto-promote a learnable task to examples-sonnet/.
+
+    Skips promotion if an example with the same topic already exists
+    (prevents duplicates across batches with different dir names).
+    """
     from pathlib import Path
 
     task_path = Path(task_dir).resolve()
@@ -95,6 +99,22 @@ def _auto_promote(task_dir: str, result: dict) -> None:
     if dest.exists():
         print(f"  [Auto-promote] Already exists: {dest}")
         return
+
+    # Check if any existing example has the same topic (prevent duplicates)
+    topic = result.get("topic", "")
+    if topic:
+        examples_dir = Path(SONNET_EXAMPLES_DIR)
+        if examples_dir.is_dir():
+            for existing in examples_dir.iterdir():
+                meta_path = existing / "_meta.yaml"
+                if meta_path.exists():
+                    try:
+                        existing_meta = yaml.safe_load(meta_path.read_text())
+                        if existing_meta.get("topic") == topic:
+                            print(f"  [Auto-promote] Topic already has example: {existing.name}")
+                            return
+                    except Exception:
+                        pass
 
     os.makedirs(SONNET_EXAMPLES_DIR, exist_ok=True)
     shutil.copytree(str(task_path), str(dest))
@@ -166,6 +186,8 @@ def _write_task_meta(task_dir: str, result: dict, category: str | None = None) -
                 except OSError:
                     pass
 
+    topic = result.get("topic", "")
+
     meta = {
         "approx_tokens": approx_tokens,
         "classification": classification,
@@ -173,6 +195,7 @@ def _write_task_meta(task_dir: str, result: dict, category: str | None = None) -
         "opus_passes": passes,
         "opus_total": total,
         "source": "pipeline-generated",
+        "topic": topic,
     }
     if category:
         meta["category"] = category
