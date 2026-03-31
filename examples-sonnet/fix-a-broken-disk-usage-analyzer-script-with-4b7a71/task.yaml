@@ -1,0 +1,69 @@
+instruction: |-
+  Fix a broken disk usage analyzer script with incorrect recursive traversal and size calculations.
+  
+  The script `/app/disk_usage.py` is supposed to:
+  1. Recursively traverse a directory tree and calculate total sizes
+  2. Handle symlinks correctly without following them (to avoid infinite loops)
+  3. Respect the --max-depth parameter to limit traversal depth
+  4. Format file sizes in human-readable units (B, KB, MB, GB, TB)
+  5. Support both human-readable and JSON output formats
+  6. Handle permission errors gracefully without crashing
+  
+  The script has 4 bugs that need fixing:
+  
+  BUG 1 - get_file_size() function:
+  - Symptom: Symlinks report the size of their target file instead of the link itself
+  - Fix: Use os.lstat() instead of os.path.getsize() to avoid following symlinks
+  
+  BUG 2 - calculate_directory_size() function:
+  - Symptom: Missing symlink check before recursing into directories
+  - Fix: Add a check for os.path.islink() and return early if it's a symlink
+  
+  BUG 3 - traverse_directory() function:
+  - Symptom: max-depth parameter allows one extra level of traversal (uses >= instead of <)
+  - Fix: Change the comparison from 'current_depth >= max_depth' to 'current_depth < max_depth'
+  
+  BUG 4 - format_size() function:
+  - Symptom: Size formatting loses precision (shows 9.00 KB instead of 10.00 KB for 10240 bytes)
+  - Fix: Use float division (/) instead of integer division (//)
+  
+  The script should work with these command formats:
+  - `python disk_usage.py <directory>` - Human-readable output
+  - `python disk_usage.py <directory> --json` - JSON output
+  - `python disk_usage.py <directory> --max-depth N` - Limit depth (0=root only, 1=root+children)
+  - `python disk_usage.py <directory> --json --max-depth N` - Combined options
+  
+  Requirements:
+  - Fix symlink handling to avoid following them during size calculation
+  - Correct the max-depth logic so depth N means exactly N levels (0-indexed)
+  - Use float division for accurate size formatting
+  - Ensure recursive traversal respects depth limits correctly
+  - Handle permission errors without crashing
+  - Preserve the existing command-line interface
+  - Output should be sorted by size (largest first) in human-readable mode
+  - JSON output should include path, size (bytes), and depth for each entry
+  
+  Success criteria:
+  - All files and directories are analyzed correctly
+  - Symlinks don't cause infinite loops or double-counting
+  - max-depth parameter works as specified
+  - Size formatting is accurate with proper precision
+  - No crashes on permission errors
+  - Both output formats work correctly
+difficulty: medium
+category: debugging
+tags:
+  - python
+  - filesystem
+  - recursion
+  - debugging
+  - disk-usage
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

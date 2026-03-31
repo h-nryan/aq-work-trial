@@ -1,0 +1,20 @@
+{
+  "attempt": 1,
+  "passed": false,
+  "issues": [
+    "Docker image build failed: Docker build failed (exit 1):\n#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 183B done\n#1 DONE 0.0s\n\n#2 [internal] load metadata for docker.io/library/tbench-base:latest\n#2 DONE 0.0s\n\n#3 [internal] load .dockerignore\n#3 transferring context: 2B done\n#3 DONE 0.0s\n\n#4 [1/6] FROM docker.io/library/tbench-base:latest\n#4 DONE 0.0s\n\n#5 [internal] load build context\n#5 transferring context: 3.30kB done\n#5 DONE 0.0s\n\n#6 [2/6] WORKDIR /app\n#6 CACHED\n\n#7 [4/6] COPY conftest.py /app/\n#7 CACHED\n\n#8 [5/6] COPY run_tests.sh /app/\n#8 ERROR: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::1c3rmxd0ckbui8w3eo3m6ug73: \"/run_tests.sh\": not found\n\n#9 [3/6] COPY test_fixtures.py /app/\n#9 CANCELED\n------\n > [5/6] COPY run_tests.sh /app/:\n------\nDockerfile:6\n--------------------\n   4 |     COPY test_fixtures.py /app/\n   5 |     COPY conftest.py /app/\n   6 | >>> COPY run_tests.sh /app/\n   7 |     RUN chmod +x /app/run_tests.sh\n   8 |     \n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::1c3rmxd0ckbui8w3eo3m6ug73: \"/run_tests.sh\": not found\n"
+  ],
+  "tests_fail_without_solution": false,
+  "tests_pass_with_solution": false,
+  "solution_idempotent": null,
+  "execution_times": {
+    "build": 0.36
+  },
+  "image_builds": false,
+  "details": {
+    "build": {
+      "success": false,
+      "error": "Docker build failed (exit 1):\n#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 183B done\n#1 DONE 0.0s\n\n#2 [internal] load metadata for docker.io/library/tbench-base:latest\n#2 DONE 0.0s\n\n#3 [internal] load .dockerignore\n#3 transferring context: 2B done\n#3 DONE 0.0s\n\n#4 [1/6] FROM docker.io/library/tbench-base:latest\n#4 DONE 0.0s\n\n#5 [internal] load build context\n#5 transferring context: 3.30kB done\n#5 DONE 0.0s\n\n#6 [2/6] WORKDIR /app\n#6 CACHED\n\n#7 [4/6] COPY conftest.py /app/\n#7 CACHED\n\n#8 [5/6] COPY run_tests.sh /app/\n#8 ERROR: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::1c3rmxd0ckbui8w3eo3m6ug73: \"/run_tests.sh\": not found\n\n#9 [3/6] COPY test_fixtures.py /app/\n#9 CANCELED\n------\n > [5/6] COPY run_tests.sh /app/:\n------\nDockerfile:6\n--------------------\n   4 |     COPY test_fixtures.py /app/\n   5 |     COPY conftest.py /app/\n   6 | >>> COPY run_tests.sh /app/\n   7 |     RUN chmod +x /app/run_tests.sh\n   8 |     \n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 0b8ee82c-f4bd-4424-bb2a-ca79c90bae29::1c3rmxd0ckbui8w3eo3m6ug73: \"/run_tests.sh\": not found\n"
+    }
+  }
+}

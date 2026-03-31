@@ -1,0 +1,60 @@
+instruction: |-
+  Fix a broken multi-stage data pipeline that has inconsistent date parsing across timezones and locales.
+  
+  The date parser at `/app/date_parser.py` is supposed to:
+  1. Read date strings from input files in multiple formats (ISO8601, US MM/DD/YYYY, EU DD/MM/YYYY)
+  2. Parse timezone offsets like '+0530' or '-0800' from the input
+  3. Normalize all dates to UTC (timezone offset +0000)
+  4. Output normalized dates in ISO8601 format with timezone info
+  5. Handle invalid dates gracefully by skipping them
+  
+  Input file format (pipe-separated):
+  ```
+  date_string|timezone_offset|locale
+  2024-01-15|+0000|en_US
+  01/15/2024|+0530|en_IN
+  15/01/2024|-0800|en_GB
+  ```
+  
+  Current bugs in the implementation:
+  - Bug in parse_date(): Only handles '%Y-%m-%d' format, need to try multiple formats
+  - Bug in parse_date(): Uses undefined variable 'tz_offset' instead of 'timezone' parameter (causes NameError)
+  - Bug in normalize_dates(): Output format missing 'T' separator and timezone suffix '+0000'
+  
+  Requirements:
+  - Support three date formats: ISO8601 (YYYY-MM-DD), US (MM/DD/YYYY), EU (DD/MM/YYYY)
+  - Parse timezone offsets and adjust dates to UTC
+  - Skip invalid dates without crashing
+  - Output normalized dates in ISO8601 format with timezone: YYYY-MM-DDTHH:MM:SS+0000
+  - Process all sample data files correctly
+  
+  Expected behavior:
+  - `python date_parser.py sample_data/dates_iso.txt output.json` processes ISO dates
+  - `python date_parser.py sample_data/dates_us.txt output.json` processes US format dates
+  - `python date_parser.py sample_data/dates_eu.txt output.json` processes EU format dates
+  - `python date_parser.py sample_data/dates_mixed.txt output.json` handles mixed formats
+  - All dates are normalized to UTC timezone
+  - Invalid dates are skipped without errors
+  
+  The pipeline should handle timezone conversions correctly:
+  - A date with +0530 offset should be adjusted by subtracting 5 hours 30 minutes
+  - A date with -0800 offset should be adjusted by adding 8 hours
+  - Output should always show +0000 (UTC) timezone
+difficulty: medium
+category: data-processing
+tags:
+  - python
+  - datetime
+  - timezone
+  - parsing
+  - data-pipeline
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 360
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

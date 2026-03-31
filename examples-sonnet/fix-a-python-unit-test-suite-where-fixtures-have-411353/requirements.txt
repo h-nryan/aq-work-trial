@@ -1,0 +1,3 @@
+# No runtime dependencies required
+# Test dependencies are handled by run-tests.sh using uv with pinned versions:
+# - pytest==8.4.1

@@ -1,0 +1,59 @@
+instruction: |-
+  Fix a Python unit test suite where fixtures have scoping and teardown bugs.
+  
+  The test fixtures at `/app/test_fixtures.py` and `/app/conftest.py` have several issues:
+  1. Fixtures not properly cleaning up temporary resources (files, directories)
+  2. Fixtures with incorrect scope causing resource leaks
+  3. Teardown code executing in wrong order or not at all
+  4. Active transactions not being rolled back before connection cleanup
+  5. Shared state persisting between test modules
+  6. Missing existence checks before cleanup operations
+  
+  The test suite provides these fixtures:
+  - `temp_database`: Function-scoped database connection with transactions
+  - `shared_cache`: Module-scoped cache for test data
+  - `config_file`: Session-scoped configuration file
+  - `temp_workspace`: Function-scoped temporary workspace directory
+  - `log_file`: Function-scoped log file
+  
+  Known Issues:
+  - Temporary directories not cleaned up after tests
+  - Database transactions left active during teardown
+  - Cache data persisting between test modules
+  - Files being deleted without checking if they exist
+  - Teardown happening at wrong scope level
+  - Resource cleanup order causing errors
+  
+  Requirements:
+  - All temporary resources must be cleaned up after use
+  - Database transactions must be rolled back before disconnect
+  - Module-scoped fixtures must clear state in teardown
+  - Cleanup code must check resource existence before deletion
+  - Fixture scopes must match their intended lifecycle
+  - Teardown must happen after yield completes
+  - No resource leaks or stale state between tests
+  
+  The fixtures should work correctly with pytest and properly manage:
+  - File system resources (directories, files)
+  - Database connections and transactions
+  - Shared state and caches
+  - Proper cleanup order and timing
+difficulty: medium
+category: testing
+tags:
+  - python
+  - pytest
+  - fixtures
+  - testing
+  - cleanup
+  - scoping
+  - debugging
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 350
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small

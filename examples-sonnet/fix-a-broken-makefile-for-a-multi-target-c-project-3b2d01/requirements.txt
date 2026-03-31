@@ -1,0 +1,4 @@
+# No runtime dependencies required
+# The C program uses only standard C library and math library
+# Test dependencies are handled by run-tests.sh using uv with pinned versions:
+# - pytest==8.4.1

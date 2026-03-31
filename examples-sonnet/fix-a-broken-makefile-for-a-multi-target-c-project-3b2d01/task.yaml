@@ -1,0 +1,53 @@
+instruction: |-
+  Fix a broken Makefile for a multi-target C project with linking and include path errors.
+  
+  The project at `/app` consists of:
+  - src/main.c (main program)
+  - src/parser.c (input parsing functions)
+  - src/utils.c (utility functions including math operations)
+  - include/parser.h (parser header)
+  - include/utils.h (utils header)
+  
+  The Makefile has 4 critical bugs (each marked with a comment):
+  
+  BUG 1: Missing .PHONY declaration
+  - Symptom: Error "make: 'all' is up to date" when a file named 'all' exists
+  - Fix: Add ".PHONY: all clean test" line after TARGET definition
+  
+  BUG 2: Wrong source file in utils.o target dependency
+  - Symptom: Error "No rule to make target 'src/helper.c'"
+  - Fix: Change "$(SRC_DIR)/helper.c" to "$(SRC_DIR)/utils.c" in the utils.o rule
+  
+  BUG 3: Missing header dependency for parser.o
+  - Symptom: parser.o doesn't rebuild when parser.h changes
+  - Fix: Add "$(INC_DIR)/parser.h" to parser.o dependencies
+  
+  BUG 4: Missing -lm linker flag
+  - Symptom: Undefined reference to 'sqrt' during linking
+  - Fix: Add "-lm" at the end of the $(TARGET) link command
+  
+  Each bug location is marked with a comment starting with "# BUG:" in the Makefile.
+  
+  Expected behavior after fixes:
+  - 'make all' builds the executable at bin/app
+  - 'make clean' removes obj/ and bin/ directories
+  - 'make test' builds and runs the program
+  - Program compiles, links, and runs successfully
+
+difficulty: medium
+category: build-systems
+tags:
+  - makefile
+  - c
+  - linking
+  - dependencies
+  - build-systems
+parser_name: pytest
+max_agent_timeout_sec: 600.0
+max_test_timeout_sec: 120.0
+run_tests_in_same_shell: false
+disable_asciinema: false
+estimated_duration_sec: 300
+expert_time_estimate_min: 10
+junior_time_estimate_min: 30
+resource_class: small
