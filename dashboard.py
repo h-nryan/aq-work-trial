@@ -112,6 +112,7 @@ CUSTOM_CSS = """
     }
     .stage-done { background: #22543d; color: #68d391; }
     .stage-active { background: #2a4365; color: #63b3ed; animation: pulse 2s infinite; }
+    .stage-adjusting { background: #744210; color: #ffd93d; animation: pulse 2s infinite; }
     .stage-pending { background: #1a202c; color: #4a5568; }
     .stage-failed { background: #742a2a; color: #fc8181; }
     .stage-skipped { background: #1a202c; color: #4a5568; }
@@ -212,8 +213,11 @@ def _render_eval_tier_cell(
     # We have scores — render them
     if passes is not None and total:
         is_filtered_by_this = filtered_at == tier
+        difficulty = "easy" if classification == "too_easy" else "hard"
         if is_filtered_by_this and is_adjusting:
-            return f'<div class="stage-cell stage-active">{passes}/{total} adj.</div>'
+            return f'<div class="stage-cell stage-adjusting">too {difficulty}: adjusting</div>'
+        elif is_adjusting and classification in ("too_hard", "too_easy") and tier == "opus":
+            return f'<div class="stage-cell stage-adjusting">too {difficulty}: adjusting</div>'
         elif is_filtered_by_this:
             return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
         elif classification in ("too_hard", "too_easy") and tier == "opus":
