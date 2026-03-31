@@ -25,7 +25,7 @@ from config import (
     SONNET_EXAMPLES_DIR,
 )
 from docker_validate import docker_validate
-from evaluate import evaluate_task, run_opus_eval
+from evaluate import evaluate_task
 from generate import adjust_difficulty, generate_task, generate_task_solution_first, regenerate_task
 
 # Max rounds of difficulty adjustment after evaluation
@@ -520,10 +520,7 @@ def run_pipeline(
     if not skip_eval:
         _write_status(task_dir, "evaluating", "Opus trials running")
 
-        # Track prior Opus results for resume after early adjustment
-        opus_prior_passes = 0
-        opus_prior_total = 0
-        opus_prior_trials = []
+        # After too_hard adjustment, skip Sonnet filter on re-eval
         # After a too_hard adjustment, skip Sonnet filter on re-eval — if the
         # task was too hard for Opus, it won't be too easy for Sonnet. Running
         # 5 Sonnet trials would be pure waste.
@@ -565,44 +562,12 @@ def run_pipeline(
                     eval_result, adj_round, model, result,
                 )
                 if not adjusted:
-                    # Adjustment failed — run remaining Opus trials on original task
+                    # Adjustment failed — continue to full eval on original task
                     pass
                 else:
-                    # Re-eval with only the remaining runs, using prior results
-                    _write_status(task_dir, "evaluating",
-                                  f"Opus remaining {remaining_runs} runs (post-adjustment)")
-                    opus_prior = eval_result.get("opus_prior", {})
-                    resume_result = run_opus_eval(
-                        task_dir=task_dir,
-                        n_trials=n_eval_trials,
-                        prior_passes=opus_prior.get("passes", 0),
-                        prior_total=opus_prior.get("total", 0),
-                        prior_trials=opus_prior.get("trials", []),
-                    )
-
-                    # Update eval result with combined data
-                    passes = resume_result["passes"]
-                    total = resume_result["total"]
-                    if LEARNABLE_MIN <= passes <= LEARNABLE_MAX:
-                        classification = "learnable"
-                    elif passes > LEARNABLE_MAX:
-                        classification = "too_easy"
-                    else:
-                        classification = "too_hard"
-
-                    result["classification"] = classification
-                    result["passes"] = passes
-                    result["total"] = total
-                    result["pass_rate"] = round(passes / total, 4) if total else 0
-
-                    print(f"\n  Post-adjustment result: {passes}/{total} → {classification}")
-
-                    from evaluate import _write_eval_status
-                    _write_eval_status(task_dir, "opus", passes, total, filtered=False)
-
-                    if classification == "learnable":
-                        break
-                    # If still not learnable, fall through to normal adjustment loop
+                    # Task code changed — must restart full eval (not resume with
+                    # prior results, which are from the pre-adjustment code)
+                    _skip_sonnet_after_too_hard = True  # skip Sonnet on re-eval
                     continue
 
             # Normal adjustment: full eval complete, task is too_hard or too_easy

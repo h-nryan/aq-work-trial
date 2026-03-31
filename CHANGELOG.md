@@ -50,6 +50,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Fix Early Adjustment: Full Re-eval After Code Change
+
+**Restart full eval after early adjustment** (`pipeline.py`) — The early adjustment path (0/3 Opus + low test rate → adjust → resume) was carrying forward the 0/3 prior results and running only 2 more trials on the *adjusted* code. This mixed pre- and post-adjustment results — the 0/3 was from the old code, the 2 remaining from the new code. Fixed: after a successful early adjustment, the loop simply continues to `evaluate_task` which runs a fresh full eval. Removed the `run_opus_eval` resume path and its unused import.
+
+**Confirmed no saved tasks affected** — Early adjustment was committed at 14:17. All saved learnable tasks came from batch 22 (10:41 AM) or earlier, which used the old full-eval code path.
+
 ### Skip Sonnet Filter After Too-Hard Adjustment
 
 **Skip Sonnet on re-eval after too_hard adjustment** (`pipeline.py`) — If a task was classified as too_hard by Opus (0-1/5 passes), the difficulty adjustment makes it easier. Re-evaluating through the Sonnet filter (5 runs) before Opus is wasteful — a task that was too hard for Opus can't be too easy for Sonnet. Now sets `skip_sonnet=True` on the `evaluate_task` call after a too_hard adjustment, going straight to Opus. Saves ~5 minutes per too_hard adjustment round. Does not apply to too_easy adjustments (which need Sonnet to verify the task is no longer trivial).
