@@ -208,9 +208,21 @@ def run_batch(
     # Build a lookup of topic → original plan index for progress display.
     topic_plan_index = {t: i for i, t in enumerate(topics)}
     write_lock = threading.Lock()
+    api_exhausted = threading.Event()  # set when API credits run out
+
     def _run_one(topic: str) -> dict:
         global_idx = topic_plan_index.get(topic, 0) + 1
         print(f"\n[{global_idx}/{len(topics)}] {topic}")
+
+        # Check if API credits are exhausted (set by a prior task)
+        if api_exhausted.is_set():
+            print(f"  SKIPPED: API credits exhausted")
+            return {
+                "topic": topic,
+                "status": "skipped: API credits exhausted",
+                "classification": None,
+            }
+
         task_output_dir = os.path.join(batch_output_dir, _slugify(topic))
 
         try:
@@ -224,7 +236,12 @@ def run_batch(
                 target_category=get_category_for_topic(topic),
             )
         except Exception as e:
-            print(f"  ERROR: {e}")
+            err_str = str(e).lower()
+            if "key limit" in err_str or ("403" in err_str and "limit" in err_str):
+                print(f"  API CREDITS EXHAUSTED: {e}")
+                api_exhausted.set()
+            else:
+                print(f"  ERROR: {e}")
             result = {
                 "topic": topic,
                 "status": f"error: {e}",

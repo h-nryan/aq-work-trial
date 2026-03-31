@@ -117,7 +117,7 @@ class TestJaccard:
 
 class TestTaskCost:
     def test_empty_stages(self):
-        gen, opus = _task_cost({})
+        gen, sonnet_eval, opus = _task_cost({})
         assert gen == 0.0
         assert opus == 0.0
 
@@ -127,7 +127,7 @@ class TestTaskCost:
                 "usage": {"prompt_tokens": 1000, "completion_tokens": 500}
             }
         }
-        gen, opus = _task_cost(stages)
+        gen, sonnet_eval, opus = _task_cost(stages)
         assert gen > 0.0
         assert opus == 0.0
 
@@ -137,7 +137,7 @@ class TestTaskCost:
                 "usage": {"prompt_tokens": 100, "completion_tokens": 50}
             }
         }
-        gen, _ = _task_cost(stages)
+        gen, _, _ = _task_cost(stages)
         assert gen > 0.0
 
     def test_difficulty_adjustment_cost_included(self):
@@ -146,7 +146,7 @@ class TestTaskCost:
                 "usage": {"prompt_tokens": 200, "completion_tokens": 100}
             }
         }
-        gen, _ = _task_cost(stages)
+        gen, _, _ = _task_cost(stages)
         assert gen > 0.0
 
     def test_opus_cost_from_trials(self):
@@ -164,7 +164,7 @@ class TestTaskCost:
                 }
             }
         }
-        _, opus = _task_cost(stages)
+        _, _, opus = _task_cost(stages)
         assert opus > 0.0
 
     def test_opus_cost_with_none_tokens(self):
@@ -181,7 +181,7 @@ class TestTaskCost:
                 }
             }
         }
-        _, opus = _task_cost(stages)
+        _, _, opus = _task_cost(stages)
         assert opus == 0.0
 
 
