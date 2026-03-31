@@ -235,7 +235,11 @@ def _render_eval_tier_cell(
         else:
             state = "done_good"
     elif has_scores and stage == "evaluating":
-        state = "in_progress"
+        # If this tier has scores but a later tier is active, this tier is done
+        if tier == "sonnet" and opus_has_data:
+            state = "done_good"
+        else:
+            state = "in_progress"
     elif stage == "evaluating":
         # No scores — check if a run dir exists
         model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
