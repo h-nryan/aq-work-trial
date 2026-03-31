@@ -44,10 +44,8 @@ class DockerComposeManager:
             self._client = docker.from_env()
         except docker.errors.DockerException as e:
             raise RuntimeError(
-                (
-                    f"Error creating docker client: {e}",
-                    "Please ensure that Docker is installed and running.",
-                )
+                f"Error creating docker client: {e}. "
+                "Please ensure that Docker is installed and running."
             )
 
         self._client_container_name = client_container_name
@@ -259,9 +257,9 @@ class DockerComposeManager:
                 tar_stream.write(chunk)
             tar_stream.seek(0)
 
-            # Extract to host path
+            # Extract to host path (filter="data" prevents path traversal attacks)
             with tarfile.open(fileobj=tar_stream, mode="r") as tar:
-                tar.extractall(path=host_path)
+                tar.extractall(path=host_path, filter="data")
 
             self._logger.debug(f"Copied {container_path} from container to {host_path}")
         except Exception as e:

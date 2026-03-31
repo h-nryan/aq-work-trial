@@ -104,7 +104,7 @@ class BenchmarkResults(BaseModel):
         task_counts = self._get_task_success_counts()
 
         min_attempts = min(len(counts) for counts in task_counts.values())
-        k_values = sorted({2**i for i in range(1, int(np.log2(min_attempts)) + 1)})
+        k_values = sorted({2**i for i in range(0, int(np.log2(min_attempts)) + 1)})
 
         if min_attempts >= 5:
             k_values.append(5)

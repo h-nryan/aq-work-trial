@@ -150,7 +150,7 @@ class LiteLLM(BaseLLM):
     def call(
         self,
         prompt: str,
-        message_history: list[dict[str, Any] | Message] = [],
+        message_history: list[dict[str, Any] | Message] | None = None,
         response_format: dict | type[BaseModel] | None = None,
         logging_path: Path | None = None,
         **kwargs,
@@ -171,6 +171,8 @@ class LiteLLM(BaseLLM):
             logger_fn = None
 
         # Prepare messages with caching for Anthropic models
+        if message_history is None:
+            message_history = []
         messages = message_history + [{"role": "user", "content": prompt}]
         messages = add_anthropic_caching(messages, self._model_name)
 
