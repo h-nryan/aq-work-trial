@@ -214,7 +214,7 @@ CUSTOM_CSS = """
     .summary-label { color: #8892b0; font-size: 0.8em; margin-top: 2px; }
 
     .cost-grid {
-        display: grid; grid-template-columns: repeat(3, 1fr);
+        display: grid; grid-template-columns: repeat(4, 1fr);
         gap: 12px; margin: 10px 0 15px 0;
     }
 
