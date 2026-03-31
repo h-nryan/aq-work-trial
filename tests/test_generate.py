@@ -161,7 +161,8 @@ class TestSelectExamples:
     """Test metadata-driven example selection."""
 
     def _make_example(self, parent, name, classification="learnable",
-                      pass_rate=0.4, category="debugging", tokens=3000):
+                      pass_rate=0.4, category="debugging", tokens=3000,
+                      topic=""):
         """Create a minimal example directory with _meta.yaml."""
         d = parent / name
         d.mkdir(parents=True, exist_ok=True)
@@ -174,6 +175,7 @@ class TestSelectExamples:
             f"category: {category}\n"
             f"approx_tokens: {tokens}\n"
             f"source: test\n"
+            f"topic: '{topic}'\n"
         )
 
     def test_learnable_examples_selected(self, monkeypatch, tmp_path):
@@ -289,6 +291,54 @@ class TestSelectExamples:
         assert "hand-a" in result
         assert "opus-b" in result
         assert "sonnet-c" in result
+
+
+    def test_same_topic_example_prioritized(self, monkeypatch, tmp_path):
+        """When target_topic matches an example, it's always included."""
+        examples_dir = tmp_path / "examples"
+        self._make_example(examples_dir, "other-task", category="debugging",
+                          tokens=2000, topic="some other topic")
+        self._make_example(examples_dir, "matching-task", category="debugging",
+                          tokens=2000, topic="fix the widget")
+
+        monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
+
+        result = select_examples(target_topic="fix the widget")
+        assert "matching-task" in result
+
+    def test_same_topic_not_duplicated(self, monkeypatch, tmp_path):
+        """Same-topic example isn't included twice (Phase 0 + Phase 1)."""
+        examples_dir = tmp_path / "examples"
+        self._make_example(examples_dir, "match", category="debugging",
+                          tokens=2000, topic="fix the widget")
+        self._make_example(examples_dir, "other", category="networking",
+                          tokens=2000, topic="other topic")
+
+        monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
+
+        result = select_examples(target_topic="fix the widget", token_budget=10000)
+        # Count occurrences — should appear exactly once
+        assert result.count("match") == 1
+
+    def test_no_matching_topic_still_works(self, monkeypatch, tmp_path):
+        """When no example matches the topic, selection still works normally."""
+        examples_dir = tmp_path / "examples"
+        self._make_example(examples_dir, "task-a", category="debugging",
+                          tokens=2000, topic="topic a")
+        self._make_example(examples_dir, "task-b", category="networking",
+                          tokens=2000, topic="topic b")
+
+        monkeypatch.setattr("generate.EXAMPLES_DIR", str(examples_dir))
+        monkeypatch.setattr("generate.OPUS_EXAMPLES_DIR", str(tmp_path / "nope1"))
+        monkeypatch.setattr("generate.SONNET_EXAMPLES_DIR", str(tmp_path / "nope2"))
+
+        result = select_examples(target_topic="nonexistent topic")
+        assert "task-a" in result
+        assert "task-b" in result
 
 
 class TestScoreExample:

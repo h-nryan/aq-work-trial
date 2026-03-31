@@ -50,6 +50,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Same-Topic Example Priority in Prompt Selection
+
+**Prioritize same-topic examples** (`generate.py`) — `select_examples` now accepts `target_topic` and guarantees that if an existing learnable example matches the current topic, it's included first (Phase 0, before category diversity). This ensures Sonnet sees "here's what worked for this exact topic before" when regenerating a topic that already has a learnable example. Previously, the setup.py topic failed functional validation in batch 27 despite having a learnable example from batch 22 — because the scoring algorithm ranked other build-systems examples higher by token efficiency.
+
+**No duplicate selection**: Phase 0 selection is tracked in `selected_dirs`, so the same example isn't picked again in Phase 1 (category diversity) or Phase 2 (fill remaining budget).
+
 ### Content-Based Task Dedup
 
 **Content-based dedup for auto-promotion** (`pipeline.py`) — Previously, `_auto_promote` only checked if the exact dirname already existed in `examples-sonnet/`. This missed duplicates with different dir names (e.g., `debug-broken-webhook-receiver` vs `debug-a-broken-webhook-receiver-with-incorrect-1f481f` were byte-identical). Now hashes all source files (excluding infrastructure like Dockerfile, solution.sh, _meta.yaml) and compares against existing examples. Same topic with different code is correctly allowed — only identical content is rejected.

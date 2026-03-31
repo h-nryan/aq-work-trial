@@ -180,11 +180,13 @@ def _score_example(meta: dict, target_category: str | None) -> float:
 
 def select_examples(
     target_category: str | None = None,
+    target_topic: str | None = None,
     token_budget: int = DEFAULT_EXAMPLE_TOKEN_BUDGET,
 ) -> str:
     """Select examples using _meta.yaml metadata, optimizing for diversity and relevance.
 
     Selection algorithm:
+    0. If a same-topic example exists, include it first (most relevant reference)
     1. Load all examples with _meta.yaml from all example directories
     2. Separate into learnable (positive) and too_easy (negative)
     3. Exclude too_hard examples entirely
@@ -215,18 +217,33 @@ def select_examples(
             elif classification == "learnable":
                 candidates.append((task_dir, meta, content))
 
-    # Phase 1: category diversity — one example per category
+    # Phase 0: if a same-topic example exists, include it first
     selected = []
     selected_tokens = 0
     seen_categories = set()
 
+    if target_topic:
+        for td, m, c in candidates:
+            if m.get("topic") == target_topic:
+                tokens = m.get("approx_tokens", 5000)
+                if selected_tokens + tokens <= token_budget:
+                    selected.append((td, m, c))
+                    selected_tokens += tokens
+                    seen_categories.add(m.get("category", "unknown"))
+                break  # only include one same-topic example
+
     # Sort candidates by score for each category
+    selected_dirs = {td for td, _, _ in selected}  # track already-selected (from Phase 0)
     by_category: dict[str, list] = {}
     for task_dir, meta, content in candidates:
+        if task_dir in selected_dirs:
+            continue
         cat = meta.get("category", "unknown")
         by_category.setdefault(cat, []).append((task_dir, meta, content))
 
     for cat in sorted(by_category.keys()):
+        if cat in seen_categories:
+            continue  # already have one from this category (Phase 0)
         items = by_category[cat]
         items.sort(key=lambda x: _score_example(x[1], target_category), reverse=True)
         best = items[0]
@@ -235,11 +252,12 @@ def select_examples(
             selected.append(best)
             selected_tokens += tokens
             seen_categories.add(cat)
+            selected_dirs.add(best[0])
 
     # Phase 2: fill remaining budget with highest-scored remaining candidates
     remaining = [
         (td, m, c) for td, m, c in candidates
-        if (td, m, c) not in selected
+        if td not in selected_dirs
     ]
     remaining.sort(key=lambda x: _score_example(x[1], target_category), reverse=True)
 
@@ -356,7 +374,7 @@ IMPORTANT: Return ONLY raw JSON. Do NOT wrap it in ```json``` markdown fences or
 
 def _build_user_prompt(topic: str, target_category: str | None = None) -> str:
     """Build the user prompt with topic and examples."""
-    examples = select_examples(target_category=target_category)
+    examples = select_examples(target_category=target_category, target_topic=topic)
 
     return f"""Generate a Terminal Bench task for this topic: "{topic}"
 
@@ -689,7 +707,7 @@ def generate_task_solution_first(
         api_key=OPENROUTER_API_KEY,
     )
     gen_model = model or GENERATOR_MODEL
-    examples = select_examples(target_category=target_category)
+    examples = select_examples(target_category=target_category, target_topic=topic)
 
     total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     start = time.time()
