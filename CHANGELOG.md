@@ -114,6 +114,8 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 Weights are tunable hyperparameters — updated as retest data accumulates. Selection uses `random.choices` with weights for both diverse (round-robin) and non-diverse modes. Pool expanded from 28 to 52 topics.
 
+**Automated weight tuning** (`tune_weights.py`, `batch.py`) — New `tune_weights.py` script computes optimal weights from all batch JSONL files. Weight formula: `max(0.05, func_pass_rate * 0.4 + learnable_rate * 0.6)`. Topics with < 2 attempts keep their current weight (avoid overreacting to small samples). Run `python generator/tune_weights.py` to preview changes, `--apply` to write to prompts.py. The batch runner auto-checks for weight drift after each batch and prints a reminder if changes are detected.
+
 ### Eval Pipeline: No Further Shortcuts (Design Decision)
 
 **Keeping 5 Opus runs, 5 Sonnet runs, and 2 adjustment rounds** — Investigated reducing Opus runs from 5 to 3, Sonnet filter from 5 to 3, and adjustment rounds from 2 to 1. All were rejected:

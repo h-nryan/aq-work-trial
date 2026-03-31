@@ -308,39 +308,43 @@ EXCLUDED_TOPICS: set[str] = set()
 # These weights reflect structural constraints (Docker-in-Docker, /proc, etc.)
 # and historical performance. Updated based on retest results.
 TOPIC_WEIGHTS: dict[str, float] = {
-    # Docker-in-Docker: fundamentally can't work in our eval containers
-    "debug a broken Docker Compose setup with incorrect networking, port mapping, and service dependencies": 0.01,
-    # Concurrency/non-determinism: tests are unreliable
-    "debug a Go HTTP server with race conditions in shared state access": 0.1,
-    "debug a multi-threaded Python producer-consumer with deadlocks and data loss": 0.1,
-    "fix a Python async web scraper with rate limiting and connection pool bugs": 0.1,
-    "fix a Python TCP proxy with broken connection pooling, half-close handling, and timeout bugs": 0.1,
-    "fix a Python TCP proxy with broken connection pooling, half-close handling, and backpressure bugs": 0.1,
-    "fix a Python streaming JSON parser that loses events under backpressure with malformed input": 0.1,
-    "fix a process supervisor script with broken signal handling, zombie reaping, and restart logic": 0.1,
-    # C/C++ memory bugs: non-deterministic, hard to test in containers
-    "debug a C program with memory corruption in a linked list implementation": 0.1,
-    "fix a C++ program with undefined behavior from iterator invalidation and buffer overflows": 0.1,
-    # Requires /proc (not in minimal containers)
-    "fix a Bash script that incorrectly parses /proc filesystem stats for CPU monitoring": 0.2,
-    # Binary data pipelines: fragile, encoding-dependent
-    "fix a Bash pipeline that corrupts binary data when processing mixed text/binary streams": 0.2,
-    # Historical always-fail (0% functional across 2+ batches) — low weight, not zero
-    "fix a Bash script that fails to count and summarize log file entries correctly": 0.2,
-    "fix a Python socket client that drops messages due to incorrect buffer handling": 0.2,
-    "fix a broken CMake project with incorrect library linking, missing find_package, and install rules": 0.2,
-    "fix a broken Python HTTP client with retry logic, timeout handling, and redirect bugs": 0.2,
-    "repair a Python state machine implementation with incorrect transition validation and event handling": 0.2,
-    # Previously excluded but passed functional validation in retest — moderate weight
-    "fix a broken Python Flask API with dependency, routing, and data format bugs": 0.6,
-    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL termination errors": 0.5,
-    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL issues": 0.5,
+    "fix a Python script that crashes on empty input when reading a CSV file": 0.73,
+    "fix a Bash script with quoting errors that breaks on filenames with spaces": 0.05,
     "fix a Node.js script that fails to parse JSON due to encoding issues": 0.6,
-    "fix broken Maven POM files with dependency conflicts, incorrect plugin configs, and wrong artifact versions": 0.6,
+    "fix a Python async web scraper with rate limiting and connection pool bugs": 0.1,
+    "debug a C program with memory corruption in a linked list implementation": 0.1,
+    "fix a broken Python Flask API with dependency, routing, and data format bugs": 0.6,
+    "debug a Go HTTP server with race conditions in shared state access": 0.1,
+    "fix a Python unit test suite where fixtures have scoping and teardown bugs": 0.73,
+    "debug a multi-threaded Python producer-consumer with deadlocks and data loss": 0.1,
+    "fix a C++ program with undefined behavior from iterator invalidation and buffer overflows": 0.1,
+    "fix a Bash script that fails to count and summarize log file entries correctly": 0.2,
+    "fix a Bash pipeline that corrupts binary data when processing mixed text/binary streams": 0.2,
+    "fix a Python SQLite migration script with schema versioning and data type bugs": 0.57,
+    "fix a Python streaming JSON parser that loses events under backpressure with malformed input": 0.1,
+    "fix a Bash script that incorrectly parses /proc filesystem stats for CPU monitoring": 0.2,
     "repair a shell script that manages systemd services with incorrect status parsing": 0.5,
-    "debug a broken CI/CD pipeline script with incorrect artifact handling, test parallelization, and caching bugs": 0.5,
+    "fix a broken disk usage analyzer script with incorrect recursive traversal and size calculations": 0.8,
+    "fix a process supervisor script with broken signal handling, zombie reaping, and restart logic": 0.1,
+    "debug a broken backup rotation script with race conditions in concurrent rsync and retention policy bugs": 0.05,
+    "fix a broken Python CLI tool with incorrect argument parsing and missing help text": 0.4,
+    "repair a Python state machine implementation with incorrect transition validation and event handling": 0.2,
     "debug a broken Python ORM layer with incorrect query generation, lazy loading, and transaction handling": 0.5,
+    "fix a Python setup.py with wrong package discovery and missing dependencies": 0.05,
+    "fix a broken Makefile for a multi-target C project with linking and include path errors": 0.8,
+    "fix broken Maven POM files with dependency conflicts, incorrect plugin configs, and wrong artifact versions": 0.6,
+    "fix a broken CMake project with incorrect library linking, missing find_package, and install rules": 0.2,
     "repair a broken Python package build with incorrect pyproject.toml, missing entry points, and version bugs": 0.3,
+    "fix a multi-stage Docker build with broken layer caching, wrong build args, and missing runtime deps": 0.05,
+    "debug a broken CI/CD pipeline script with incorrect artifact handling, test parallelization, and caching bugs": 0.5,
+    "fix a Python socket client that drops messages due to incorrect buffer handling": 0.2,
+    "fix a broken curl wrapper script with incorrect header and authentication handling": 0.05,
+    "fix a broken Nginx reverse proxy config with upstream routing, header forwarding, and SSL issues": 0.05,
+    "fix a broken Python HTTP client with retry logic, timeout handling, and redirect bugs": 0.05,
+    "debug a broken Docker Compose setup with incorrect networking, port mapping, and service dependencies": 0.01,
+    "fix a Python DNS resolver script with incorrect record type handling and cache expiry bugs": 0.8,
+    "fix a Python TCP proxy with broken connection pooling, half-close handling, and backpressure bugs": 0.1,
+    "debug a broken webhook receiver with incorrect signature verification, replay protection, and retry handling": 0.4,
 }
 
 

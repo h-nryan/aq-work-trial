@@ -126,7 +126,6 @@ def run_batch(
     n_concurrent: int = 1,
     resume_from: str | None = None,
     solution_first: bool = True,
-    hint_style: str = "none",
 ) -> dict:
     """Generate and evaluate a batch of tasks.
 
@@ -222,7 +221,6 @@ def run_batch(
                 skip_functional=skip_functional,
                 skip_filters=skip_filters,
                 solution_first=solution_first,
-                hint_style=hint_style,
                 target_category=get_category_for_topic(topic),
             )
         except Exception as e:
@@ -303,6 +301,21 @@ def run_batch(
     print(f"\nFull report saved to: {report_path}")
     if batch_crashed:
         print(f"  (batch status: {batch_status} — {len(results)}/{len(topics)} tasks completed)")
+
+    # Auto-tune topic weights based on accumulated results
+    try:
+        from tune_weights import compute_topic_stats, compute_weights
+        stats = compute_topic_stats()
+        new_weights = compute_weights(stats)
+        # Count changes
+        from prompts import TOPIC_WEIGHTS
+        changes = sum(1 for t, w in new_weights.items()
+                      if abs(w - TOPIC_WEIGHTS.get(t, 1.0)) > 0.05)
+        if changes:
+            print(f"\n[Auto-tune] {changes} topic weight changes detected.")
+            print(f"  Run 'python generator/tune_weights.py --apply' to update prompts.py")
+    except Exception as e:
+        print(f"\n[Auto-tune] Skipped: {e}")
 
     # Clean up working files now that the final report is written
     for path in (incremental_path, meta_path):
@@ -575,10 +588,6 @@ if __name__ == "__main__":
             "(e.g. 20240101-120000) or path to a *-incremental.jsonl file."
         ),
     )
-    parser.add_argument(
-        "--hint-style", choices=["none", "soft", "full"], default="none",
-        help="Instruction hint style: none, soft (high-level area), or full (specific areas)",
-    )
     args = parser.parse_args()
 
     # Resolve topics: explicit --topic flags, or prompt bank with filters.
@@ -605,5 +614,4 @@ if __name__ == "__main__":
         n_concurrent=args.n_concurrent,
         resume_from=args.resume,
         solution_first=not args.no_solution_first,
-        hint_style=args.hint_style,
     )
