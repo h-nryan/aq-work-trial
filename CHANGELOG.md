@@ -68,6 +68,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Remove Early Adjustment (0/3 Premature Stop)
+
+**Removed early adjustment after 0/3 Opus batch** (`evaluate.py`, `pipeline.py`) — The feature stopped Opus eval at 3 runs (instead of 5) when 0/3 + low test rate, then triggered difficulty adjustment. This was incorrect: 0/3 doesn't preclude 1/5 or 2/5 (learnable), and the cost math didn't favor it — adjustment restarts a full 5-run eval, so stopping at 3 saves 2 runs but spends 5 more on the adjusted task. Batch 27's CLI tool was classified as too_hard (0/3) when runs 4-5 might have produced a pass. Now all tasks run the full 5 Opus trials before adjustment decisions.
+
 ### Explicit eval_phase State Machine
 
 **Write eval_phase to _status.json** (`evaluate.py`, `pipeline.py`) — The dashboard was inferring which eval tier was active from stale data, runs/ dir presence, and process lists — all unreliable. For example, Sonnet showed as pulsing (active) even after completing because the dashboard couldn't distinguish "Sonnet done, Opus running" from "Sonnet re-running after adjustment." Added `_write_eval_phase()` which writes the current phase (`sonnet`, `opus`, `adjusting`) to `_status.json` at each tier transition. The dashboard reads this single authoritative field instead of guessing. Falls back to old inference for batches without `eval_phase`.

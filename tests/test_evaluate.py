@@ -621,18 +621,17 @@ class TestEvaluateTask:
         self._mock_filter_tier(monkeypatch,
             sonnet_result=self._make_filter_result("Sonnet", 0, 5, 4, False),
         )
-        # With early adjustment: 0/3 + low test rate → recommend_early_adjust
-        # run_opus_eval returns after batch of 3 with early adjust recommendation
         mock = _MockRunTb([
-            _make_tb_result(0, 3),  # batch: 0/3 → early adjust recommended
+            _make_tb_result(0, 3),  # batch: 0/3
+            _make_tb_result(0, 1),  # seq: 0/4
+            _make_tb_result(0, 1),  # seq: 0/5 → too_hard
         ])
         monkeypatch.setattr("evaluate._run_tb", mock)
 
         result = evaluate_task(str(tmp_path), skip_haiku=True)
         assert result["classification"] == "too_hard"
         assert result["passes"] == 0
-        assert result["total"] == 3  # stops at 3 due to early adjustment
-        assert result.get("recommend_early_adjust") is True
+        assert result["total"] == 5
 
     def test_reaches_opus_too_easy(self, tmp_path, monkeypatch):
         """Sonnet 3/5 → proceed. Opus 3/3 batch + 1/1 seq → 4/4 > LEARNABLE_MAX → too_easy."""

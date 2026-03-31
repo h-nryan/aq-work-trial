@@ -629,38 +629,12 @@ def run_opus_eval(
         early_class = _can_stop(opus_passes, remaining)
         if early_class:
             print(f"    → {early_class} (early stop after {opus_total} runs, saved {remaining})")
-            test_stats = _extract_test_stats(opus_trials)
-
-            # Signal early adjustment opportunity: 0 passes + low test pass rate
-            recommend_early_adj = (
-                opus_passes == 0
-                and remaining > 0
-                and test_stats["avg_test_pass_rate"] < 0.3
-            )
-
             return {
                 "passes": opus_passes,
                 "total": opus_total,
                 "trials": opus_trials,
                 "classification": early_class,
-                "test_stats": test_stats,
-                "recommend_early_adjust": recommend_early_adj,
-                "remaining_runs": remaining,
-            }
-
-        # Check if early adjustment is recommended (0/3 + low test rate)
-        test_stats = _extract_test_stats(opus_trials)
-        if opus_passes == 0 and test_stats["avg_test_pass_rate"] < 0.3:
-            print(f"    0/{opus_total} passes, avg test rate {test_stats['avg_test_pass_rate']:.0%}"
-                  f" — recommending early adjustment")
-            return {
-                "passes": opus_passes,
-                "total": opus_total,
-                "trials": opus_trials,
-                "classification": "too_hard",
-                "test_stats": test_stats,
-                "recommend_early_adjust": True,
-                "remaining_runs": remaining,
+                "test_stats": _extract_test_stats(opus_trials),
             }
 
     # Sequential runs with early-stop checks

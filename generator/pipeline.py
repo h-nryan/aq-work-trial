@@ -624,27 +624,15 @@ def run_pipeline(
             # Determine if adjustment is warranted
             classification = eval_result["classification"]
             pass_rate = eval_result.get("pass_rate") or 0.0
-            recommend_early = eval_result.get("recommend_early_adjust", False)
 
-            # Early adjustment: 0/3 with low test pass rate — same logic as
-            # normal adjustment but triggered before full 5 runs complete
             should_adjust = (
                 adj_round < MAX_DIFFICULTY_ADJUSTMENTS
                 and classification in ("too_easy", "too_hard")
-            ) or (
-                recommend_early
-                and adj_round < MAX_DIFFICULTY_ADJUSTMENTS
             )
 
             if should_adjust:
-                if recommend_early:
-                    test_stats = eval_result.get("tier_results", {}).get("opus", {}).get("test_stats", {})
-                    avg_rate = test_stats.get("avg_test_pass_rate", 0) if test_stats else 0
-                    print(f"\n[Early Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
-                          f"0/{eval_result['total']} passes, avg test rate {avg_rate:.0%}")
-                else:
-                    print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
-                          f"Task is {classification} (pass_rate={pass_rate:.0%})")
+                print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
+                      f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
                 adjusted = _try_adjustment(
                     topic, task_dir, classification, pass_rate,
