@@ -50,6 +50,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Skip Sonnet Filter After Too-Hard Adjustment
+
+**Skip Sonnet on re-eval after too_hard adjustment** (`pipeline.py`) — If a task was classified as too_hard by Opus (0-1/5 passes), the difficulty adjustment makes it easier. Re-evaluating through the Sonnet filter (5 runs) before Opus is wasteful — a task that was too hard for Opus can't be too easy for Sonnet. Now sets `skip_sonnet=True` on the `evaluate_task` call after a too_hard adjustment, going straight to Opus. Saves ~5 minutes per too_hard adjustment round. Does not apply to too_easy adjustments (which need Sonnet to verify the task is no longer trivial).
+
 ### Same-Topic Example Priority in Prompt Selection
 
 **Prioritize same-topic examples** (`generate.py`) — `select_examples` now accepts `target_topic` and guarantees that if an existing learnable example matches the current topic, it's included first (Phase 0, before category diversity). This ensures Sonnet sees "here's what worked for this exact topic before" when regenerating a topic that already has a learnable example. Previously, the setup.py topic failed functional validation in batch 27 despite having a learnable example from batch 22 — because the scoring algorithm ranked other build-systems examples higher by token efficiency.

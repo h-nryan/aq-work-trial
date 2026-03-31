@@ -524,6 +524,10 @@ def run_pipeline(
         opus_prior_passes = 0
         opus_prior_total = 0
         opus_prior_trials = []
+        # After a too_hard adjustment, skip Sonnet filter on re-eval — if the
+        # task was too hard for Opus, it won't be too easy for Sonnet. Running
+        # 5 Sonnet trials would be pure waste.
+        _skip_sonnet_after_too_hard = False
 
         for adj_round in range(1 + MAX_DIFFICULTY_ADJUSTMENTS):
             eval_result = evaluate_task(
@@ -531,7 +535,9 @@ def run_pipeline(
                 n_trials=n_eval_trials,
                 skip_filters=skip_filters,
                 skip_haiku=not include_haiku,
+                skip_sonnet=_skip_sonnet_after_too_hard,
             )
+            _skip_sonnet_after_too_hard = False  # reset after use
             result["stages"]["evaluation"] = eval_result
             result["classification"] = eval_result["classification"]
             result["passes"] = eval_result["passes"]
@@ -606,8 +612,7 @@ def run_pipeline(
                 print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
                       f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
-                # Adjust difficulty and re-evaluate (loop continues with evaluate_task
-                # which runs the full Sonnet filter → Opus pipeline again)
+                # Adjust difficulty and re-evaluate
                 if classification == "too_easy" or classification == "too_hard":
                     adjusted = _try_adjustment(
                         topic, task_dir, classification, pass_rate,
@@ -618,6 +623,10 @@ def run_pipeline(
                                       f"{classification} (adjustment failed)",
                                       classification=classification, pass_rate=pass_rate)
                         break
+                    # After too_hard adjustment, skip Sonnet on re-eval — task
+                    # was too hard for Opus, it won't be too easy for Sonnet
+                    if classification == "too_hard":
+                        _skip_sonnet_after_too_hard = True
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
