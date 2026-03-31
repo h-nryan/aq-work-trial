@@ -545,53 +545,44 @@ def run_pipeline(
             if eval_result["classification"] == "learnable":
                 break
 
-            # Early adjustment: 0/3 with low test pass rate — adjust before
-            # spending on remaining 2 runs
+            # Determine if adjustment is warranted
+            classification = eval_result["classification"]
+            pass_rate = eval_result.get("pass_rate") or 0.0
             recommend_early = eval_result.get("recommend_early_adjust", False)
-            remaining_runs = eval_result.get("remaining_runs", 0)
 
-            if recommend_early and adj_round < MAX_DIFFICULTY_ADJUSTMENTS:
-                test_stats = eval_result.get("tier_results", {}).get("opus", {}).get("test_stats", {})
-                avg_rate = test_stats.get("avg_test_pass_rate", 0) if test_stats else 0
-                print(f"\n[Early Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
-                      f"0/{eval_result['total']} passes, avg test rate {avg_rate:.0%} "
-                      f"— adjusting before remaining {remaining_runs} runs")
+            # Early adjustment: 0/3 with low test pass rate — same logic as
+            # normal adjustment but triggered before full 5 runs complete
+            should_adjust = (
+                adj_round < MAX_DIFFICULTY_ADJUSTMENTS
+                and classification in ("too_easy", "too_hard")
+            ) or (
+                recommend_early
+                and adj_round < MAX_DIFFICULTY_ADJUSTMENTS
+            )
+
+            if should_adjust:
+                if recommend_early:
+                    test_stats = eval_result.get("tier_results", {}).get("opus", {}).get("test_stats", {})
+                    avg_rate = test_stats.get("avg_test_pass_rate", 0) if test_stats else 0
+                    print(f"\n[Early Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
+                          f"0/{eval_result['total']} passes, avg test rate {avg_rate:.0%}")
+                else:
+                    print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
+                          f"Task is {classification} (pass_rate={pass_rate:.0%})")
 
                 adjusted = _try_adjustment(
-                    topic, task_dir, "too_hard", eval_result.get("pass_rate", 0),
+                    topic, task_dir, classification, pass_rate,
                     eval_result, adj_round, model, result,
                 )
                 if not adjusted:
-                    # Adjustment failed — continue to full eval on original task
-                    pass
-                else:
-                    # Task code changed — must restart full eval (not resume with
-                    # prior results, which are from the pre-adjustment code)
-                    _skip_sonnet_after_too_hard = True  # skip Sonnet on re-eval
-                    continue
-
-            # Normal adjustment: full eval complete, task is too_hard or too_easy
-            if adj_round < MAX_DIFFICULTY_ADJUSTMENTS:
-                classification = eval_result["classification"]
-                pass_rate = eval_result.get("pass_rate") or 0.0
-                print(f"\n[Difficulty Adjustment {adj_round + 1}/{MAX_DIFFICULTY_ADJUSTMENTS}] "
-                      f"Task is {classification} (pass_rate={pass_rate:.0%})")
-
-                # Adjust difficulty and re-evaluate
-                if classification == "too_easy" or classification == "too_hard":
-                    adjusted = _try_adjustment(
-                        topic, task_dir, classification, pass_rate,
-                        eval_result, adj_round, model, result,
-                    )
-                    if not adjusted:
-                        _write_status(task_dir, "completed",
-                                      f"{classification} (adjustment failed)",
-                                      classification=classification, pass_rate=pass_rate)
-                        break
-                    # After too_hard adjustment, skip Sonnet on re-eval — task
-                    # was too hard for Opus, it won't be too easy for Sonnet
-                    if classification == "too_hard":
-                        _skip_sonnet_after_too_hard = True
+                    _write_status(task_dir, "completed",
+                                  f"{classification} (adjustment failed)",
+                                  classification=classification, pass_rate=pass_rate)
+                    break
+                # After too_hard adjustment, skip Sonnet on re-eval — task
+                # was too hard for Opus, it won't be too easy for Sonnet
+                if classification == "too_hard":
+                    _skip_sonnet_after_too_hard = True
             else:
                 print(f"\n  Task remains {eval_result['classification']} after "
                       f"{MAX_DIFFICULTY_ADJUSTMENTS} adjustment(s)")
