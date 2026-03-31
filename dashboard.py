@@ -819,7 +819,10 @@ def render_pipeline_view():
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     # Find the most recent active or completed batch
-    all_batches = sorted(glob.glob(os.path.join(OUTPUT_DIR, "*batch*")) + glob.glob(os.path.join(OUTPUT_DIR, "excluded-*")),
+    # Find all batch directories (any dir containing a batch-*-meta.json file)
+    all_batches = sorted(
+        [d for d in glob.glob(os.path.join(OUTPUT_DIR, "*"))
+         if os.path.isdir(d) and glob.glob(os.path.join(d, "batch-*-meta.json"))],
                          key=lambda p: os.path.getmtime(p))
     if not all_batches:
         st.info("No batches found. Launch one from the sidebar.")
