@@ -462,53 +462,69 @@ class TestWriteTaskMeta:
 class TestAutoPromoteDedup:
     """Tests for _auto_promote duplicate prevention."""
 
-    def test_skips_duplicate_topic(self, tmp_path, monkeypatch):
-        import yaml
+    def test_skips_duplicate_content(self, tmp_path, monkeypatch):
         from pipeline import _auto_promote
 
-        # Create existing example with a topic
         examples_dir = tmp_path / "examples-sonnet"
         existing = examples_dir / "existing-task"
         existing.mkdir(parents=True)
-        meta = {"topic": "fix a broken widget", "classification": "learnable"}
-        (existing / "_meta.yaml").write_text(yaml.dump(meta))
+        (existing / "main.py").write_text("print('hello world')\n")
         (existing / "task.yaml").write_text("instruction: fix it\n")
 
-        # Point SONNET_EXAMPLES_DIR to our temp dir
         monkeypatch.setattr("pipeline.SONNET_EXAMPLES_DIR", str(examples_dir))
 
-        # Try to promote a new task with the same topic
+        # New task with identical source content
         new_task = tmp_path / "new-task-abc123"
         new_task.mkdir()
-        (new_task / "task.yaml").write_text("instruction: fix it differently\n")
+        (new_task / "main.py").write_text("print('hello world')\n")
+        (new_task / "task.yaml").write_text("instruction: different wording\n")
 
-        result = {"topic": "fix a broken widget", "classification": "learnable",
+        result = {"topic": "same topic", "classification": "learnable",
                   "passes": 1, "total": 5, "pass_rate": 0.2}
         _auto_promote(str(new_task), result)
 
-        # Should NOT have been promoted
+        # Should NOT have been promoted (identical source)
         assert not (examples_dir / "new-task-abc123").exists()
 
-    def test_no_duplicate_topics_in_examples_sonnet(self):
-        """Validate no duplicate topics exist in the actual examples-sonnet/ dir."""
-        import yaml
-        from collections import defaultdict
+    def test_promotes_different_content_same_topic(self, tmp_path, monkeypatch):
+        from pipeline import _auto_promote
+
+        examples_dir = tmp_path / "examples-sonnet"
+        existing = examples_dir / "existing-task"
+        existing.mkdir(parents=True)
+        (existing / "main.py").write_text("print('version 1')\n")
+        (existing / "task.yaml").write_text("instruction: fix it\n")
+
+        monkeypatch.setattr("pipeline.SONNET_EXAMPLES_DIR", str(examples_dir))
+
+        # New task with different source content but same topic
+        new_task = tmp_path / "new-task-abc123"
+        new_task.mkdir()
+        (new_task / "main.py").write_text("def totally_different():\n    return 42\n")
+        (new_task / "task.yaml").write_text("instruction: fix it\n")
+
+        result = {"topic": "same topic", "classification": "learnable",
+                  "passes": 2, "total": 5, "pass_rate": 0.4}
+        _auto_promote(str(new_task), result)
+
+        # SHOULD be promoted (different content)
+        assert (examples_dir / "new-task-abc123").exists()
+
+    def test_no_duplicate_content_in_examples_sonnet(self):
+        """Validate no byte-identical tasks exist in the actual examples-sonnet/ dir."""
+        from pipeline import _source_file_hash
 
         examples_dir = os.path.join(os.path.dirname(__file__), "..", "examples-sonnet")
         if not os.path.isdir(examples_dir):
             pytest.skip("examples-sonnet/ not found")
 
-        topics = defaultdict(list)
+        hashes = {}
         for d in sorted(os.listdir(examples_dir)):
-            meta_path = os.path.join(examples_dir, d, "_meta.yaml")
-            if os.path.exists(meta_path):
-                meta = yaml.safe_load(open(meta_path))
-                topic = meta.get("topic", "")
-                if topic:
-                    topics[topic].append(d)
-
-        dupes = {t: dirs for t, dirs in topics.items() if len(dirs) > 1}
-        assert not dupes, f"Duplicate topics in examples-sonnet/: {dupes}"
+            task_path = os.path.join(examples_dir, d)
+            if os.path.isdir(task_path):
+                h = _source_file_hash(task_path)
+                assert h not in hashes, f"Duplicate content: {d} == {hashes[h]}"
+                hashes[h] = d
 
     def test_promotes_new_topic(self, tmp_path, monkeypatch):
         import yaml

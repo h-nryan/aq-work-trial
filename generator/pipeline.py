@@ -84,11 +84,33 @@ def _save_validation_log(task_dir: str, attempt: int, func_result: dict) -> None
         pass  # Non-critical
 
 
+def _source_file_hash(task_dir: str) -> str:
+    """Hash the source files of a task for content-based dedup.
+
+    Hashes all non-infrastructure files (excludes _meta.yaml, validation logs,
+    Dockerfile, docker-compose.yaml, run-tests.sh, solution.sh) sorted by name.
+    """
+    import hashlib
+    infra = {"_meta.yaml", "Dockerfile", "docker-compose.yaml", "run-tests.sh",
+             "solution.sh", "task.yaml"}
+    h = hashlib.sha256()
+    for root, _, files in os.walk(task_dir):
+        for fname in sorted(files):
+            if fname.startswith("_") or fname.startswith("validation_") or fname in infra:
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                h.update(open(fpath, "rb").read())
+            except OSError:
+                pass
+    return h.hexdigest()[:16]
+
+
 def _auto_promote(task_dir: str, result: dict) -> None:
     """Auto-promote a learnable task to examples-sonnet/.
 
-    Skips promotion if an example with the same topic already exists
-    (prevents duplicates across batches with different dir names).
+    Skips promotion if an example with identical source files already exists
+    (content-based dedup via hash). Same topic with different code is fine.
     """
     from pathlib import Path
 
@@ -100,21 +122,15 @@ def _auto_promote(task_dir: str, result: dict) -> None:
         print(f"  [Auto-promote] Already exists: {dest}")
         return
 
-    # Check if any existing example has the same topic (prevent duplicates)
-    topic = result.get("topic", "")
-    if topic:
-        examples_dir = Path(SONNET_EXAMPLES_DIR)
-        if examples_dir.is_dir():
-            for existing in examples_dir.iterdir():
-                meta_path = existing / "_meta.yaml"
-                if meta_path.exists():
-                    try:
-                        existing_meta = yaml.safe_load(meta_path.read_text())
-                        if existing_meta.get("topic") == topic:
-                            print(f"  [Auto-promote] Topic already has example: {existing.name}")
-                            return
-                    except Exception:
-                        pass
+    # Content-based dedup: hash source files and compare with existing
+    new_hash = _source_file_hash(str(task_path))
+    if os.path.isdir(SONNET_EXAMPLES_DIR):
+        for existing in os.listdir(SONNET_EXAMPLES_DIR):
+            existing_path = os.path.join(SONNET_EXAMPLES_DIR, existing)
+            if os.path.isdir(existing_path):
+                if _source_file_hash(existing_path) == new_hash:
+                    print(f"  [Auto-promote] Duplicate content found: {existing}")
+                    return
 
     os.makedirs(SONNET_EXAMPLES_DIR, exist_ok=True)
     shutil.copytree(str(task_path), str(dest))

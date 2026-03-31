@@ -50,6 +50,16 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
 
+### Content-Based Task Dedup
+
+**Content-based dedup for auto-promotion** (`pipeline.py`) — Previously, `_auto_promote` only checked if the exact dirname already existed in `examples-sonnet/`. This missed duplicates with different dir names (e.g., `debug-broken-webhook-receiver` vs `debug-a-broken-webhook-receiver-with-incorrect-1f481f` were byte-identical). Now hashes all source files (excluding infrastructure like Dockerfile, solution.sh, _meta.yaml) and compares against existing examples. Same topic with different code is correctly allowed — only identical content is rejected.
+
+**Why content-based, not topic-based**: Analysis of 5 same-topic pairs showed 4 have genuinely different implementations (14-36% Jaccard similarity, different line counts, different code structure). Only 1 pair was truly identical (webhook receiver, 100% Jaccard). Topic-based dedup would incorrectly reject diverse implementations of the same topic.
+
+**Fixed _meta.yaml missing `topic` field** (`pipeline.py`) — `_write_task_meta` was writing classification, pass_rate, etc. but never the topic string. This made it impossible to identify which prompt bank topic a task came from. Backfilled all 20 existing `_meta.yaml` files.
+
+**Validation test**: Added `test_no_duplicate_content_in_examples_sonnet` which hashes all tasks and fails if any two are byte-identical. Runs as part of the test suite to catch future duplicates.
+
 ### Dashboard: Durable Eval Tier Scores
 
 **Persist Sonnet filter scores in `_status.json`** (`evaluate.py`) — Sonnet filter run artifacts get cleaned up after parsing, so the dashboard couldn't show Sonnet scores for tasks that had already moved to Opus. Added `_write_eval_status()` which writes `eval_tiers.sonnet.{passes, total, filtered}` to `_status.json` after the filter completes. The dashboard reads this as the primary source, falling back to live `runs/` dir (filtered by batch start timestamp to prevent cross-batch collisions).
