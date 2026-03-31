@@ -18,4 +18,4 @@ if [ $# -lt 1 ]; then
 fi
 
 cd "$ROOT_DIR/validator"
-python docker_validate.py "$@"
+python3.12 docker_validate.py "$@"

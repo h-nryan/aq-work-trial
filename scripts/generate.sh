@@ -14,4 +14,4 @@ if [ $# -lt 1 ]; then
 fi
 
 cd "$ROOT_DIR/generator"
-python generate.py "$1"
+python3.12 generate.py "$1"

@@ -14,4 +14,4 @@ if [ $# -lt 1 ]; then
 fi
 
 cd "$ROOT_DIR/validator"
-python validate.py "$1"
+python3.12 validate.py "$1"
