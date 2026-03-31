@@ -213,10 +213,17 @@ def _render_eval_tier_cell(
     # We have scores — render them
     if passes is not None and total:
         is_filtered_by_this = filtered_at == tier
-        difficulty = "easy" if classification == "too_easy" else "hard"
-        if is_filtered_by_this and is_adjusting:
-            return f'<div class="stage-cell stage-adjusting">too {difficulty}: adjusting</div>'
-        elif is_adjusting and classification in ("too_hard", "too_easy") and tier == "opus":
+        # Also check eval_tiers for filter status (durable source)
+        status_filtered = eval_tiers.get(tier, {}).get("filtered", False)
+
+        if is_adjusting and (is_filtered_by_this or status_filtered or
+                             classification in ("too_hard", "too_easy") or
+                             (tier == "opus" and passes == 0)):
+            # Infer difficulty from context
+            if classification == "too_easy" or status_filtered:
+                difficulty = "easy"
+            else:
+                difficulty = "hard"
             return f'<div class="stage-cell stage-adjusting">too {difficulty}: adjusting</div>'
         elif is_filtered_by_this:
             return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
@@ -389,6 +396,38 @@ def _get_task_statuses(batch_dir: str) -> list[dict]:
             elif "failed" in status or "error" in status:
                 task_info["stage"] = "failed"
                 task_info["detail"] = status.replace("_", " ")[:30]
+
+            # Override classification from _status.json — post-adjustment tasks have
+            # stale JSONL data (the pre-adjustment eval result). _status.json always
+            # reflects the final outcome.
+            if matched_dir:
+                _sf = os.path.join(matched_dir, "_status.json")
+                if os.path.exists(_sf):
+                    try:
+                        _s = json.load(open(_sf))
+                        if _s.get("classification"):
+                            task_info["classification"] = _s["classification"]
+                            task_info["pass_rate"] = _s.get("pass_rate")
+                            task_info["detail"] = _s["classification"]
+                    except Exception:
+                        pass
+                # Correct opus passes/total from _meta.yaml (authoritative after adjustment).
+                # Only update passes/total — preserve existing trials data for cost calc.
+                _mp = os.path.join(matched_dir, "_meta.yaml")
+                if os.path.exists(_mp):
+                    try:
+                        import yaml as _yaml
+                        _m = _yaml.safe_load(open(_mp))
+                        if _m and _m.get("opus_passes") is not None and _m.get("opus_total"):
+                            eval_section = task_info.setdefault("stages", {}).setdefault("evaluation", {})
+                            tr = eval_section.setdefault("tier_results", {})
+                            opus_entry = dict(tr.get("opus") or {})
+                            opus_entry["passes"] = _m["opus_passes"]
+                            opus_entry["total"] = _m["opus_total"]
+                            tr["opus"] = opus_entry
+                    except Exception:
+                        pass
+
         elif matched_dir:
             # Read _status.json if available
             status_file = os.path.join(matched_dir, "_status.json")
