@@ -12,7 +12,7 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ---
 
-## [Unreleased]
+## Recent Changes
 
 ### Known Issue: Opus eval cost underreported (~3×)
 
