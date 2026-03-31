@@ -14,6 +14,12 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Fix: Stale JSONL classification/scores for adjusted tasks
+
+**Post-adjustment result shown correctly** (`dashboard.py`) — Tasks that go through difficulty adjustment write their final result to `_status.json` and `_meta.yaml`, but the incremental JSONL retains only the pre-adjustment evaluation (e.g. `too_hard`, `0/3`). The dashboard now always overrides classification/pass_rate from `_status.json` and updates the Opus cell passes/total from `_meta.yaml` (`opus_passes`/`opus_total`), while preserving the existing `trials` array so Opus eval cost is not lost. Previously, an adjusted-to-learnable task would show as green "learnable" in the result column but display the pre-adjustment `0/3` in the Opus cell.
+
+**Post-adjustment in-progress cell shown correctly** (`dashboard.py`) — A task currently evaluating post-adjustment (stage=`evaluating`, no classification yet, `.pre_adj*` dir present) would render its live Opus score as green `stage-done` instead of the active/in-progress color. Added an `is_adjusting and classification is None` branch to `_render_eval_tier_cell` that renders as `stage-active` instead.
+
 ### Dashboard: Cost Summary, Funnel, Trends, and Diversity
 
 **Batch cost summary** (`dashboard.py`) — Three cost cards below the existing count cards: Generation cost (Sonnet API tokens from all generate/retry/adjustment stages), Opus eval cost (from agent token counts in trial data), and Cost per learnable task. Pricing constants: Sonnet 4.5 at $3/$15 per MTok in/out; Opus 4 at $15/$75 per MTok in/out.
@@ -49,6 +55,10 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 | Adjust difficulty | 16000 | 4096 | ~400–500 |
 
 8192 gives 74% headroom over observed peak usage. 4096 gives 8× headroom for repairs which have never exceeded ~500 tokens.
+
+### Overshoot Context in Difficulty Adjustment
+
+**Pass adjustment history to Sonnet** (`generate.py`, `pipeline.py`) — When a task oscillates between too_hard and too_easy across adjustment rounds (e.g., too_hard at 0% → adjusted → too_easy at 100%), the second adjustment prompt now includes an overshoot warning with the full history: "This task was previously too_hard, and your last adjustment made it too_easy. Find the MIDDLE GROUND." This gives Sonnet concrete bounds to calibrate between, instead of blindly making the task harder/easier without knowing the prior trajectory.
 
 ### Fix Early Adjustment: Full Re-eval After Code Change
 

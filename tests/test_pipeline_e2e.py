@@ -119,7 +119,7 @@ def _mock_evaluate_too_hard(**kwargs):
     }
 
 
-def _mock_adjust_success(topic, task_dir, classification, pass_rate, model=None):
+def _mock_adjust_success(topic, task_dir, classification, pass_rate, model=None, adjustment_history=None):
     return {"status": "success"}
 
 
@@ -353,6 +353,48 @@ class TestEvaluation:
 
         assert result["status"] == "completed"
         assert result["classification"] == "too_hard"
+
+    def test_adjustment_history_passed_on_overshoot(self, tmp_path, monkeypatch):
+        """When task oscillates too_hard → too_easy, history is passed to adjust_difficulty."""
+        task_dir = str(tmp_path / "overshoot")
+        captured_history = []
+
+        def _mock_adjust_capture(topic, task_dir, classification, pass_rate,
+                                 model=None, adjustment_history=None):
+            captured_history.append(list(adjustment_history or []))
+            return {"status": "success"}
+
+        # First eval: too_hard. After adjustment: too_easy. After 2nd adjustment: still too_easy.
+        eval_sequence = [
+            {"classification": "too_hard", "passes": 0, "total": 5, "pass_rate": 0.0,
+             "tier_results": {}, "recommend_early_adjust": False, "remaining_runs": 0,
+             "opus_prior": {}},
+            {"classification": "too_easy", "passes": 5, "total": 5, "pass_rate": 1.0,
+             "tier_results": {}, "filtered_at": "sonnet",
+             "recommend_early_adjust": False, "remaining_runs": 0, "opus_prior": {}},
+            {"classification": "too_easy", "passes": 4, "total": 5, "pass_rate": 0.8,
+             "tier_results": {}, "filtered_at": "sonnet",
+             "recommend_early_adjust": False, "remaining_runs": 0, "opus_prior": {}},
+        ]
+        call_count = [0]
+        def _mock_eval_sequence(*args, **kwargs):
+            idx = min(call_count[0], len(eval_sequence) - 1)
+            call_count[0] += 1
+            return eval_sequence[idx]
+
+        monkeypatch.setattr("pipeline.generate_task_solution_first", _mock_generate(task_dir))
+        monkeypatch.setattr("pipeline.docker_validate", _mock_docker_validate_pass)
+        monkeypatch.setattr("pipeline.evaluate_task", _mock_eval_sequence)
+        monkeypatch.setattr("pipeline.adjust_difficulty", _mock_adjust_capture)
+
+        result = run_pipeline("overshoot topic", output_dir=task_dir)
+
+        # First adjustment: no history
+        assert captured_history[0] == []
+        # Second adjustment: has the too_hard round in history
+        assert len(captured_history[1]) == 1
+        assert captured_history[1][0][0] == "too_hard"
+        assert captured_history[1][0][1] == 0.0
 
     def test_skip_eval(self, tmp_path, monkeypatch):
         task_dir = str(tmp_path / "skip-eval")

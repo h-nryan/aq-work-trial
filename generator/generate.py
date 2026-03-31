@@ -1145,6 +1145,7 @@ def adjust_difficulty(
     classification: str,
     pass_rate: float,
     model: str | None = None,
+    adjustment_history: list[tuple[str, float]] | None = None,
 ) -> dict:
     """Adjust task difficulty with surgical edits (not full regeneration).
 
@@ -1158,6 +1159,9 @@ def adjust_difficulty(
         classification: "too_hard" or "too_easy".
         pass_rate: Opus pass rate (0.0 to 1.0).
         model: Override the generator model.
+        adjustment_history: List of (classification, pass_rate) from prior rounds,
+            e.g. [("too_hard", 0.0), ("too_easy", 0.8)]. Helps Sonnet calibrate
+            when it overshoots in one direction.
 
     Returns:
         dict with task_dir, status, usage, and duration.
@@ -1265,8 +1269,29 @@ def adjust_difficulty(
             "- Each edit must use EXACT string matching from the current file content\n"
         )
 
-    prompt = f"""The task for "{topic}" needs difficulty adjustment.
+    # Add overshoot context if we've bounced between too_hard and too_easy
+    overshoot_context = ""
+    if adjustment_history and len(adjustment_history) >= 1:
+        prev_classifications = [c for c, _ in adjustment_history]
+        if classification == "too_easy" and "too_hard" in prev_classifications:
+            overshoot_context = (
+                "\n⚠️ OVERSHOOT WARNING: This task was previously too_hard, and your last "
+                "adjustment made it too_easy. You need to find the MIDDLE GROUND — make it "
+                "slightly harder than it is now, but not as hard as it was before. "
+                "History: " + " → ".join(f"{c} ({r:.0%})" for c, r in adjustment_history) +
+                f" → {classification} ({pass_rate:.0%})\n"
+            )
+        elif classification == "too_hard" and "too_easy" in prev_classifications:
+            overshoot_context = (
+                "\n⚠️ OVERSHOOT WARNING: This task was previously too_easy, and your last "
+                "adjustment made it too_hard. You need to find the MIDDLE GROUND — make it "
+                "slightly easier than it is now, but not as easy as it was before. "
+                "History: " + " → ".join(f"{c} ({r:.0%})" for c, r in adjustment_history) +
+                f" → {classification} ({pass_rate:.0%})\n"
+            )
 
+    prompt = f"""The task for "{topic}" needs difficulty adjustment.
+{overshoot_context}
 {adjustment_instruction}
 
 Here are the current task files:

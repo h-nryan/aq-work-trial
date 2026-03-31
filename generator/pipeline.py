@@ -294,6 +294,7 @@ def _try_adjustment(
     adj_round: int,
     model: str | None,
     result: dict,
+    adjustment_history: list[tuple[str, float]] | None = None,
 ) -> bool:
     """Attempt a difficulty adjustment. Returns True if adjustment succeeded.
 
@@ -311,6 +312,7 @@ def _try_adjustment(
 
     adj_result = adjust_difficulty(
         topic, task_dir, classification, pass_rate, model=model,
+        adjustment_history=adjustment_history,
     )
     result["stages"][f"difficulty_adj_{adj_round + 1}"] = adj_result
 
@@ -525,6 +527,7 @@ def run_pipeline(
         # task was too hard for Opus, it won't be too easy for Sonnet. Running
         # 5 Sonnet trials would be pure waste.
         _skip_sonnet_after_too_hard = False
+        _adjustment_history: list[tuple[str, float]] = []
 
         for adj_round in range(1 + MAX_DIFFICULTY_ADJUSTMENTS):
             eval_result = evaluate_task(
@@ -573,7 +576,9 @@ def run_pipeline(
                 adjusted = _try_adjustment(
                     topic, task_dir, classification, pass_rate,
                     eval_result, adj_round, model, result,
+                    adjustment_history=_adjustment_history,
                 )
+                _adjustment_history.append((classification, pass_rate))
                 if not adjusted:
                     _write_status(task_dir, "completed",
                                   f"{classification} (adjustment failed)",
