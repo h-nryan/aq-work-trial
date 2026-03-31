@@ -14,6 +14,14 @@ A pipeline that generates Terminal Bench coding tasks calibrated for Claude Opus
 
 ## [Unreleased]
 
+### Known Issue: Opus eval cost underreported (~3×)
+
+**Opus trial token data missing for concurrent trials** (`terminal_bench/harness`, not fixed) — Investigation of batch 27 found that 15 of 22 Opus trials (68%) have `None` for `input_tokens`/`output_tokens` in the JSONL. The pattern is consistent: within every N-trial evaluation batch, only the first trial records token data; the rest are `None`. Root cause: the harness computes token counts via `litellm.token_counter()` (local tiktoken estimate) and writes them to `results.json` only when `agent_result is not None`. For concurrent trials (`--n-concurrent 4`) where the Opus agent errors or times out, `agent_result` stays `None` and tokens go unrecorded. The reliable fix would be to read usage from the litellm API response directly rather than recomputing locally. **Not fixed** — the terminal bench agent/harness is intentionally left unchanged; modifying it is out of scope. Displayed Opus costs should be treated as underestimates by roughly 3×. Generation costs (Sonnet API) are unaffected and fully accurate.
+
+### Fix: Add "Too Easy" count to summary cards
+
+**Too Easy card added** (`dashboard.py`) — The top summary row now includes a "Too Easy" card alongside Total, Done, Learnable, Too Hard, and Failed. Grid updated from 5 to 6 columns.
+
 ### Fix: Stale JSONL classification/scores for adjusted tasks
 
 **Post-adjustment result shown correctly** (`dashboard.py`) — Tasks that go through difficulty adjustment write their final result to `_status.json` and `_meta.yaml`, but the incremental JSONL retains only the pre-adjustment evaluation (e.g. `too_hard`, `0/3`). The dashboard now always overrides classification/pass_rate from `_status.json` and updates the Opus cell passes/total from `_meta.yaml` (`opus_passes`/`opus_total`), while preserving the existing `trials` array so Opus eval cost is not lost. Previously, an adjusted-to-learnable task would show as green "learnable" in the result column but display the pre-adjustment `0/3` in the Opus cell.

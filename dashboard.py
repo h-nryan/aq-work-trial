@@ -145,7 +145,7 @@ CUSTOM_CSS = """
     }
 
     .summary-grid {
-        display: grid; grid-template-columns: repeat(5, 1fr);
+        display: grid; grid-template-columns: repeat(6, 1fr);
         gap: 12px; margin: 15px 0;
     }
     .summary-card {
@@ -190,80 +190,78 @@ def _render_eval_tier_cell(
     batch_start_ts: int,
     adj_trigger: str | None = None,
 ) -> str:
-    """Render a Sonnet or Opus eval cell with unified data source logic.
+    """Render a Sonnet or Opus eval cell.
 
-    Data sources (in priority order):
-    1. tier_results from batch JSONL (completed tasks)
-    2. eval_tiers from _status.json (durable, survives run cleanup)
-    3. runs/ dir (live in-progress tasks only)
+    Step 1: Resolve scores from available data sources.
+    Step 2: Determine the cell's display state.
+    Step 3: Render.
     """
-    model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
-
-    # Source 1: batch results (JSONL/report)
-    tier_data = tier_results.get(tier, {})
-    passes = tier_data.get("passes") if tier_data else None
-    total = tier_data.get("total") if tier_data else None
-
-    # Source 2: _status.json eval_tiers (overwrites if source 1 empty)
+    # ── Step 1: Resolve scores ──
+    # Priority: JSONL tier_results → _status.json eval_tiers → live runs/
+    passes, total = None, None
+    td = tier_results.get(tier, {})
+    if td:
+        passes, total = td.get("passes"), td.get("total")
     if passes is None:
-        status_tier = eval_tiers.get(tier, {})
-        if status_tier:
-            passes = status_tier.get("passes", 0)
-            total = status_tier.get("total", 0)
+        st = eval_tiers.get(tier, {})
+        if st:
+            passes, total = st.get("passes", 0), st.get("total", 0)
+    if passes is None and stage == "evaluating":
+        model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
+        passes, total, has_active = _get_live_eval_scores(task_dirname, model_glob, batch_start_ts)
+        if total == 0:
+            passes, total = None, None  # no real data
 
-    # If Opus was skipped by Sonnet filter on final eval, show skip even if
-    # stale Opus data exists from a prior adjustment round
-    if tier == "opus" and filtered_at in ("sonnet", "haiku") and stage == "completed" and not is_adjusting:
-        difficulty = "easy" if classification == "too_easy" else ""
-        label = f"skip (too {difficulty})" if difficulty else "skip"
-        return f'<div class="stage-cell stage-skipped">{label}</div>'
+    has_scores = passes is not None and total
 
-    # We have scores — render them
-    if passes is not None and total:
-        is_filtered_by_this = filtered_at == tier
-        # Also check eval_tiers for filter status (durable source)
-        status_filtered = eval_tiers.get(tier, {}).get("filtered", False)
+    # ── Step 2: Determine display state ──
+    was_filtered = (filtered_at == tier) or eval_tiers.get(tier, {}).get("filtered", False)
+    opus_skipped_by_filter = (
+        tier == "opus"
+        and filtered_at in ("sonnet", "haiku")
+        and not is_adjusting
+    )
+    opus_has_data = bool(eval_tiers.get("opus", {}).get("total") or tier_results.get("opus", {}).get("total"))
+    is_latest_tier = (tier == "opus") or (tier == "sonnet" and not opus_has_data)
 
-        # Only show "adjusting" on the LATEST tier with results.
-        # If Opus has data, Sonnet's round is done — show Sonnet as final score.
-        opus_has_data = bool(eval_tiers.get("opus", {}).get("total"))
-        is_latest_tier = (tier == "opus") or (tier == "sonnet" and not opus_has_data)
-
-        # Determine adjustment difficulty from explicit sources only (not pass-count heuristics).
-        # adj_trigger comes from the latest _adj_snapshot.json and is authoritative.
-        adj_difficulty: str | None = None
-        if classification == "too_easy" or status_filtered or adj_trigger == "too_easy":
-            adj_difficulty = "easy"
-        elif classification == "too_hard" or adj_trigger == "too_hard":
-            adj_difficulty = "hard"
-
-        if is_adjusting and is_latest_tier and adj_difficulty is not None and (
-            is_filtered_by_this or status_filtered or
-            classification in ("too_hard", "too_easy") or
-            adj_trigger in ("too_hard", "too_easy")
-        ):
-            return f'<div class="stage-cell stage-adjusting">too {adj_difficulty} ({passes}/{total}): adjusting</div>'
-        elif is_filtered_by_this:
-            return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
-        elif classification in ("too_hard", "too_easy") and tier == "opus":
-            return f'<div class="stage-cell stage-failed">{passes}/{total}</div>'
+    # Determine state
+    if opus_skipped_by_filter and stage == "completed":
+        state = "skipped_filtered"
+    elif is_adjusting and is_latest_tier and has_scores:
+        state = "adjusting"
+    elif has_scores and stage == "completed":
+        if was_filtered or (classification in ("too_hard", "too_easy") and tier == "opus"):
+            state = "done_bad"
         else:
-            return f'<div class="stage-cell stage-done">{passes}/{total}</div>'
-
-    # No persisted scores — check if task is in progress
-    if stage != "evaluating":
-        if tier == "opus" and filtered_at in ("sonnet", "haiku"):
-            return '<div class="stage-cell stage-skipped">skip</div>'
-        return '<div class="stage-cell stage-skipped">—</div>'
-
-    # Source 3: live runs/ dir (in-progress only)
-    _p, _t, _active = _get_live_eval_scores(task_dirname, model_glob, batch_start_ts)
-    if _t > 0:
-        return f'<div class="stage-cell stage-active">{_p}/{_t}</div>'
-    elif _active:
-        return '<div class="stage-cell stage-active">...</div>'
+            state = "done_good"
+    elif has_scores and stage == "evaluating":
+        state = "in_progress"
+    elif stage == "evaluating":
+        # No scores — check if a run dir exists
+        model_glob = "claude-sonnet*" if tier == "sonnet" else "claude-opus*"
+        _, _, has_active = _get_live_eval_scores(task_dirname, model_glob, batch_start_ts)
+        state = "running" if has_active else "not_reached"
     else:
-        return '<div class="stage-cell stage-pending">—</div>'
+        state = "not_reached"
+
+    # ── Step 3: Render ──
+    cells = {
+        "skipped_filtered": lambda: (
+            f'<div class="stage-cell stage-skipped">'
+            f'skip (too {"easy" if classification == "too_easy" else "hard"})</div>'
+        ),
+        "adjusting": lambda: (
+            f'<div class="stage-cell stage-adjusting">'
+            f'too {"easy" if (was_filtered or classification == "too_easy" or adj_trigger == "too_easy") else "hard"}'
+            f' ({passes}/{total}): adjusting</div>'
+        ),
+        "done_good": lambda: f'<div class="stage-cell stage-done">{passes}/{total}</div>',
+        "done_bad": lambda: f'<div class="stage-cell stage-failed">{passes}/{total}</div>',
+        "in_progress": lambda: f'<div class="stage-cell stage-active">{passes}/{total}</div>',
+        "running": lambda: '<div class="stage-cell stage-active">...</div>',
+        "not_reached": lambda: '<div class="stage-cell stage-pending">—</div>',
+    }
+    return cells[state]()
 
 
 def _get_batch_start_ts(batch_dir: str) -> int:
@@ -844,6 +842,7 @@ def render_pipeline_view():
         <div class="summary-card"><div class="summary-value">{n_completed + n_failed}</div><div class="summary-label">Done</div></div>
         <div class="summary-card"><div class="summary-value highlight">{n_learnable}</div><div class="summary-label">Learnable</div></div>
         <div class="summary-card"><div class="summary-value">{n_hard}</div><div class="summary-label">Too Hard</div></div>
+        <div class="summary-card"><div class="summary-value">{n_easy}</div><div class="summary-label">Too Easy</div></div>
         <div class="summary-card"><div class="summary-value">{n_failed}</div><div class="summary-label">Failed</div></div>
     </div>
     """, unsafe_allow_html=True)
